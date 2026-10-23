@@ -1674,3 +1674,50 @@ fn interrupted_local_install_retains_completion_and_uses_existing_quarantine_rec
     );
     installer.locks().try_read_content().unwrap();
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn corrupt_cached_metadata_is_not_cached_and_does_not_invalidate_frozen_local_work() {
+    use atelier_build_v2::integrity::{
+        CompletionDecision, LocalOutputStatus, StoreFailureKind, classify_completion,
+    };
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture("first", "1");
+    let mut completion = freeze_local(&installer, &guard, &unit, &workspace, b"valid local output");
+    let store = ResultStore::open(workspace.path("cache")).unwrap();
+    let record = workspace
+        .path("cache/results")
+        .join(format!("{}.json", unit.key()));
+    let corrupt = b"{\"malformed\":true}";
+    fs::write(&record, corrupt).unwrap();
+    let mut permissions = fs::metadata(&record).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&record, permissions).unwrap();
+    let outcome = completion.publish(&store, |_| panic!("corrupt cached record cannot root"));
+    assert!(matches!(&outcome, Err(ResultError::Invalid(_))));
+    assert_eq!(
+        classify_completion(LocalOutputStatus::Valid, outcome),
+        CompletionDecision::CompletedNotCached(StoreFailureKind::StoreMetadata)
+    );
+    let mut plan = installer
+        .prepare_local(&guard, completion, &view("first", &graph), vec![])
+        .unwrap();
+    assert!(matches!(
+        plan.commit(&guard, |_| panic!("local install cannot claim cached root"))
+            .unwrap(),
+        InstallOutcome::InstalledLocally {
+            retention_error: None
+        }
+    ));
+    assert_eq!(fs::read(&record).unwrap(), corrupt);
+    assert_eq!(
+        fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+        b"valid local output"
+    );
+    assert!(matches!(
+        installer.receipt_status(&guard, &unit).unwrap(),
+        CurrentStatus::Current(_)
+    ));
+}

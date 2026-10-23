@@ -174,9 +174,7 @@ impl FrozenCompletion {
         })();
         if matches!(
             &outcome,
-            Err(ResultError::Invalid(_)
-                | ResultError::Validation(_)
-                | ResultError::Nondeterminism(_))
+            Err(ResultError::Validation(_) | ResultError::Nondeterminism(_))
         ) {
             self.refused = true;
         }

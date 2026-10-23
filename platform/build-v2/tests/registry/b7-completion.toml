@@ -14,3 +14,8 @@ platforms = ["darwin"]
 id = "b7.installs.interrupted_local_install_retains_completion_and_uses_existing_quarantine_recovery"
 tests = ["atelier-build-v2::installs/interrupted_local_install_retains_completion_and_uses_existing_quarantine_recovery"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "b7.installs.corrupt_cached_metadata_is_not_cached_and_does_not_invalidate_frozen_local_work"
+tests = ["atelier-build-v2::installs/corrupt_cached_metadata_is_not_cached_and_does_not_invalidate_frozen_local_work"]
+platforms = ["darwin"]
