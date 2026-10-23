@@ -347,6 +347,42 @@ def run(context):
     assert (tmp_path / 'inside/output/piece.txt').read_text() == "['x', ['shape.bin'], 2, 'absent']"
 
 
+def test_imports_from_undeclared_path_entries_fail_whether_present_or_missing(tmp_path, loop):
+    # The import system probes path entries with posix.stat, which raises no audit event; a missing
+    # entry used to fail as a plain ModuleNotFoundError (`job`) instead of an undeclared access.
+    present = tmp_path / 'elsewhere'
+    present.mkdir()
+    (present / 'stray_module.py').write_text('VALUE = 1\n')
+    for index, entry in enumerate((tmp_path / 'never-created', present)):
+        for name in ('stray_module', 'not_declared_module'):
+            script = f'import sys\ndef run(context):\n    sys.path.append({str(entry)!r})\n    __import__({name!r})\n'
+            job = stage(tmp_path / f'job-{index}-{name}', script=script)
+            assert 'undeclared read' in failure(loop.run(job), 'dependency')
+    # Clearing the importer cache is no bypass: the hook checks every entry again.
+    cleared = (f'import sys\ndef run(context):\n    sys.path_importer_cache.clear()\n'
+               f'    sys.path.append({str(tmp_path / "never-created")!r})\n    __import__("not_declared_module")\n')
+    assert 'undeclared read' in failure(loop.run(stage(tmp_path / 'cleared', script=cleared)), 'dependency')
+    # Removing the hook or the finder is no bypass either: another check stops the probe, or the removal
+    # itself is detected when the op returns.
+    removals = ("sys.path_hooks[:] = [hook for hook in sys.path_hooks if getattr(hook, '__name__', '') != 'path_hook']",
+                "sys.meta_path[:] = [item for item in sys.meta_path if type(item).__name__ != 'DeclaredCodeFinder']")
+    for index, removal in enumerate(removals):
+        script = (f'import sys\ndef run(context):\n    {removal}\n'
+                  f'    sys.path.append({str(tmp_path / "never-created")!r})\n'
+                  '    try:\n        __import__("not_declared_module")\n    except ImportError:\n        pass\n'
+                  '    context.output("piece.txt").write_text("hidden")\n')
+        message = failure(loop.run(stage(tmp_path / f'removed-{index}', script=script)), 'dependency')
+        assert 'removed the import guards' in message or 'undeclared read' in message
+    removed = ("import sys\ndef run(context):\n"
+               "    sys.path_hooks[:] = [hook for hook in sys.path_hooks if getattr(hook, '__name__', '') != 'path_hook']\n"
+               "    context.output('piece.txt').write_text('hidden')\n")
+    assert 'removed the import guards' in failure(loop.run(stage(tmp_path / 'removed', script=removed)), 'dependency')
+    # Declared code and platform modules still import after the hook is installed.
+    fine = 'import json, helper\ndef run(context):\n    context.output("piece.txt").write_text(helper.VALUE)\n'
+    job = stage(tmp_path / 'fine', script=fine, code={'ops/helper.py': 'VALUE = "ok"\n'})
+    assert loop.run(job)['type'] == 'completed'
+
+
 def test_realtime_clocks_and_module_level_reseeding_are_fixed(tmp_path, loop):
     # Paid review: time.clock_gettime(CLOCK_REALTIME) and random.seed() escaped the fixes.
     script = '''
@@ -362,6 +398,10 @@ def run(context):
     context.output('piece.txt').write_text(repr([reseeded == explicit, random.Random().random() == explicit,
                                                  clocks, first]))
 '''
+    # The bootstrap skips the clock_gettime fix only where an interpreter has none (Blender's bundled
+    # Python). Every supported host Python has it, so for Python jobs the fix must apply, as asserted below.
+    import time
+    assert hasattr(time, 'clock_gettime') and hasattr(time, 'CLOCK_REALTIME')
     texts = []
     for index in range(2):
         job = stage(tmp_path / f'job{index}', script=script, params={'scale': 1, 'seed': 7})
