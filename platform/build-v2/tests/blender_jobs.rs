@@ -11,7 +11,45 @@ use atelier_build_v2::launch::*;
 use atelier_build_v2::protocol::FailureKind;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::PathBuf;
 use support::*;
+
+#[test]
+fn blender_job_loop_command_keeps_explicit_threads_before_the_script() {
+    let command = WorkerCommand::blender_job_loop(
+        PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
+        PathBuf::from("/checkout/platform/studio/atelier/build_v2/blender_worker.py"),
+    );
+    assert_eq!(
+        command.args,
+        [
+            "--factory-startup",
+            "-b",
+            "--threads",
+            "3",
+            "--python-exit-code",
+            "1",
+            "--disable-autoexec",
+            "-P",
+            "/checkout/platform/studio/atelier/build_v2/blender_worker.py",
+            "--",
+        ]
+    );
+    // Admission reads the thread count only before the script, from a program named Blender.
+    let threads = command
+        .args
+        .iter()
+        .position(|arg| arg == "--threads")
+        .unwrap();
+    assert!(threads < command.args.iter().position(|arg| arg == "-P").unwrap());
+    assert_eq!(command.args.last().unwrap(), "--");
+    assert_eq!(
+        command.env.keys().collect::<Vec<_>>(),
+        ["LC_ALL", "TZ"],
+        "nothing else is inherited"
+    );
+    assert_ne!(BLENDER_JOB_LOOP_VERSION, PYTHON_JOB_LOOP_VERSION);
+}
 
 #[test]
 fn an_unsandboxed_blender_loop_never_passes_a_production_keyed_handshake() {

@@ -16,6 +16,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use support::*;
 
+#[cfg(not(target_os = "macos"))]
+fn main() {
+    eprintln!("the T1b session needs macOS: the Blender job sandbox exists only there");
+    std::process::exit(2);
+}
+
 #[cfg(target_os = "macos")]
 fn main() {
     let blender = PathBuf::from(std::env::var("ATELIER_T1B_BLENDER").expect("ATELIER_T1B_BLENDER"));
