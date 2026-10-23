@@ -397,6 +397,16 @@ impl WorkerLauncher for GuardedLauncher {
     }
 }
 
+impl GuardedAttempt {
+    /// Wait for this attempt's own bridge to exit (it is reaped exactly once either way).
+    pub fn wait(&mut self) -> io::Result<std::process::ExitStatus> {
+        self.child
+            .lock()
+            .map_err(|_| io::Error::other("bridge handle poisoned"))?
+            .wait()
+    }
+}
+
 impl WorkerAttempt for GuardedAttempt {
     fn stop(&mut self) -> io::Result<bool> {
         let mut child = self
