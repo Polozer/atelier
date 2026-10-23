@@ -202,3 +202,47 @@ mid-build rekeying, actual scheduling cutoff and clean-build oracle integration 
 modes, staged paths, dispatch metadata, manual invalidation, source-version reuse and damaged hints.
 The broad engine scenarios in the registry remain pending until the engine/reference model exists;
 these pure tests do not claim A4/A6/A9 end-to-end execution behavior.
+
+## B2 fixed-result publication and leases
+
+`ResultStore::begin(&PreparedUnit, provenance, owner, workers, upstream_keys)` persists a unique
+staging-scope lease before creating that scope. Process identities bind PID, boot and start identity;
+the lifecycle adapter must probe that same identity. Unknown liveness is conservative. No clock-only
+expiry or process signaling is provided here.
+
+`WriteTransaction::stage(OutputSources, validator)` consumes the complete authoritative worker output
+manifest keyed by `(item_id, output_relative_path)`. Unknown paths and missing required members refuse;
+optional sidecars may be absent. C1 must supply the whole actual manifest, including any unexpected
+members, rather than filter it first. B2 does not rediscover that manifest by scanning a live directory.
+Each source is independently cloned, frozen, hashed once and given to the format validator through
+`FrozenOutput.object.reader()`. The opaque reader exposes those exact frozen bytes, never a second live
+source read or a writable handle. Only successful validation yields a private `StagedResult` token.
+
+`StagedResult::publish(required_durable_root_callback)` durably adds all known object claims under
+`LeaseStore::lock()`, publishes immutable blobs, publishes a no-replace read-only result record, invokes
+the required root callback, then releases the per-unit object/result claims. Immutable JSON metadata
+uses an exclusive hard link from private staging; it never hard-links payloads or mutable output trees.
+The callback must durably retain the winning result before returning success; B4 chooses root policy.
+It runs outside the metadata mutex so it can acquire that same mutex for its own metadata update.
+Callback failure or an interrupted step preserves claims. The observer API provides fault injection
+after each durable publication boundary; it does not bypass ordering.
+
+`lookup()` on a live transaction reads only the named result and named object metadata, pins the
+recorded objects under the shared mutex, and performs no byte hash or output-tree walk. Keep this
+transaction alive while consuming/cloning the hit, then call `retain_hit(required_root_callback)`.
+Missing or malformed entries return absence/error; B7 defines higher-level miss/current-but-not-cached
+handling. Whole-store corruption auditing remains separate.
+
+Envelope version 1 wraps result schema 2 and `upstream_result_keys` for future retention traversal.
+Those links, provenance and unit labels never participate in semantic winner equality. The first
+winner retains its own immutable lineage/evidence even when an equivalent unit has another graph ID.
+Different complete output manifests, including file modes, report non-determinism without replacing
+the winner. External/Zen adapters and dynamic groups are not supported by this fixed-result boundary.
+
+Per-unit claim release marks the lease rooted but retains its process/staging header. Dropping a
+transaction also preserves durable claims. A later lifecycle/GC adapter may reclaim a scope only when
+the owner and every worker are positively dead; `may_reclaim()` refuses alive/unknown identities.
+All such decisions and deletions must hold the same persistent `metadata.lock` inode through the
+public `LeaseStore::lock()` guard; never remove that mutex file. `MetadataGuard::leases()` fails closed
+on malformed/unsupported records. B2 does not implement root selection, scope deletion, checkout
+installs, OS process probing, age-based retention or GC. Production v1 remains unchanged.
