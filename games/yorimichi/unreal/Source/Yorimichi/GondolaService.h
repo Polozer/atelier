@@ -41,6 +41,10 @@ public:
     /** Actual saved source-model binding; unavailable data returns empty. */
     UFUNCTION(BlueprintCallable, Category="Yorimichi|Import")
     static FString RopeLodSource(UStaticMesh* Mesh, int32 Lod);
+    /** Owned editor evidence component using the actual production class and collision/bounds policy. */
+    UFUNCTION(BlueprintCallable, Category="Yorimichi|Import")
+    static UGondolaLogicalMeshComponent* CreateEvidenceComponent(AActor* Owner, UStaticMesh* Mesh,
+        const FString& Parent, const TArray<FString>& Family);
     bool ConfigureLogicalFamily(const FString& Parent, const TArray<FString>& Family);
     virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
 private:

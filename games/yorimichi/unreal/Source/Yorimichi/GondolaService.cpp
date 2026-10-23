@@ -40,9 +40,11 @@ FString UGondolaLogicalMeshComponent::FinishLogicalFamily(const FString& Parent,
     if (!Lods || Parts.Num()!=2) return {};
     TArray<FString> Family;
     TSet<UStaticMesh*> Seen;
-    for (UStaticMesh* Mesh : Parts)
+    for (int32 Part=0;Part<Parts.Num();++Part)
     {
-        if (!Mesh || Seen.Contains(Mesh) || !Mesh->GetRenderData() || Mesh->GetRenderData()->LODResources.Num() != Lods) return {};
+        UStaticMesh* Mesh=Parts[Part];
+        const FString Expected=Parent+(Lods==3?TEXT("_LOD0"):TEXT(""))+FString::Printf(TEXT("_Piece%02d"),Part);
+        if (!Mesh || Mesh->GetName()!=Expected || Seen.Contains(Mesh) || !Mesh->GetRenderData() || Mesh->GetRenderData()->LODResources.Num() != Lods) return {};
         Seen.Add(Mesh); Family.Add(Mesh->GetPathName());
     }
     FBoxSphereBounds::Builder Bounds;
@@ -112,13 +114,34 @@ FString UGondolaLogicalMeshComponent::RopeLodSource(UStaticMesh* Mesh, int32 Lod
 #endif
 }
 
+UGondolaLogicalMeshComponent* UGondolaLogicalMeshComponent::CreateEvidenceComponent(AActor* Owner, UStaticMesh* Mesh,
+    const FString& Parent, const TArray<FString>& Family)
+{
+#if WITH_EDITOR
+    if (!Owner || !Owner->GetWorld() || !Mesh) return nullptr;
+    auto* Component=NewObject<UGondolaLogicalMeshComponent>(Owner);
+    Component->SetMobility(EComponentMobility::Movable);
+    if (!Component->SetStaticMesh(Mesh) || !Component->ConfigureLogicalFamily(Parent,Family)) return nullptr;
+    Component->SetGenerateOverlapEvents(false);
+    Component->SetCollisionObjectType(ECC_WorldStatic);
+    Component->SetCollisionEnabled(Parent==TEXT("GD_floor_rim_Access")?ECollisionEnabled::QueryAndPhysics:ECollisionEnabled::NoCollision);
+    if (Mesh->GetNumLODs()==3) Component->SetForcedLodModel(1);
+    if (Owner->GetRootComponent()) Component->SetupAttachment(Owner->GetRootComponent());
+    else Owner->SetRootComponent(Component);
+    Component->RegisterComponent();
+    return Component->IsRegistered()?Component:nullptr;
+#else
+    return nullptr;
+#endif
+}
+
 bool UGondolaLogicalMeshComponent::ConfigureLogicalFamily(const FString& Parent, const TArray<FString>& Family)
 {
     UStaticMesh* Mesh = GetStaticMesh();
     const auto* Data = Mesh ? Cast<UGondolaLogicalBoundsData>(Mesh->GetAssetUserDataOfClass(UGondolaLogicalBoundsData::StaticClass())) : nullptr;
     const int32 Lods=Parent==TEXT("GD_floor_rim_Access")?1:
         (Parent==TEXT("GD_L1_Rope") || Parent==TEXT("GD_L2_Rope"))?3:0;
-    if (!Data || Data->LogicalParent != Parent || Data->Family != Family || Family.Num() != 2 ||
+    if (!Data || Data->LogicalParent != Parent || Data->Family != Family || Family.Num() != 2 || Family[0]==Family[1] ||
         !Lods || Data->Lods!=Lods || Mesh->GetNumLODs()!=Lods ||
         !Family.Contains(Mesh->GetPathName()) || Data->Origin.ContainsNaN() || Data->Extent.ContainsNaN() ||
         Data->Extent.GetMin() < 0. || !FMath::IsFinite(Data->Radius) || Data->Radius <= 0.) return false;

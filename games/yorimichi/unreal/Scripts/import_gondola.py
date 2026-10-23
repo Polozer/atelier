@@ -88,6 +88,10 @@ for folder,dest,names in ((ROOT,'/Game/Gondola/Kit',PARAMETERS.asset_names()),
                       'convex_hulls':EDITOR.get_convex_collision_count(mesh)}
         unreal.log('GONDOLA IMPORT '+name+' '+str(report[name]))
 gondola_native.finish_families(site,report)
+received=gondola_native.validate_receiving(site,ROOT/'world/atomic-assets',EDITOR,state)
+for name,value in received['members'].items():report[name]['receiving']=value
+for name in (row['name'] for row in next(row for row in site['exports'] if row['name']=='GD_floor_rim_Access')['pieces']):
+    report[name]['seam_receiving']=received['access_seams']
 gondola_native.retire(state)
 (ROOT/'import-report.json').write_text(json.dumps(report,indent=2)+'\n')
 unreal.log('GONDOLA IMPORT COMPLETE')
