@@ -18,6 +18,7 @@ TIER_BUDGETS = {'t0': 10.0, 't1a': 30.0}
 NATIVE_TIERS = frozenset({'t1b', 't2'})
 TIERS = frozenset({*TIER_BUDGETS, *NATIVE_TIERS})
 SUPPORTED_PLATFORMS = frozenset({'linux', 'darwin'})
+FILTER_SKIP_MESSAGE = 'Skipped: test does not match the provided expression filters'
 ROW_KEYS = {'scenarios': frozenset({'id', 'tests', 'platforms', 'tier'}),
             'pending': frozenset({'id', 'task'})}
 
@@ -192,16 +193,28 @@ def _plan(registry: dict, listing: dict) -> dict:
             'native_rows': [row for row in selected if row['tier'] in NATIVE_TIERS]}
 
 
-def _executed(junit: ET.Element) -> list[str]:
+def _executed(junit: ET.Element, other_tier) -> tuple[list[str], list[str]]:
+    """Split one tier's JUnit into passed tests and documented other-tier filter skips."""
     executed = []
+    excluded = []
     for suite in junit.findall('testsuite'):
         for case in suite.findall('testcase'):
             identity = f"{case.attrib['classname']}/{case.attrib['name']}"
             if any(case.find(tag) is not None
-                   for tag in ('failure', 'error', 'skipped', 'flakyFailure', 'flakyError')):
+                   for tag in ('failure', 'error', 'flakyFailure', 'flakyError')):
                 raise ValueError(f'unsuccessful test: {identity}')
-            executed.append(identity)
-    return executed
+            skip = case.find('skipped')
+            if skip is None:
+                executed.append(identity)
+                continue
+            if identity not in other_tier:
+                raise ValueError(f'skipped test is not another host tier: {identity}')
+            if skip.attrib.get('message') != FILTER_SKIP_MESSAGE:
+                raise ValueError(f'skipped test without the filter message: {identity}')
+            excluded.append(identity)
+    if len(excluded) != len(set(excluded)):
+        raise ValueError('an excluded test was reported more than once')
+    return executed, excluded
 
 
 def check_registry(registry: dict, listing: dict, *,
@@ -213,8 +226,9 @@ def check_registry(registry: dict, listing: dict, *,
     CI step (t0 or t1a); native tiers (t1b, t2) and other-platform scenarios MUST be reported as
     explicit exclusions that never count as passed coverage. A tier's own listing MUST match that
     tier's tests exactly. Execution evidence MUST include every host CI test exactly once, with no
-    failures, skips or errors and finite nonnegative suite time within each tier's budget: ten
-    seconds for t0 and thirty for t1a.
+    failures, errors, duplicate runs or skips other than nextest's documented filter exclusion of
+    tests mapped to another host tier, and finite nonnegative suite time within each tier's
+    budget: ten seconds for t0 and thirty for t1a. An excluded test MUST NOT count as a pass.
     """
     plan = _plan(registry, listing)
     expected = plan['expected']
@@ -255,8 +269,9 @@ def check_registry(registry: dict, listing: dict, *,
                              f'extra tests={sorted(matched - expected[tier])}')
         summary['tiers'][tier]['listed'] = len(matched)
     executed_all: list[str] = []
+    all_ci = set().union(*expected.values())
     for tier, junit in results.items():
-        executed = _executed(junit)
+        executed, excluded = _executed(junit, all_ci - expected[tier])
         if len(executed) != len(set(executed)):
             raise ValueError(f'{tier} executed a test more than once')
         if set(executed) != expected[tier]:
@@ -267,6 +282,7 @@ def check_registry(registry: dict, listing: dict, *,
         if not math.isfinite(elapsed) or elapsed < 0 or elapsed > TIER_BUDGETS[tier]:
             raise ValueError(f'{tier} exceeded its time budget or has invalid timing: {elapsed}')
         summary['tiers'][tier]['test_seconds'] = elapsed
+        summary['tiers'][tier]['excluded_other_tier'] = len(excluded)
         executed_all.extend(executed)
     if results:
         if set(results) != set(TIER_BUDGETS):

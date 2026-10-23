@@ -133,6 +133,43 @@ def test_each_tier_has_its_own_budget():
             't1a': ET.fromstring('<testsuites time="30.01" />')})
 
 
+def two_tier_evidence():
+    registry = {'schema_version': 1, 'pending': [], 'scenarios': [
+        {'id': 'one', 'tests': ['fixture/test'], 'tier': 't0'},
+        {'id': 'two', 'tests': ['fixture/python'], 'tier': 't1a'}]}
+    return registry, listing_of('fixture/test', 'fixture/python')
+
+
+def skipped_case(junit, suite_name, name, message=None):
+    case = ET.SubElement(suite_of(junit, suite_name), 'testcase', classname=suite_name, name=name)
+    ET.SubElement(case, 'skipped',
+                  message=_module.FILTER_SKIP_MESSAGE if message is None else message)
+
+
+def test_another_tiers_filter_exclusion_is_accepted_but_never_a_pass():
+    registry, listing = two_tier_evidence()
+    t0 = junit_of('fixture/test')
+    skipped_case(t0, 'fixture', 'python')
+    summary = check_registry(registry, listing, results={
+        't0': t0, 't1a': junit_of('fixture/python')})
+    assert summary['tiers']['t0'] == {'scenarios': 1, 'tests': 1, 'test_seconds': 0.1,
+                                      'excluded_other_tier': 1}
+
+
+@pytest.mark.parametrize(('name', 'message', 'error'), [
+    ('python', 'Skipped: something else', 'without the filter message'),
+    ('ghost', None, 'not another host tier'),
+    ('test', None, 'not another host tier'),
+])
+def test_a_skip_that_is_not_another_tiers_filter_exclusion_fails(name, message, error):
+    registry, listing = two_tier_evidence()
+    t0 = junit_of('fixture/test')
+    skipped_case(t0, 'fixture', name, message)
+    with pytest.raises(ValueError, match=error):
+        check_registry(registry, listing, results={
+            't0': t0, 't1a': junit_of('fixture/python')})
+
+
 def test_execution_evidence_must_cover_every_host_tier():
     registry, listing, junit = evidence()
     with pytest.raises(ValueError, match='every host CI tier'):
