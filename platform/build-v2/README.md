@@ -773,3 +773,6 @@ committed. Its library is the editor surface the worker uses:
 T0 runs this end to end against `tests/fixtures/fake_unreal.py`, a stand-in editor with the same
 command line and plugin surface. Real-editor behaviour (descriptor inheritance, `-UserDir`, shader
 workers, registry forgetting and engine-wide writes) is T2 evidence. Unreal is not sandboxed.
+The engine-wide writes the T2 probes measured are named proof gaps in `build-v2-unreal-scratch-project`:
+EditorSettings.ini, the tool preset JSON, `Trace.uba`, Zen files and its status utility, crash reports,
+and the shared filesystem DDC when a session has no v2-owned DDC graph.

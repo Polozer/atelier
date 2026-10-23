@@ -216,12 +216,18 @@ match the declared identities, recorded in a hash receipt and made read-only, so
 tries to rebuild a module fails closed instead of writing. The receipt MUST be checked again after
 the session (file list, modes, clone and source bytes). The command line MUST be the declared
 editor, the scratch project, the worker script, fixed flags, a session `-UserDir` and the declared
-settings only, with `-nocrashreports`. Unreal is NOT sandboxed. These engine-wide writes, measured in
-T2, are named limitations, not prevented: `~/Library/Application Support/Epic/UnrealEngine/5.8/Saved/
-Config/MacEditor/EditorSettings.ini`, the tool preset JSON under `UnrealEngine/Editor`, the build
-tool's `UnrealBuildTool/Trace.uba` when the editor's startup platform check runs, the Zen install files
-(`Common/Zen/Install`) and Zen data when Zen is used, the shared DDC, and crash reports
-(`5.8/Saved/Crashes` and crashpad caches) for anything `-nocrashreports` does not cover. See
+settings only, with `-nocrashreports`. Unreal is NOT sandboxed. Each of these engine-wide writes,
+measured in T2, is an explicit proof gap (named, not prevented, and not covered by any test):
+(1) `~/Library/Application Support/Epic/UnrealEngine/5.8/Saved/Config/MacEditor/EditorSettings.ini`
+(T2: stopped by `-nowrite`); (2) the tool preset JSON under `UnrealEngine/Editor` (T2: written even
+with `-nowrite`); (3) the build tool's `UnrealBuildTool/Trace.uba` when the editor's startup platform
+check runs (T2: skipped with `UE_SKIP_UBT_SDK_SETUP=1`); (4) the Zen install files (`Common/Zen/Install`),
+Zen data and the `zen service status` utility, which still runs under `-NoZenAutoLaunch`; (5) crash
+reports (`5.8/Saved/Crashes` and crashpad caches) for anything `-nocrashreports` does not cover; and
+(6) the shared filesystem DDC (`Common/DerivedDataCache`) whenever the session has no v2-owned DDC
+graph (T2: the editor falls back to it when Zen is off). The T2 write scan compares file times under
+`~/Library`, so it cannot attribute a write there to one agent when other agents run at the same time.
+See
 tests/unreal.rs (`a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity`,
 `a_tree_identity_names_paths_and_bytes_and_refuses_links`,
 `the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_settings`,
