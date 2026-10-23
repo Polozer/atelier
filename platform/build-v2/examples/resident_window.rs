@@ -713,6 +713,22 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                 }
             }
         }
+        // The final record too, at the attempt level: every attempt released by its receipt or
+        // settled by quiescence evidence, and none held. The session record alone is not enough.
+        let released = record
+            .attempts
+            .iter()
+            .all(|attempt| attempt.custody == Custody::Released || attempt.quiescent.is_some());
+        let held = record
+            .attempts
+            .iter()
+            .any(|attempt| matches!(attempt.custody, Custody::Held(_)));
+        if !released || held {
+            problems.push(format!(
+                "{unit}: an attempt is not released or quiescent, or is held: {:?}",
+                record.attempts
+            ));
+        }
         units_evidence.push(json!({
             "unit": unit, "end": format!("{:?}", record.outcome.end),
             "attempts": record.attempts.iter().map(|attempt| json!({
@@ -740,6 +756,13 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                 "session {}: {:?}",
                 session.attempt, session.custody
             ));
+        }
+        // A confirmed receipt after the session was held is kept in the held record; it is
+        // evidence of a late receipt, never of release, and fails the case.
+        let late_receipt = matches!(&session.custody, Custody::Held(reason)
+            if reason.contains("a confirmed cleanup receipt arrived late"));
+        if late_receipt {
+            problems.push(format!("session {}: late cleanup receipt", session.attempt));
         }
         let correlation = CleanupCorrelation::read(&folder).ok();
         let confirmed = correlation.as_ref().is_some_and(cleanup_confirmed);
@@ -780,7 +803,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
         sessions_evidence.push(json!({
             "attempt": session.attempt, "admitted": session.admitted,
             "worker": session.worker.as_ref().map(identity_json),
-            "custody": format!("{:?}", session.custody),
+            "custody": format!("{:?}", session.custody), "late_receipt": late_receipt,
             "correlation": correlation.as_ref().map(|c| json!({
                 "monitor": identity_json(&c.monitor), "invocation": c.invocation})),
             "cleanup_confirmed": confirmed, "cleanup": cleanup,
