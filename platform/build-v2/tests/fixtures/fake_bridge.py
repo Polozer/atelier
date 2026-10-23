@@ -7,7 +7,9 @@ directly so the Rust adapter and lifecycle can be exercised on any host. Stdlib 
 
 Usage: fake_bridge.py SCENARIO --report DIR ... -- (the real bridge flags). Scenarios:
 normal, queue_forever (never admitted; holds until stopped), guard_stop (the "guard" kills the
-worker), foreign_exit (reports another identity's exit), unconfirmed (cleanup not confirmed).
+worker), foreign_exit (reports another identity's exit), unconfirmed (cleanup not confirmed),
+spec_closed (closes its spec descriptor unread, so the launcher's spec write fails after the spawn;
+it then waits to be stopped and reports nothing).
 """
 import argparse
 import json
@@ -55,6 +57,10 @@ def main():
         'request': args.request_fd, 'response': args.response_fd}))
     for fd in (args.events_fd, args.liveness_fd, args.spec_fd, *args.custody_fd):
         os.set_inheritable(fd, False)
+    if args.scenario == 'spec_closed':
+        os.close(args.spec_fd)
+        while True:
+            time.sleep(.02)  # until the launcher's SIGTERM; no receipt is ever written
     with os.fdopen(args.spec_fd, 'rb') as stream:
         spec = json.loads(stream.read())
     events = os.fdopen(args.events_fd, 'w', buffering=1)

@@ -110,6 +110,12 @@ pub type Pipes = (Box<dyn Read + Send>, Box<dyn Write + Send>);
 
 pub trait WorkerLauncher {
     type Attempt: WorkerAttempt;
+    /// @cc [owner:fontanierh,label:safety] launcher-submit-error-means-nothing-started
+    /// `Err` MUST mean no admission owner was started: every fallible preparation happens first.
+    /// Once an admission owner exists, `submit` MUST return `Ok`, and that attempt MUST end through
+    /// its own `Finished` event, unconfirmed unless the owner confirms cleanup.
+    /// See tests/guard_adapter.rs.
+    ///
     /// Queue one attempt. Only the admission owner starts now; no worker exists until the
     /// launcher reports `Admitted` and then `ChildStarted`. Stopping before that withdraws the
     /// request, so no child is spawned and nothing is charged.
@@ -282,6 +288,17 @@ impl WorkerLauncher for GuardedLauncher {
                 "no bridge program",
             ));
         };
+        // Everything that can fail happens before the spawn: afterwards `submit` never errs.
+        let spec = serde_json::to_vec(&BridgeSpec {
+            program: &command.program,
+            args: command
+                .args
+                .iter()
+                .map(|arg| text(arg))
+                .collect::<io::Result<_>>()?,
+            env: &command.env,
+        })
+        .map_err(io::Error::other)?;
         fs::create_dir(&request.report_dir)?;
         let log = File::create(request.report_dir.join("bridge.log"))?;
         let (request_reader, request_writer) = io::pipe()?;
@@ -358,31 +375,22 @@ impl WorkerLauncher for GuardedLauncher {
             spec_reader,
         ));
         drop(request.custody);
-        let spec = BridgeSpec {
-            program: &command.program,
-            args: command
-                .args
-                .iter()
-                .map(|arg| text(arg))
-                .collect::<io::Result<_>>()?,
-            env: &command.env,
-        };
         let child = Arc::new(Mutex::new(child));
-        let written = serde_json::to_vec(&spec)
-            .map_err(io::Error::other)
-            .and_then(|bytes| spec_writer.write_all(&bytes));
+        let written = spec_writer.write_all(&spec);
         drop(spec_writer);
-        if let Err(error) = written {
-            // The bridge cannot have started a worker without its spec; ask it to withdraw.
-            let mut attempt = GuardedAttempt {
-                child,
-                pipes: None,
-                _liveness: liveness_writer,
-            };
-            let _ = attempt.stop();
-            return Err(error);
+        let mut handle = GuardedAttempt {
+            child: Arc::clone(&child),
+            pipes: Some((Box::new(response_reader), Box::new(request_writer))),
+            _liveness: liveness_writer,
+        };
+        if written.is_err() {
+            // An admission owner exists, so this is not a submit error. Without its spec the
+            // bridge cannot start a worker: withdraw it, offer no protocol pipes, and let the
+            // attempt end through its own (unconfirmed) Finished event below.
+            handle.pipes = None;
+            let _ = handle.stop();
         }
-        let reaper = Arc::clone(&child);
+        let reaper = child;
         let receipts = request.report_dir.clone();
         thread::spawn(move || {
             let mut finished = false;
@@ -412,11 +420,7 @@ impl WorkerLauncher for GuardedLauncher {
                 let _ = child.wait();
             }
         });
-        Ok(GuardedAttempt {
-            child,
-            pipes: Some((Box::new(response_reader), Box::new(request_writer))),
-            _liveness: liveness_writer,
-        })
+        Ok(handle)
     }
 }
 

@@ -39,3 +39,15 @@ tests = ["atelier-build-v2::guard_adapter/driver_holds_an_attempt_whose_cleanup_
 [[scenarios]]
 id = "c7.guard.concurrent_handshakes_stay_within_bound"
 tests = ["atelier-build-v2::guard_adapter/concurrent_handshakes_stay_within_bound"]
+
+[[scenarios]]
+id = "c7.guard.submit_refuses_a_non_utf8_argument_before_starting_any_admission_owner"
+tests = ["atelier-build-v2::guard_adapter/submit_refuses_a_non_utf8_argument_before_starting_any_admission_owner"]
+
+[[scenarios]]
+id = "c7.guard.a_spec_write_failure_after_the_spawn_ends_unconfirmed_and_never_errs"
+tests = ["atelier-build-v2::guard_adapter/a_spec_write_failure_after_the_spawn_ends_unconfirmed_and_never_errs"]
+
+[[scenarios]]
+id = "c7.guard.driver_reports_launch_failure_only_before_a_spawn"
+tests = ["atelier-build-v2::guard_adapter/driver_reports_launch_failure_only_before_a_spawn"]

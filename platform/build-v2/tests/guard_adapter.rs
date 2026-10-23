@@ -9,8 +9,11 @@ use atelier_build_v2::schema::{Op, OutputFile};
 use atelier_build_v2::worker_lifecycle::*;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
+use std::io;
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -105,6 +108,23 @@ fn try_exclusive(path: &Path) -> bool {
         .unwrap();
     // SAFETY: flock on a descriptor we own.
     unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+}
+
+/// The installer gets exclusion within the bound: a blocking flock in a helper thread, so a
+/// concurrent test's fork (which briefly shares every descriptor until exec) cannot flake it.
+fn acquired_within(path: &Path, bound: Duration) -> bool {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .unwrap();
+    let (done, acquired) = mpsc::channel();
+    thread::spawn(move || {
+        // SAFETY: flock on a descriptor this thread owns.
+        let ok = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) == 0 };
+        let _ = done.send(ok);
+    });
+    acquired.recv_timeout(bound).unwrap_or(false)
 }
 
 fn locked(path: &Path) -> File {
@@ -323,7 +343,7 @@ fn custody_duplicate_keeps_exclusion_after_the_launcher_drops_its_own_descriptor
     assert!(matches!(next(&events), LaunchEvent::Finished { .. }));
     attempt.wait().unwrap();
     // The last descriptor of the description closed with the custodian.
-    assert!(try_exclusive(&lock_path));
+    assert!(acquired_within(&lock_path, BOUND));
 }
 
 #[test]
@@ -473,6 +493,106 @@ fn driver_holds_an_attempt_whose_cleanup_is_unconfirmed() {
         report.attempts[0].custody,
         Custody::Held("scripted uncertain cleanup".into())
     );
+}
+
+/// Larger than any pipe buffer, so the launcher is still writing the spec when the bridge closes it.
+fn padded(mut command: WorkerCommand) -> WorkerCommand {
+    command.env.insert("PADDING".into(), "x".repeat(1 << 20));
+    command
+}
+
+#[test]
+fn submit_refuses_a_non_utf8_argument_before_starting_any_admission_owner() {
+    let space = Workspace::new();
+    let (sink, events) = mpsc::channel();
+    let mut command = worker(&space, "normal");
+    command.args.push(OsString::from_vec(vec![0xff, 0xfe]));
+    let refused =
+        launcher("normal").submit(1, &command, request(&space, "attempt-1", vec![]), sink);
+    assert_eq!(
+        refused.err().map(|error| error.kind()),
+        Some(io::ErrorKind::InvalidInput)
+    );
+    assert!(
+        !space.path("attempt-1").exists(),
+        "refused before the report folder, so no bridge ever started"
+    );
+    assert!(events.recv_timeout(Duration::from_millis(200)).is_err());
+}
+
+#[test]
+fn a_spec_write_failure_after_the_spawn_ends_unconfirmed_and_never_errs() {
+    let space = Workspace::new();
+    let (sink, events) = mpsc::channel();
+    let mut attempt = launcher("spec_closed")
+        .submit(
+            1,
+            &padded(worker(&space, "normal")),
+            request(&space, "attempt-1", vec![]),
+            sink,
+        )
+        .expect("an admission owner exists, so submit must not err");
+    assert!(space.path("attempt-1/inherited.json").exists());
+    assert!(
+        attempt.take_pipes().is_none(),
+        "no protocol pipes without a spec"
+    );
+    assert!(matches!(
+        next(&events),
+        LaunchEvent::Finished {
+            cleanup: CleanupReceipt::Unconfirmed { .. },
+            ..
+        }
+    ));
+    assert!(
+        !attempt.wait().unwrap().success(),
+        "withdrawn by the launcher's SIGTERM"
+    );
+}
+
+#[test]
+fn driver_reports_launch_failure_only_before_a_spawn() {
+    // Refused before any spawn: a launch failure, nothing held, nothing started.
+    let space = Workspace::new();
+    let mut job = spec(&space, "normal", 200);
+    job.command.args.push(OsString::from_vec(vec![0xff]));
+    let (_canceller, inbox) = job_channel();
+    let report = run_job(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &job,
+        inbox,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    assert!(report.abort.unwrap().starts_with("launch failed"));
+    assert_eq!(report.attempts.len(), 1);
+    assert_eq!(report.attempts[0].custody, Custody::Released);
+    assert!(!space.path("attempt-1").exists());
+
+    // A spawned bridge whose spec write failed is not a launch failure: without a cleanup
+    // receipt the attempt is held, never released, and never relaunched.
+    let space = Workspace::new();
+    let mut job = spec(&space, "normal", 200);
+    job.command = padded(job.command);
+    let (_canceller, inbox) = job_channel();
+    let report = run_job(
+        &mut launcher("spec_closed"),
+        &SystemClock::new(),
+        &job,
+        inbox,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    assert!(
+        !report
+            .abort
+            .unwrap_or_default()
+            .starts_with("launch failed")
+    );
+    assert_eq!(report.attempts.len(), 1);
+    assert!(matches!(report.attempts[0].custody, Custody::Held(_)));
+    assert!(space.path("attempt-1/inherited.json").exists());
 }
 
 #[test]

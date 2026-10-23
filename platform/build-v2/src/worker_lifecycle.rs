@@ -237,7 +237,8 @@ impl Lifecycle {
             Input::Tick => self.decide(now, PolicyEvent::Tick, &mut out)?,
             Input::SubmitFailed { attempt, reason } => {
                 if let Some(slot) = self.slot(attempt) {
-                    // Nothing was started, so nothing is held.
+                    // A submit error means no admission owner was started
+                    // (launcher-submit-error-means-nothing-started), so nothing is held.
                     slot.finished = true;
                     slot.record.custody = Custody::Released;
                 }
