@@ -2,6 +2,7 @@
 from pathlib import Path
 import sys
 sys.path[:0]=[str(Path(__file__).resolve().parents[2]),str(Path(__file__).resolve().parents[1])]
+import yori  # noqa: E402,F401
 from hidamari.plan_prop import arguments,produce
 from hidamari.prop_parameters import load
 from hidamari.prop_lod_geometry import make_lod

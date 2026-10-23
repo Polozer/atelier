@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 import sys
 sys.path[:0]=[str(Path(__file__).resolve().parents[2]),str(Path(__file__).resolve().parents[1])]
+import yori  # noqa: E402,F401
 from atelier.atomic_files import atomic_json
 from atelier.export_manifest import real_directory
 from atelier.model_files import regular_files

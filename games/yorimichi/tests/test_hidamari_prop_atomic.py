@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import subprocess
 from types import SimpleNamespace
 
 import numpy as np
@@ -76,6 +77,24 @@ def test_each_logical_source_has_one_parameter_and_committed_glb_without_sibling
     # A data edit is owned by exactly one source action; common constructors are shared honestly.
     changed=GAME/'assets/hidamari/prop-export-parameters/HD_P_postbox.json'
     assert [step.name for step in planners if changed in step.inputs]==['world.hidamari_props.geometry.HD_P_postbox']
+
+
+@pytest.mark.parametrize('script',['plan_prop.py','plan_conifer.py'])
+def test_plain_script_bootstraps_studio_before_importing_atelier(tmp_path,script):
+    # A Blender-like entry has neither the working directory nor Atelier preimported.
+    # Refuse an accidental editable-install rescue before the real game bootstrap.
+    code='''import importlib.abc,runpy,sys
+class RequireBootstrap(importlib.abc.MetaPathFinder):
+    def find_spec(self,fullname,path=None,target=None):
+        if fullname.startswith('atelier') and 'yori' not in sys.modules:
+            raise RuntimeError('Atelier imported before world bootstrap')
+sys.meta_path.insert(0,RequireBootstrap())
+runpy.run_path(sys.argv[1],run_name='bootstrap_check')
+assert 'yori' in sys.modules
+'''
+    result=subprocess.run([sys.executable,'-I','-c',code,str(GAME/'world/regions/hidamari'/script)],
+        cwd=tmp_path,capture_output=True,text=True,timeout=30)
+    assert result.returncode==0,result.stdout+result.stderr
 
 
 def source_fixture(out):
