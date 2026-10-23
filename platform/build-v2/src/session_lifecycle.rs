@@ -397,10 +397,10 @@ impl UnitSlot {
 /// Once any session's custody is held (an unconfirmed receipt, a missed settlement limit or a
 /// unit's unconfirmed cleanup), the lifecycle MUST start no further session and every waiting
 /// unit MUST give up. A later confirmed receipt MUST NOT reopen sessions or change a unit record
-/// already handed out with `Settled`; it is recorded only on that session's own record. A
-/// confirmed receipt delivered at or past the settlement limit, or past its unit's cleanup limit
-/// or deadline, is such a late receipt even when no Tick came first: that cleanup stays
-/// unconfirmed and the session held. Recovery is a fresh lifecycle started by the caller. See
+/// already handed out with `Settled`: a late confirmed receipt is recorded in the held record;
+/// the session record stays Held. A confirmed receipt delivered at or past the settlement limit,
+/// or past its unit's cleanup limit or overall deadline in any phase, is such a late receipt
+/// even when no Tick came first: that cleanup stays unconfirmed and the session held. Recovery is a fresh lifecycle started by the caller. See
 /// tests/session_lifecycle.rs (`a_held_session_starts_no_further_session`,
 /// `a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record`,
 /// `a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown`).
@@ -1360,21 +1360,41 @@ impl SessionLifecycle {
         if let LaunchEvent::Finished { cleanup, .. } = event {
             // Limits reached by the delivery time `now` apply before the receipt, as if a Tick
             // had come first: a receipt at or past the settlement limit, or past its unit's
-            // cleanup limit or deadline, leaves that cleanup unknown (session-held-is-sticky).
+            // cleanup limit or overall deadline (which covers cleanup) in any phase, leaves that
+            // cleanup unknown (session-held-is-sticky).
             self.sessions[s].finished = true;
-            let cleaning = self.sessions[s].active.filter(|&index| {
-                current && matches!(self.units[index].policy.phase(), Phase::CleaningUp { .. })
+            let active = self.sessions[s].active.filter(|_| current);
+            let cleaning = active.filter(|&index| {
+                matches!(self.units[index].policy.phase(), Phase::CleaningUp { .. })
             });
             if let Some(index) = cleaning {
                 self.decide(now, index, PolicyEvent::Tick, out)?;
             }
-            let late = reached(self.sessions[s].settle_by, now);
+            let expired = active.is_some_and(|index| {
+                let unit = &self.units[index];
+                reached(unit.overall_deadline, now)
+                    && unit.attempts.iter().any(|attempt| {
+                        attempt.session == session
+                            && attempt.custody == Custody::Pending
+                            && attempt.quiescent.is_none()
+                    })
+            });
+            let held = matches!(self.sessions[s].record.custody, Custody::Held(_));
+            let late = held || expired || reached(self.sessions[s].settle_by, now);
             if late && self.sessions[s].record.custody == Custody::Pending {
                 self.hold(s, "no confirmed cleanup receipt within the cleanup limit");
             }
-            let custody = match cleanup.clone() {
-                CleanupReceipt::Confirmed => Custody::Released,
-                CleanupReceipt::Unconfirmed { reason } => Custody::Held(reason),
+            let custody = match (cleanup.clone(), &self.sessions[s].record.custody) {
+                // A late confirmed receipt is recorded in the held record, which stays Held:
+                // no reader of the session record can take it for a release.
+                (CleanupReceipt::Confirmed, Custody::Held(reason)) if late => {
+                    Custody::Held(format!(
+                        "{reason}; a confirmed cleanup receipt arrived late, at {} ms",
+                        now.elapsed().as_millis()
+                    ))
+                }
+                (CleanupReceipt::Confirmed, _) => Custody::Released,
+                (CleanupReceipt::Unconfirmed { reason }, _) => Custody::Held(reason),
             };
             let confirmed = cleanup == CleanupReceipt::Confirmed && !late;
             let slot = &mut self.sessions[s];
@@ -1439,6 +1459,9 @@ impl SessionLifecycle {
                     )?;
                     if confirmed {
                         self.decide(now, index, PolicyEvent::CleanupFinished, out)?;
+                    } else if late {
+                        // Its expired limits end the cleanup unconfirmed now.
+                        self.decide(now, index, PolicyEvent::Tick, out)?;
                     }
                     Ok(())
                 }

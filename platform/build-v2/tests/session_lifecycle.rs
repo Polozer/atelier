@@ -781,10 +781,12 @@ fn a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_publishe
     let published = sim.lifecycle.unit("a").unwrap();
     assert!(matches!(published.attempts[0].custody, Custody::Held(_)));
     assert_eq!(sim.launch(9_000, 1, confirmed()), vec![]);
-    assert_eq!(
-        sim.lifecycle.sessions()[0].custody,
-        Custody::Released,
-        "the late receipt is kept as evidence on the session's own record"
+    let Custody::Held(reason) = sim.lifecycle.sessions()[0].custody.clone() else {
+        panic!("the session record stays held");
+    };
+    assert!(
+        reason.contains("a confirmed cleanup receipt arrived late, at 9000 ms"),
+        "the late receipt is kept as evidence in the held record: {reason}"
     );
     assert_eq!(sim.lifecycle.unit("a").unwrap(), published, "unchanged");
     assert_eq!(
@@ -1919,6 +1921,10 @@ fn a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown() {
                 "{case}: {:?}",
                 a.attempts
             );
+            assert!(
+                matches!(sim.lifecycle.sessions()[0].custody, Custody::Held(_)),
+                "{case}: the session record stays held"
+            );
             if crash {
                 assert_eq!(
                     a.outcome.cleanup,
@@ -1926,6 +1932,100 @@ fn a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown() {
                     "{case}"
                 );
                 assert_eq!(a.outcome.attempts, 1, "{case}: never retried");
+            }
+            let b = sim.lifecycle.unit("b").unwrap();
+            assert_eq!(b.outcome.end, End::Failed(Stop::Cancelled), "{case}");
+            assert_eq!(sim.submits(), vec![1], "{case}");
+        }
+    }
+}
+
+#[test]
+fn a_receipt_past_its_units_overall_deadline_in_any_phase_releases_nothing() {
+    // a's overall deadline T covers its cleanup. The guard's confirmed receipt arrives at
+    // T - 1, T or T + 1 with no Tick and no exit report before it, while b waits.
+    const T: u64 = 1_000;
+    for phase in [
+        "admitted",
+        "preparing",
+        "running",
+        "quiescing",
+        "quiescing-exited",
+        "cleaning-up",
+        "settling",
+    ] {
+        for at in [T - 1, T, T + 1] {
+            let case = format!("{phase}, receipt at {at}");
+            let mut sim = if phase.starts_with("quiescing") {
+                Sim::resident(100 * JOB)
+            } else {
+                Sim::new()
+            };
+            sim.at(0, plan("a", Some(T)));
+            sim.at(0, plan("b", None));
+            match phase {
+                "admitted" => {
+                    sim.launch(10, 1, LaunchEvent::Admitted);
+                }
+                "preparing" => {
+                    sim.launch(10, 1, LaunchEvent::Admitted);
+                    sim.launch(
+                        10,
+                        1,
+                        LaunchEvent::ChildStarted {
+                            worker: worker(101),
+                        },
+                    );
+                    sim.registered(10, 1, "a");
+                }
+                "running" => sim.start(10, 1, 101, "a"),
+                "cleaning-up" => {
+                    sim.start(10, 1, 101, "a");
+                    sim.at(100, SessionInput::CancelUnit("a".into()));
+                }
+                "quiescing-exited" => {
+                    // The paid review's timeline: the reusable unit's worker exits after it
+                    // completed, and the receipt follows past the deadline.
+                    sim.start(10, 1, 101, "a");
+                    sim.worker(100, 1, completed("a"));
+                    sim.launch(150, 1, exited(101));
+                }
+                _ => {
+                    sim.start(10, 1, 101, "a");
+                    sim.worker(100, 1, completed("a"));
+                }
+            }
+            let out = sim.launch(at, 1, confirmed());
+            if at < T {
+                assert!(
+                    out.contains(&SessionCommand::Submit { session: 2 }),
+                    "{case}: released in time, {out:?}"
+                );
+                let a = sim.lifecycle.unit("a").unwrap();
+                assert_eq!(a.attempts[0].custody, Custody::Released, "{case}");
+                continue;
+            }
+            assert!(
+                !out.iter()
+                    .any(|c| matches!(c, SessionCommand::Submit { .. })),
+                "{case}: {out:?}"
+            );
+            let a = sim.lifecycle.unit("a").unwrap();
+            assert!(
+                matches!(a.attempts[0].custody, Custody::Held(_)),
+                "{case}: {:?}",
+                a.attempts
+            );
+            assert!(
+                matches!(sim.lifecycle.sessions()[0].custody, Custody::Held(_)),
+                "{case}: the session record stays held"
+            );
+            if a.outcome.end != End::Completed {
+                assert!(
+                    matches!(a.outcome.cleanup, CleanupState::Unconfirmed(_)),
+                    "{case}: {:?}",
+                    a.outcome
+                );
             }
             let b = sim.lifecycle.unit("b").unwrap();
             assert_eq!(b.outcome.end, End::Failed(Stop::Cancelled), "{case}");

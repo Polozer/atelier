@@ -644,6 +644,30 @@ fn settlement_never_outlasts_the_overall_deadline() {
         "the completed work is kept"
     );
     assert!(matches!(report.attempts[0].custody, Custody::Held(_)));
+    // A late confirmed receipt, after that Tick or with none before it, never makes the
+    // report's attempts (the session records the executor reads) Released.
+    sim.launch(10_100, 1, confirmed());
+    assert!(matches!(sim.report().attempts[0].custody, Custody::Held(_)));
+    for at in [10_000, 10_001] {
+        let (mut sim, _) = Sim::new(Some(10_000));
+        sim.start(0, 1, 101);
+        sim.worker(9_000, 1, finished(Ok(outputs())));
+        sim.launch(at, 1, confirmed());
+        let report = sim.report();
+        assert_eq!(report.outcome.end, End::Completed, "receipt at {at} ms");
+        assert!(
+            matches!(report.attempts[0].custody, Custody::Held(_)),
+            "receipt at {at} ms: {:?}",
+            report.attempts
+        );
+        // The Python executor's release check (python_executor.rs) never accepts it.
+        let accepted = !matches!(report.outcome.cleanup, CleanupState::Unconfirmed(_))
+            && report
+                .attempts
+                .iter()
+                .all(|attempt| attempt.custody == Custody::Released);
+        assert!(!accepted, "receipt at {at} ms");
+    }
 
     // Without an overall deadline the cleanup limit alone bounds settlement, as before.
     let (mut sim, _) = Sim::new(None);
