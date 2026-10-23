@@ -401,18 +401,25 @@ fn every_durable_install_cut_recovers_old_or_committed_named_files() {
             .prepare_restore(&guard, &u2, identity(), &view, vec![])
             .unwrap()
             .unwrap();
-        assert!(
-            plan.commit_with(
-                &guard,
-                |event| if event == cut {
+        let mut reached = false;
+        let result = plan.commit_with(
+            &guard,
+            |event| {
+                if event == cut {
+                    reached = true;
                     Err(std::io::Error::other("injected"))
                 } else {
                     Ok(())
-                },
-                |_| Ok(())
-            )
-            .is_err(),
-            "{cut:?}"
+                }
+            },
+            |_| Ok(()),
+        );
+        assert!(
+            reached,
+            "selected install fault hook was not reached: {result:?}"
+        );
+        assert!(
+            matches!(result, Err(InstallError::Io(ref error)) if error.to_string() == "injected")
         );
         let committed = matches!(
             cut,
@@ -486,18 +493,24 @@ fn foreign_files_busy_readers_root_failures_and_unknown_recovery_are_explicit() 
         .prepare_restore(&guard, &next, identity(), &next_view, vec![])
         .unwrap()
         .unwrap();
-    assert!(
-        plan.commit_with(
-            &guard,
-            |event| if event == InstallEvent::NewMoved(0) {
+    let mut reached = false;
+    let result = plan.commit_with(
+        &guard,
+        |event| {
+            if event == InstallEvent::NewMoved(0) {
+                reached = true;
                 Err(std::io::Error::other("cut"))
             } else {
                 Ok(())
-            },
-            |_| Ok(())
-        )
-        .is_err()
+            }
+        },
+        |_| Ok(()),
     );
+    assert!(
+        reached,
+        "selected install fault hook was not reached: {result:?}"
+    );
+    assert!(matches!(result, Err(InstallError::Io(ref error)) if error.to_string() == "cut"));
     fs::write(&target, b"unknown external edit").unwrap();
     assert!(installer.recover(&guard, &next_view).is_err());
     assert_eq!(fs::read(&target).unwrap(), b"unknown external edit");
@@ -717,17 +730,25 @@ fn dirty_same_inode_edits_are_preserved_during_failed_install_rollback() {
         .prepare_restore(&guard, &u2, identity(), &view, vec![])
         .unwrap()
         .unwrap();
-    assert!(
-        plan.commit_with(
-            &guard,
-            |event| if event == InstallEvent::OldMoved(0) {
+    let mut reached = false;
+    let result = plan.commit_with(
+        &guard,
+        |event| {
+            if event == InstallEvent::OldMoved(0) {
+                reached = true;
                 Err(std::io::Error::other("cut after preserving dirty original"))
             } else {
                 Ok(())
-            },
-            |_| Ok(())
-        )
-        .is_err()
+            }
+        },
+        |_| Ok(()),
+    );
+    assert!(
+        reached,
+        "selected install fault hook was not reached: {result:?}"
+    );
+    assert!(
+        matches!(result, Err(InstallError::Io(ref error)) if error.to_string() == "cut after preserving dirty original")
     );
     installer.recover(&guard, &view).unwrap();
     assert_eq!(fs::read(&target).unwrap(), b"dirty managed edit");
@@ -763,17 +784,25 @@ fn preinstall_abort_preserves_unknown_clone_and_resumes_every_durable_cut() {
             .prepare_restore(&guard, &u2, identity(), &view, vec![])
             .unwrap()
             .unwrap();
-        assert!(
-            plan.commit_with(
-                &guard,
-                |event| if event == InstallEvent::CloneCreated(0) {
+        let mut reached = false;
+        let result = plan.commit_with(
+            &guard,
+            |event| {
+                if event == InstallEvent::CloneCreated(0) {
+                    reached = true;
                     Err(std::io::Error::other("clone returned, no inode receipt"))
                 } else {
                     Ok(())
-                },
-                |_| Ok(())
-            )
-            .is_err()
+                }
+            },
+            |_| Ok(()),
+        );
+        assert!(
+            reached,
+            "selected install fault hook was not reached: {result:?}"
+        );
+        assert!(
+            matches!(result, Err(InstallError::Io(ref error)) if error.to_string() == "clone returned, no inode receipt")
         );
         let journal_path = workspace.path("build/build-v2/install/journal.json");
         let before = fs::read(&journal_path).unwrap();
@@ -881,18 +910,24 @@ fn preinstall_abort_rejects_changed_outputs_trash_and_replaced_directory_identit
             .prepare_restore(&guard, &u2, identity(), &view, vec![])
             .unwrap()
             .unwrap();
-        assert!(
-            plan.commit_with(
-                &guard,
-                |event| if event == InstallEvent::CloneCreated(0) {
+        let mut reached = false;
+        let result = plan.commit_with(
+            &guard,
+            |event| {
+                if event == InstallEvent::CloneCreated(0) {
+                    reached = true;
                     Err(std::io::Error::other("cut"))
                 } else {
                     Ok(())
-                },
-                |_| Ok(())
-            )
-            .is_err()
+                }
+            },
+            |_| Ok(()),
         );
+        assert!(
+            reached,
+            "selected install fault hook was not reached: {result:?}"
+        );
+        assert!(matches!(result, Err(InstallError::Io(ref error)) if error.to_string() == "cut"));
         let journal_path = workspace.path("build/build-v2/install/journal.json");
         let journal: serde_json::Value =
             serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
@@ -1020,18 +1055,25 @@ fn interrupted_cleanup_resumes_after_each_leaf_directory_and_barrier_removal() {
             .prepare_restore(&guard, &u2, identity(), &view, vec![])
             .unwrap()
             .unwrap();
-        assert!(
-            plan.commit_with(
-                &guard,
-                |event| if event == InstallEvent::Cleanup(cut) {
+        let mut reached = false;
+        let result = plan.commit_with(
+            &guard,
+            |event| {
+                if event == InstallEvent::Cleanup(cut) {
+                    reached = true;
                     Err(std::io::Error::other("cleanup cut"))
                 } else {
                     Ok(())
-                },
-                |_| Ok(())
-            )
-            .is_err(),
-            "{cut:?}"
+                }
+            },
+            |_| Ok(()),
+        );
+        assert!(
+            reached,
+            "selected install fault hook was not reached: {result:?}"
+        );
+        assert!(
+            matches!(result, Err(InstallError::Io(ref error)) if error.to_string() == "cleanup cut")
         );
         if cut != CleanupEvent::BarrierCleared {
             assert!(matches!(
@@ -1141,22 +1183,31 @@ fn unknown_private_cleanup_leaves_preserve_journal_and_block_readers() {
                 .prepare_restore(&guard, &u2, identity(), &view, vec![])
                 .unwrap()
                 .unwrap();
-            assert!(
-                plan.commit_with(
-                    &guard,
-                    |event| if event
+            let mut reached = false;
+            let result = plan.commit_with(
+                &guard,
+                |event| {
+                    if event
                         == if committed {
                             InstallEvent::IndexCommitted
                         } else {
                             InstallEvent::Ready
-                        } {
+                        }
+                    {
+                        reached = true;
                         Err(std::io::Error::other("before cleanup"))
                     } else {
                         Ok(())
-                    },
-                    |_| Ok(())
-                )
-                .is_err()
+                    }
+                },
+                |_| Ok(()),
+            );
+            assert!(
+                reached,
+                "selected install fault hook was not reached: {result:?}"
+            );
+            assert!(
+                matches!(result, Err(InstallError::Io(ref error)) if error.to_string() == "before cleanup")
             );
             let journal_path = workspace.path("build/build-v2/install/journal.json");
             let evidence = fs::read(&journal_path).unwrap();
