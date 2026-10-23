@@ -84,6 +84,11 @@ add('floats_use_rust_shortest_text', 'request',
     frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"f":[' + FLOATS + ']}'))),
     [{'type': 'run', 'job': {**small_expected([{'path': 'o.json', 'required': True}])['job'], 'params': {'f': FLOAT_VALUES}}}],
     canonical=True)
+# Not canonical: serde_json decodes the integer token `-0` as the float -0.0 and writes `-0.0`.
+add('negative_zero_integer_token_is_float', 'request',
+    frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"x":-0}'))),
+    [{'type': 'run', 'job': {**small_expected([{'path': 'o.json', 'required': True}])['job'], 'params': {'x': -0.0}}}])
+vectors[-1]['reencoded'] = frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"x":-0.0}')))
 # Too deep to embed as an expected value here; the canonical byte comparison checks its content.
 add('nesting_depth_127_is_accepted', 'request', frame(small_run(job=deep_job(deep_ok))), canonical=True, opaque=1)
 
@@ -168,7 +173,7 @@ document = {
              'A vector concatenates its chunks (hex bytes or UTF-8 text). Reading frames of the given kind yields '
              'messages in order (opaque_messages more are only checked canonically, being too deep to embed); then the next read is a clean end (error null) or fails with the named error '
              '(invalid: Rust InvalidData, truncated: UnexpectedEof). Canonical vectors are also the exact bytes '
-             'that both encoders write for those messages. rust_accepts marks a known Rust leniency that Python refuses. Regenerate with generate_protocol_v1.py.',
+             'that both encoders write for those messages. rust_accepts marks a known Rust leniency that Python refuses. reencoded, when present, is the exact text both encoders write for a non-canonical input. Regenerate with generate_protocol_v1.py.',
     'vectors': vectors,
 }
 json.dump(document, sys.stdout, ensure_ascii=False, indent=1)
