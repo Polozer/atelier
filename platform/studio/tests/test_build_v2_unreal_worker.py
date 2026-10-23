@@ -1,4 +1,5 @@
 """Unit checks of the build-v2 Unreal job loop's own rules (no editor; the session runs in tests/unreal.rs)."""
+import json
 import os
 from pathlib import Path
 import sys
@@ -42,26 +43,37 @@ def test_package_names_come_only_from_primary_files_under_the_content_root():
 
 
 class Unloading:
-    """An editor whose unload call says it unloaded everything while one package stays alive."""
+    """An editor whose unload call says it unloaded everything while one package stays referenced. As in the
+    editor, SystemLibrary.collect_garbage only schedules a collection; only the plugin's call collects."""
 
-    def __init__(self, survivor):
+    def __init__(self, survivor, imported=()):
         self.alive = {'/Game/A', '/Game/B'}
+        self.unloaded = set()
         self.survivor = survivor
+        self.held = set(imported)  # as after an import: the first unload frees nothing
+        library = types.SimpleNamespace(collect_garbage_now=self.collect)
         unreal = types.SimpleNamespace(
-            AtelierBuildWorkerLibrary=None,
+            AtelierBuildWorkerLibrary=library,
             find_object=lambda outer, name: name if name in self.alive else None,
             EditorLoadingAndSavingUtils=types.SimpleNamespace(unload_packages=self.unload_packages),
             SystemLibrary=types.SimpleNamespace(collect_garbage=lambda: None))
         self.editor = Editor(unreal)
 
     def unload_packages(self, objects):
-        self.alive -= set(objects) - {self.survivor}
+        held, self.held = self.held & set(objects), set()
+        self.unloaded |= set(objects) - {self.survivor} - held
         return True  # "any" were unloaded
 
+    def collect(self):
+        self.alive -= self.unloaded
 
-def test_unload_checks_every_package_by_name_and_never_trusts_the_unload_result():
+
+def test_unload_collects_synchronously_and_checks_every_package_by_name():
     assert Unloading(survivor=None).editor.unload(['/Game/A', '/Game/B']) == []
     assert Unloading(survivor='/Game/B').editor.unload(['/Game/A', '/Game/B']) == ['/Game/B']
+    # Imported packages survive the first pass and are gone after the second.
+    assert Unloading(survivor=None, imported={'/Game/A', '/Game/B'}).editor.unload(['/Game/A', '/Game/B']) == []
+    assert Unloading(survivor=None, imported={'/Game/A'}).editor.unload(['/Game/A', '/Game/B'], passes=1) == ['/Game/A']
 
 
 def test_python_state_is_restored_and_job_modules_are_dropped(tmp_path):
@@ -119,3 +131,23 @@ def test_a_job_never_starts_on_a_non_empty_game_folder_or_output(tmp_path):
     (Path(request['job_dir']) / 'output/stale').write_bytes(b'x')
     with pytest.raises(JobRefused, match='output/ is not empty'):
         loop.execute(request, set(), [])
+
+
+def test_the_worker_plugin_source_is_outside_every_folder_a_game_or_v1_enumerates():
+    """No game discovers the editor-only plugin, and v1's checkpoint enumeration never sees it."""
+    from atelier import paths, unreal_modules
+    plugin = paths.PLATFORM / 'build-v2/unreal/AtelierBuildWorker'
+    assert (plugin / 'AtelierBuildWorker.uplugin').is_file()
+    # checkpoint_store.roots and checkpoint_actions walk these for every game.
+    assert not plugin.resolve().is_relative_to(paths.ENGINE_PLUGINS.resolve())
+    assert all(path.stem != 'AtelierBuildWorker' for path in paths.ENGINE_PLUGINS.rglob('*.uplugin'))
+    projects = sorted((paths.REPO / 'games').glob('*/unreal/*.uproject'))
+    assert projects
+    for project in projects:
+        assert 'AtelierBuildWorker' not in unreal_modules.plugins(project), project
+        assert not plugin.resolve().is_relative_to(project.parent.resolve()), project
+        enabled = {p['Name'] for p in json.loads(project.read_text()).get('Plugins', [])}
+        assert 'AtelierBuildWorker' not in enabled, project
+    # Its compiled binaries are build products of a scratch or micro compile, never committed.
+    ignored = (plugin.parent / '.gitignore').read_text().split()
+    assert '*/Binaries/' in ignored and '*/Intermediate/' in ignored

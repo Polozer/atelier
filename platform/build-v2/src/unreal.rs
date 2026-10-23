@@ -42,13 +42,16 @@ pub const EVIDENCE_VERSION: u32 = 1;
 const EDITOR_CMD: &str = "Engine/Binaries/Mac/UnrealEditor-Cmd";
 /// Flags after the descriptor and the script: no prompts, no source control, no splash, logs on
 /// stdout, and no RHI (imports only; jobs that need a real RHI are unsupported here).
-pub const UNREAL_WORKER_FLAGS: [&str; 6] = [
+pub const UNREAL_WORKER_FLAGS: [&str; 7] = [
     "-unattended",
     "-nop4",
     "-nosplash",
     "-stdout",
     "-AllowStdOutLogVerbosity",
     "-NullRHI",
+    // An ensure inside a job starts no crash reporter and writes no report under the user's
+    // Library; the worker counts it and fails the job instead.
+    "-nocrashreports",
 ];
 /// The only declared settings a context passes through: ini overrides and forced CVars. They are
 /// semantic, so the units' A3 keys must bind them too; the profile only groups sessions.

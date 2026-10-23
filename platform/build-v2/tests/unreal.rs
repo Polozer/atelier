@@ -43,7 +43,7 @@ impl Drop for Workspace {
 /// A restored editor compile and the worker plugin, as produced folders.
 fn produced(space: &Workspace) -> (PathBuf, PathBuf) {
     space.write(
-        "editor/Binaries/Mac/UnrealEditor-AtelierImport.dylib",
+        "editor/Binaries/Mac/libUnrealEditor-AtelierImport.dylib",
         b"module bytes",
     );
     space.write(
@@ -55,7 +55,7 @@ fn produced(space: &Workspace) -> (PathBuf, PathBuf) {
         b"{\"Modules\": []}",
     );
     space.write(
-        "plugins/AtelierBuildWorker/Binaries/Mac/UnrealEditor-AtelierBuildWorker.dylib",
+        "plugins/AtelierBuildWorker/Binaries/Mac/libUnrealEditor-AtelierBuildWorker.dylib",
         b"plugin bytes",
     );
     // Sources and intermediates beside the binaries are never cloned.
@@ -171,14 +171,14 @@ fn a_tree_identity_names_paths_and_bytes_and_refuses_links() {
     let first = tree_identity(&editor, None).unwrap();
     assert_eq!(first, tree_identity(&editor, None).unwrap());
     fs::write(
-        editor.join("UnrealEditor-AtelierImport.dylib"),
+        editor.join("libUnrealEditor-AtelierImport.dylib"),
         b"other bytes",
     )
     .unwrap();
     let second = tree_identity(&editor, None).unwrap();
     assert_ne!(first, second);
     fs::rename(
-        editor.join("UnrealEditor-AtelierImport.dylib"),
+        editor.join("libUnrealEditor-AtelierImport.dylib"),
         editor.join("UnrealEditor-Renamed.dylib"),
     )
     .unwrap();
@@ -258,10 +258,10 @@ fn a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_id
     assert_eq!(
         scratch.receipt().files.keys().cloned().collect::<Vec<_>>(),
         [
-            "Binaries/Mac/UnrealEditor-AtelierImport.dylib",
             "Binaries/Mac/UnrealEditor.modules",
+            "Binaries/Mac/libUnrealEditor-AtelierImport.dylib",
             "Plugins/AtelierBuildWorker/AtelierBuildWorker.uplugin",
-            "Plugins/AtelierBuildWorker/Binaries/Mac/UnrealEditor-AtelierBuildWorker.dylib",
+            "Plugins/AtelierBuildWorker/Binaries/Mac/libUnrealEditor-AtelierBuildWorker.dylib",
         ]
     );
     assert!(
@@ -303,7 +303,7 @@ fn a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_id
     );
 
     // Read-only clones: an editor that wants to rebuild a module fails, by design.
-    let library = root.join("Binaries/Mac/UnrealEditor-AtelierImport.dylib");
+    let library = root.join("Binaries/Mac/libUnrealEditor-AtelierImport.dylib");
     assert!(fs::write(&library, b"rebuilt").is_err());
     assert!(fs::write(root.join("Binaries/Mac/UnrealEditor-New.dylib"), b"new").is_err());
     scratch.verify().unwrap();
@@ -444,6 +444,14 @@ def run(context):
     for name, payload in p.get('create', []):
         fake.create_package(name, payload.encode(), imports=[['/Script/Engine', 'StaticMesh']])
         fake.save_package(name)
+        if p.get('save_twice'):
+            fake.save_package(name)  # as a rename does: the same package to the same file again
+    for name, payload in p.get('import', []):
+        fake.import_package(name, payload.encode())
+    if 'register' in p:
+        fake.register_cvar(p['register'], '0')
+    if p.get('ensure'):
+        fake.ensure()
     if 'derive' in p:
         source, target = p['derive']
         fake.create_package(target, fake.load_package(context.packages[source]) + b'!')
@@ -603,6 +611,29 @@ def run(context):
         assert_eq!(bytes[0], bytes[2], "A, then B, then A gives the same A");
         assert_ne!(bytes[0], bytes[1]);
 
+        // A package saved twice to one file (as a rename does) is one save, an imported package
+        // that survives its first unload is gone after the second pass, and a CVar registered during
+        // the job at its default does not retire the editor: the next job still runs.
+        let twice = job(
+            &space,
+            "twice",
+            serde_json::json!({"create": [["/Game/Meshes/Rock", "rock"]], "save_twice": true,
+                               "import": [["/Game/Meshes/Imported", "imported"]],
+                               "register": "r.LoadedOnDemand"}),
+            &[
+                "content/Game/Meshes/Rock.uasset",
+                "content/Game/Meshes/Imported.uasset",
+            ],
+            &[],
+        );
+        assert!(editor.channel.run(twice.clone()).unwrap().result.is_ok());
+        let declared = BTreeSet::from([
+            "/Game/Meshes/Imported".to_string(),
+            "/Game/Meshes/Rock".to_string(),
+        ]);
+        let evidence = read_import_evidence(Path::new(&twice.job_dir), &declared).unwrap();
+        assert_eq!(evidence.packages.len(), 2, "each package once");
+
         // A staged input package sits read-only at its logical path, and is gone afterwards.
         let derived = job(
             &space,
@@ -652,6 +683,12 @@ def run(context):
                 serde_json::json!({"raise": "bad mesh"}),
                 FailureKind::Job,
                 "bad mesh",
+            ),
+            (
+                // With -nocrashreports an ensure starts no crash reporter: it fails the job.
+                serde_json::json!({"create": [["/Game/A", "a"]], "ensure": true}),
+                FailureKind::Job,
+                "failed ensure",
             ),
             (
                 // A declared package file written by plain file I/O, with no package save.
@@ -751,7 +788,7 @@ def run(context):
         let space = Workspace::new();
         fake_engine(&space, "5.8-build");
         let mut stale = context(&space);
-        let library = stale.editor.dir.join("UnrealEditor-AtelierImport.dylib");
+        let library = stale.editor.dir.join("libUnrealEditor-AtelierImport.dylib");
         fs::write(&library, b"stale").unwrap();
         stale.editor.identity = tree_identity(&stale.editor.dir, None).unwrap();
         let mut rebuilding = editor(&space, &stale);
@@ -763,7 +800,7 @@ def run(context):
                 rebuilding
                     .scratch
                     .root()
-                    .join("Binaries/Mac/UnrealEditor-AtelierImport.dylib")
+                    .join("Binaries/Mac/libUnrealEditor-AtelierImport.dylib")
             )
             .unwrap(),
             b"stale"

@@ -7,11 +7,13 @@ module, which fails on the read-only clone, as the real editor would), then inst
 `unreal` module and runs the `-script` as `__main__`, as the `pythonscript` commandlet does.
 
 The fake `unreal` module models only what the worker uses: a package table (loaded, dirty, pinned),
-saved-package recording, the asset registry's view of `/Game`, settings, and `find_object`. Its
-test-only `AtelierFake` class lets fixture ops create, save, load, pin and dirty packages, set a
-CVar, write a stray file and make an editor call raise. Real Unreal behaviour is proven only by the admitted T2 session.
+saved-package recording, the asset registry's view of `/Game`, console variables with their set-by
+source, failed ensures, and `find_object`. As in the editor, `SystemLibrary.collect_garbage` only
+schedules a collection (a commandlet script never reaches the next tick); only the plugin's
+`collect_garbage_now` collects. Its test-only `AtelierFake` class lets fixture ops create, save, load,
+pin and dirty packages, set or register a CVar, fail an ensure, write a stray file and make an
+editor call raise. Real Unreal behaviour is proven only by the admitted T2 sessions.
 """
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,7 +21,7 @@ import runpy
 import sys
 import types
 
-FLAGS = ['-unattended', '-nop4', '-nosplash', '-stdout', '-AllowStdOutLogVerbosity', '-NullRHI']
+FLAGS = ['-unattended', '-nop4', '-nosplash', '-stdout', '-AllowStdOutLogVerbosity', '-NullRHI', '-nocrashreports']
 ENGINE = Path(__file__).resolve().parents[3]
 DEFAULT_ENGINE_PLUGINS = {'ContentBrowserData': ENGINE / 'Engine/Plugins/Editor/ContentBrowserData'}
 
@@ -30,12 +32,13 @@ def fail(message):
 
 
 argv = sys.argv[1:]
-if len(argv) < 10 or argv[1] != '-run=pythonscript' or not argv[2].startswith('-script='):
+flags_end = 3 + len(FLAGS)
+if len(argv) < flags_end + 1 or argv[1] != '-run=pythonscript' or not argv[2].startswith('-script='):
     fail(f'unexpected command line {argv}')
-if argv[3:9] != FLAGS or not argv[9].startswith('-UserDir='):
-    fail(f'unexpected flags {argv[3:10]}')
+if argv[3:flags_end] != FLAGS or not argv[flags_end].startswith('-UserDir='):
+    fail(f'unexpected flags {argv[3:flags_end + 1]}')
 settings = []
-for token in argv[10:]:
+for token in argv[flags_end + 1:]:
     if token == '--request-fd':
         break
     if not token.startswith(('-ini:', '-ForceDPCVars=')):
@@ -49,7 +52,7 @@ build_id = json.loads((ENGINE / 'Engine/Binaries/Mac/UnrealEditor.modules').read
 
 libraries = []
 for module in descriptor['Modules']:
-    library = project / 'Binaries/Mac' / f'UnrealEditor-{module["Name"]}.dylib'
+    library = project / 'Binaries/Mac' / f'libUnrealEditor-{module["Name"]}.dylib'
     if not library.is_file():
         fail(f'module {module["Name"]} is missing')
     if library.read_bytes() == b'stale':
@@ -69,10 +72,13 @@ libraries.append(str(ENGINE / 'Engine/Binaries/Mac/libUnrealEditor-Core.dylib'))
 
 CONTENT = project / 'Content'
 packages = {}  # name -> {'loaded', 'dirty', 'pinned', 'imports'}
-cvars = {token: '' for token in settings}
+# name -> [value, set by], as the plugin's settings_snapshot reports them.
+cvars = {'r.Existing': ['0', 'Constructor'], **{token: ['1', 'Commandline'] for token in settings}}
 registry = set()
 recording = None
 broken = set()  # editor calls a fixture op made raise
+scheduled = {'gc': False}  # SystemLibrary.collect_garbage only schedules; a commandlet script never ticks
+ensures = [0]
 
 
 def file_of(name):
@@ -104,8 +110,7 @@ class SystemLibrary:
 
     @staticmethod
     def collect_garbage():
-        for name in [n for n, p in packages.items() if not p['loaded'] and not p['pinned']]:
-            del packages[name]
+        scheduled['gc'] = True  # as in the editor: nothing is collected before the next engine tick
 
 
 class Paths:
@@ -130,6 +135,9 @@ class EditorLoadingAndSavingUtils:
         any_unloaded = False
         for value in objects:
             entry = packages.get(value.get_name())
+            if entry and entry.get('import_hold'):
+                entry['import_hold'] = False  # as after an import: the first unload frees nothing
+                continue
             if entry and not entry['pinned']:
                 entry['loaded'] = False
                 any_unloaded = True
@@ -191,8 +199,21 @@ class AtelierBuildWorkerLibrary:
         return json.dumps(packages.get(name, {}).get('imports', []))
 
     @staticmethod
-    def settings_digest():
-        return hashlib.sha256(json.dumps(cvars, sort_keys=True).encode()).hexdigest()
+    def settings_snapshot():
+        return json.dumps(cvars)
+
+    @staticmethod
+    def collect_garbage_now():
+        for name in [n for n, p in packages.items() if not p['loaded'] and not p['pinned']]:
+            del packages[name]
+
+    @staticmethod
+    def begin_ensure_count():
+        ensures[0] = 0
+
+    @staticmethod
+    def ensure_count():
+        return ensures[0]
 
     @staticmethod
     def forget_files(paths):
@@ -207,6 +228,13 @@ class AtelierFake:
     def create_package(name, payload, imports=()):
         packages[name] = {'loaded': True, 'dirty': True, 'pinned': False, 'payload': payload,
                           'imports': [list(item) for item in imports]}
+
+    @staticmethod
+    def import_package(name, payload):
+        """Create and save `name` as an Interchange import does: it survives its first unload."""
+        AtelierFake.create_package(name, payload)
+        packages[name]['import_hold'] = True
+        AtelierFake.save_package(name)
 
     @staticmethod
     def save_package(name):
@@ -236,7 +264,15 @@ class AtelierFake:
 
     @staticmethod
     def set_cvar(name, value):
-        cvars[name] = value
+        cvars[name] = [value, 'Console']
+
+    @staticmethod
+    def register_cvar(name, value):
+        cvars.setdefault(name, [value, 'Constructor'])  # a module loaded on demand, at its default
+
+    @staticmethod
+    def ensure():
+        ensures[0] += 1
 
     @staticmethod
     def break_call(name):

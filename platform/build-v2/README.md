@@ -743,7 +743,7 @@ receipt after the session. Off macOS, `prepare` refuses with "requires macOS".
 
 `job_loop_command` runs `UnrealEditor-Cmd` on the scratch project with
 `-run=pythonscript -script=platform/studio/atelier/build_v2/unreal_worker.py`, fixed unattended
-flags, `-NullRHI`, `-UserDir=<session>/user` and the declared settings. The launcher appends the
+flags, `-NullRHI`, `-nocrashreports`, `-UserDir=<session>/user` and the declared settings. The launcher appends the
 protocol descriptors. The worker writes `<session>/unreal-context.json` (what the editor loaded)
 before `hello`, and the controller reads it with `verify_context_report()` before the first `Run`.
 Each job then:
@@ -751,8 +751,24 @@ Each job then:
 - must save exactly its declared packages, which move to `output/content/Game/`;
 - leaves its import tables in `evidence/imports.json` (`read_import_evidence`).
 
-After each job the worker resets Python state, `/Game`, the asset registry, loaded packages
-(checked with `find_object`) and settings. If any check fails it replies, then exits.
+After each job the worker resets Python state, `/Game` and the asset registry. It unloads the
+touched packages with the plugin's synchronous garbage collection, in up to three passes, because an
+imported package survives its first unload. Each package is then checked with `find_object`. Every
+console variable that existed before the job must keep its value, and one registered during the job
+must still be at its default. A failed ensure fails the job. If any reset check fails, the worker
+replies, then exits.
+
+The editor-only plugin lives at `unreal/AtelierBuildWorker`, outside every folder a game or v1
+enumerates. It is cloned only into scratch and micro projects, and its compiled binaries are never
+committed. Its library is the editor surface the worker uses:
+- native context;
+- save recording;
+- ensure counting;
+- dirty and loaded packages;
+- the CVar snapshot;
+- synchronous GC;
+- registry forgetting;
+- diagnostic reference chains.
 
 T0 runs this end to end against `tests/fixtures/fake_unreal.py`, a stand-in editor with the same
 command line and plugin surface. Real-editor behaviour (descriptor inheritance, `-UserDir`, shader

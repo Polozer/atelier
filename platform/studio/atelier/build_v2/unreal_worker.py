@@ -3,7 +3,8 @@
 Started by the controller (`platform/build-v2/src/unreal.rs`) as
 
     UnrealEditor-Cmd <scratch>/Atelier.uproject -run=pythonscript -script=unreal_worker.py \\
-        -unattended -nop4 -nosplash -stdout -AllowStdOutLogVerbosity -NullRHI -UserDir=<session>/user \\
+        -unattended -nop4 -nosplash -stdout -AllowStdOutLogVerbosity -NullRHI -nocrashreports \\
+        -UserDir=<session>/user \\
         [declared -ini:/-ForceDPCVars=] --request-fd N --response-fd M
 
 It speaks protocol version 1 (`protocol.py`) on the two inherited pipes, made close-on-exec at once
@@ -12,12 +13,15 @@ so no helper process the editor starts inherits them. Stdout and stderr are the 
 **Unreal is not sandboxed.** Per-job isolation is detection only:
 - each job's input packages are copied into the session's empty `/Game` at their logical paths,
   read-only, and removed afterwards;
-- the packages saved during the job must be exactly the declared output packages, nothing may be
-  left dirty, and no input may change;
-- after every job, every package it touched is unloaded and must be gone by `find_object` (the
-  unload call's own result is never trusted), no `/Game` package may stay loaded, `/Game` and the
-  asset registry must be empty, the Python state is restored and the editor's settings digest must
-  be unchanged.
+- the packages saved during the job must be exactly the declared output packages (a package saved
+  twice to one file counts once), nothing may be left dirty, no input may change, and no ensure may
+  fail (with -nocrashreports an ensure starts no crash reporter and fails the job instead);
+- after every job, every package it touched is unloaded, garbage is collected synchronously through
+  the plugin, and each package must be gone by `find_object` (neither the unload call's result nor
+  `SystemLibrary.collect_garbage`, which only schedules a collection, is trusted); no `/Game`
+  package may stay loaded, `/Game` and the asset registry must be empty, the Python state is
+  restored, every console variable that existed before the job must keep its value, and one
+  registered during the job must still be at its default.
 
 A job whose reset fails still gets its terminal reply; the worker then exits instead of serving
 another job, so the controller ends the session (a clean exit after a terminal reply is never crash
@@ -162,7 +166,12 @@ class Editor:
         return json.loads(self.library.native_context())
 
     def begin_job(self):
+        self.library.begin_ensure_count()
         self.library.begin_save_recording()
+
+    def ensures(self):
+        """Failed ensures since `begin_job` (the editor runs with -nocrashreports, so none is reported elsewhere)."""
+        return self.library.ensure_count()
 
     def saved_packages(self):
         """[{package, filename}] saved since `begin_job`."""
@@ -180,8 +189,9 @@ class Editor:
     def imports(self, package):
         return [list(item) for item in json.loads(self.library.package_imports(package))]
 
-    def settings_digest(self):
-        return self.library.settings_digest()
+    def settings(self):
+        """{console variable: [value, set by]}; set by "Constructor" means still at its default."""
+        return json.loads(self.library.settings_snapshot())
 
     def scan(self, files):
         registry = self.unreal.AssetRegistryHelpers.get_asset_registry()
@@ -195,16 +205,28 @@ class Editor:
         registry = self.unreal.AssetRegistryHelpers.get_asset_registry()
         return len(registry.get_assets_by_path('/Game', True))
 
-    def unload(self, packages):
-        """Unload `packages`, collect garbage, and say whether every one is really gone."""
-        objects = [self.unreal.find_object(None, name) for name in packages]
-        objects = [value for value in objects if value is not None]
-        if objects:
-            self.unreal.EditorLoadingAndSavingUtils.unload_packages(objects)
-        del objects
-        self.unreal.SystemLibrary.collect_garbage()
-        # unload_packages' result means "any", not "all": check each package directly.
-        return [name for name in packages if self.unreal.find_object(None, name) is not None]
+    def unload(self, packages, passes=3):
+        """Unload `packages` with a synchronous garbage collection, and say which are still in memory.
+
+        One pass is not enough after an import: while the import task still holds its assets the first
+        unload leaves them standalone (it frees nothing), and only a second unload after the collection
+        drops them. Up to `passes` passes run until nothing is left. The unload call's own result ("any",
+        not "all") is never trusted.
+        """
+        remaining = list(packages)
+        for _ in range(passes):
+            objects = [self.unreal.find_object(None, name) for name in remaining]
+            objects = [value for value in objects if value is not None]
+            if objects:
+                self.unreal.EditorLoadingAndSavingUtils.unload_packages(objects)
+            del objects
+            # SystemLibrary.collect_garbage only schedules a collection for the next engine tick, which a
+            # commandlet script never reaches; the plugin collects now.
+            self.library.collect_garbage_now()
+            remaining = [name for name in remaining if self.unreal.find_object(None, name) is not None]
+            if not remaining:
+                break
+        return remaining
 
 
 class Context:
@@ -336,7 +358,7 @@ class Worker:
                 inputs[item['name']] = str(source) if present else None
         if staged:
             self.editor.scan(staged)
-        self.settings = self.editor.settings_digest()
+        self.settings = self.editor.settings()
         self.editor.begin_job()
         recording = True
         try:
@@ -350,8 +372,17 @@ class Worker:
         finally:
             if recording:
                 touched.update(item['package'] for item in self.editor.saved_packages())
-        names = {item['package'] for item in saved}
+        files_of = {}
+        for item in saved:  # a rename saves the same package twice to the same file: one save
+            files_of.setdefault(item['package'], set()).add(item['filename'])
+        names = set(files_of)
         touched.update(names | packages)
+        split = sorted(name for name, files in files_of.items() if len(files) > 1)
+        if split:
+            raise JobRefused('dependency', f'saved packages to more than one file: {split}')
+        ensures = self.editor.ensures()
+        if ensures:
+            raise JobRefused('job', f'the editor reported {ensures} failed ensure(s) during the job')
         if names - packages:
             raise JobRefused('dependency', f'saved undeclared packages: {sorted(names - packages)}')
         if required - names:
@@ -406,8 +437,14 @@ class Worker:
             problems.append(f'/Game packages still loaded: {self.editor.loaded_game_packages()}')
         if self.editor.registry_game_assets():
             problems.append('the asset registry still lists /Game assets')
-        if getattr(self, 'settings', None) is not None and self.editor.settings_digest() != self.settings:
-            problems.append('the job changed editor settings or CVars')
+        before = getattr(self, 'settings', None)
+        if before is not None:
+            after = self.editor.settings()
+            changed = sorted(name for name, value in before.items() if after.get(name) != value)
+            # A variable registered during the job (a module loaded on demand) may stay only at its default.
+            moved = sorted(name for name, value in after.items() if name not in before and value[1] != 'Constructor')
+            if changed or moved:
+                problems.append(f'the job changed editor settings: {(changed + moved)[:8]}')
         self.settings = None
         return '; '.join(problems) or None
 
