@@ -1,0 +1,734 @@
+//! Concrete fixed-output Python authority for the static A9 scheduler.
+//! Lifecycle, key encoding, snapshots, publication and installation remain owned by their adapters.
+use crate::checkout_locks::BuildGuard;
+use crate::completion::{CompletionWork, FrozenCompletion};
+use crate::graph::BuildGraph;
+use crate::groups::ValidatedGroup;
+use crate::install::{
+    CheckoutInstaller, CurrentIdentities, InstallError, LeaseIdentity, OwnershipSnapshot,
+    ReceiptReader, RestoreLookup, RestorePlan,
+};
+use crate::integrity::{
+    CompletionDecision, LocalOutputStatus, LookupDecision, NonHitReason, classify_completion,
+    classify_lookup_result,
+};
+use crate::keys::{InputPayload, PreparedInput, PreparedUnit};
+use crate::leases::ProcessIdentity;
+use crate::py_data::{check_py_data_unit_identity, validate_py_data_unit_outputs};
+use crate::results::{
+    RecordedIdentities, ResultEnvelope, ResultError, ResultStore, WriteTransaction,
+};
+use crate::scheduler::{
+    Backend, CheckedView, Demand, Effects, FinalDemands, InputFailure, Lookup, Publication,
+    Published, StagedInputs, Work,
+};
+use crate::schema::{ContentSource, Destination, Input, Provenance, StoredItem};
+use crate::staging::{self, ObjectSource, SourceError, SourceErrorKind, StageError, StagedJob};
+use crate::store::ObjectDigest;
+use crate::validate::SourceSnapshot;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::rc::Rc;
+
+/// Counters describe real adapter operations, separate from the scheduler's semantic counters.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PythonIo {
+    pub cache_opens: usize,
+    pub cache_lookups: usize,
+    pub staged_jobs: usize,
+    pub input_clones: usize,
+    pub launches: usize,
+    pub worker_files_written: usize,
+    pub publications: usize,
+    pub installs: usize,
+    pub receipt_writes: usize,
+}
+
+/// Only this backend constructs a checked view. The origin remains private and sealed.
+pub struct PythonChecked {
+    unit: String,
+    key: String,
+    items: Vec<StoredItem>,
+    current: bool,
+}
+
+/// Caller-owned cache and checkout policy; opening either stays lazy behind Current.
+pub struct CacheAccess {
+    pub results: ResultStore,
+    pub checkout: CheckoutInstaller,
+}
+
+enum Origin {
+    Current(CurrentIdentities),
+    Recorded {
+        transaction: WriteTransaction,
+        record: RecordedIdentities,
+    },
+    Cached {
+        transaction: WriteTransaction,
+        envelope: ResultEnvelope,
+    },
+    Local(FrozenCompletion),
+    Installed(RestorePlan),
+}
+
+struct SelectedSource {
+    producer: String,
+    item: String,
+    input: PreparedInput,
+}
+
+struct PythonSources<'a> {
+    origins: RefCell<&'a mut BTreeMap<String, Origin>>,
+    prepared: &'a BTreeMap<String, PreparedUnit>,
+    reader: &'a ReceiptReader,
+    guard: &'a BuildGuard,
+    selected: BTreeMap<String, SelectedSource>,
+    io: &'a Rc<RefCell<PythonIo>>,
+}
+
+fn same_view(input: &PreparedInput, stored: &StoredItem) -> Result<(), String> {
+    let InputPayload::Item {
+        logical_path,
+        class,
+        files,
+    } = &input.payload
+    else {
+        return Err("selected source is not an item input".into());
+    };
+    let mut expected = files.clone();
+    let mut actual = stored.files.clone();
+    expected.sort_by(|a, b| a.path.cmp(&b.path));
+    actual.sort_by(|a, b| a.path.cmp(&b.path));
+    if *logical_path != stored.item.logical_path
+        || *class != stored.item.class
+        || expected != actual
+    {
+        return Err("selected source differs from prepared input view".into());
+    }
+    Ok(())
+}
+
+impl ObjectSource for PythonSources<'_> {
+    fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError> {
+        let refusal = |kind, message: String| SourceError {
+            kind,
+            digest: digest.clone(),
+            message,
+        };
+        let selected = self.selected.get(digest.as_hex()).ok_or_else(|| {
+            refusal(
+                SourceErrorKind::Unavailable,
+                "digest outside selected input views".into(),
+            )
+        })?;
+        let mut origins = self.origins.borrow_mut();
+        let origin = origins.get_mut(&selected.producer).ok_or_else(|| {
+            refusal(
+                SourceErrorKind::Unavailable,
+                "producer source authority absent".into(),
+            )
+        })?;
+        let stored = |envelope: &ResultEnvelope| {
+            let item = envelope
+                .result
+                .outputs
+                .iter()
+                .find(|item| item.item.id == selected.item)
+                .ok_or_else(|| {
+                    refusal(SourceErrorKind::Unavailable, "selected item absent".into())
+                })?;
+            same_view(&selected.input, item)
+                .map_err(|message| refusal(SourceErrorKind::Changed, message))
+        };
+        let outcome = match origin {
+            Origin::Current(observed) => {
+                let producer = self.prepared.get(&selected.producer).ok_or_else(|| {
+                    refusal(
+                        SourceErrorKind::Unavailable,
+                        "prepared producer absent".into(),
+                    )
+                })?;
+                if observed.key() != producer.key() {
+                    return Err(refusal(
+                        SourceErrorKind::Changed,
+                        "Current identity changed".into(),
+                    ));
+                }
+                let current = self
+                    .reader
+                    .pin_current_sources(self.guard, producer)
+                    .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
+                    .ok_or_else(|| {
+                        refusal(
+                            SourceErrorKind::Changed,
+                            "producer is no longer Current".into(),
+                        )
+                    })?;
+                current
+                    .objects_for(&[&selected.input])
+                    .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
+                    .clone_object(digest, destination)
+            }
+            Origin::Recorded {
+                transaction,
+                record,
+            } => {
+                stored(record.result())?;
+                transaction
+                    .pin_recorded_items(record, &[selected.item.as_str()])
+                    .map_err(|error| refusal(SourceErrorKind::Unavailable, error.to_string()))?
+                    .clone_object(digest, destination)
+            }
+            Origin::Cached {
+                transaction,
+                envelope,
+            } => {
+                stored(envelope)?;
+                transaction
+                    .pinned_objects()
+                    .clone_object(digest, destination)
+            }
+            Origin::Local(completion) => completion
+                .objects_for(&[&selected.input])
+                .map_err(|message| refusal(SourceErrorKind::Changed, message))?
+                .clone_object(digest, destination),
+            Origin::Installed(plan) => {
+                stored(plan.result())?;
+                if let Some(completion) = plan.local_completion() {
+                    completion
+                        .objects_for(&[&selected.input])
+                        .map_err(|message| refusal(SourceErrorKind::Changed, message))?
+                        .clone_object(digest, destination)
+                } else {
+                    plan.cached_sources()
+                        .ok_or_else(|| {
+                            refusal(
+                                SourceErrorKind::Unavailable,
+                                "installed source custody already finished".into(),
+                            )
+                        })?
+                        .clone_object(digest, destination)
+                }
+            }
+        };
+        if outcome.is_ok() {
+            self.io.borrow_mut().input_clones += 1;
+        }
+        outcome
+    }
+}
+
+/// The original optional CAS miss ticket; local write custody starts before staging, not at Run.
+pub struct PythonTicket {
+    transaction: Option<WriteTransaction>,
+    local: Option<CompletionWork>,
+    cache_failure: Option<ResultError>,
+}
+
+pub struct PythonInputs {
+    pub(crate) staged: StagedJob,
+    pub(crate) io: Rc<RefCell<PythonIo>>,
+}
+
+/// Only the lifecycle adapter issues this after a completed reply AND confirmed cleanup.
+pub struct PythonCompletion {
+    pub(crate) reported: Vec<String>,
+}
+impl PythonTicket {
+    pub(crate) fn register(&mut self, process: &ProcessIdentity) -> Result<(), String> {
+        self.local
+            .as_mut()
+            .ok_or("local lease missing before Run")?
+            .add_worker(process.clone())
+            .map_err(|error| error.to_string())?;
+        if let Some(transaction) = &mut self.transaction {
+            transaction
+                .add_worker(process.clone())
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+}
+
+pub struct PythonBackend<'a> {
+    graph: &'a BuildGraph,
+    snapshot: &'a SourceSnapshot,
+    reader: &'a ReceiptReader,
+    guard: &'a BuildGuard,
+    ownership: &'a OwnershipSnapshot,
+    owner: ProcessIdentity,
+    provenance: Provenance,
+    open_cache: Box<dyn FnMut() -> Result<CacheAccess, InstallError> + 'a>,
+    root: Box<dyn FnMut(&ResultEnvelope) -> Result<(), String> + 'a>,
+    origins: BTreeMap<String, Origin>,
+    prepared: BTreeMap<String, PreparedUnit>,
+    empty_groups: BTreeMap<String, ValidatedGroup>,
+    io: Rc<RefCell<PythonIo>>,
+}
+
+impl<'a> PythonBackend<'a> {
+    pub fn new(
+        graph: &'a BuildGraph,
+        snapshot: &'a SourceSnapshot,
+        reader: &'a ReceiptReader,
+        guard: &'a BuildGuard,
+        ownership: &'a OwnershipSnapshot,
+        owner: ProcessIdentity,
+        provenance: Provenance,
+        open_cache: impl FnMut() -> Result<CacheAccess, InstallError> + 'a,
+        root: impl FnMut(&ResultEnvelope) -> Result<(), String> + 'a,
+    ) -> Self {
+        Self {
+            graph,
+            snapshot,
+            reader,
+            guard,
+            ownership,
+            owner,
+            provenance,
+            open_cache: Box::new(open_cache),
+            root: Box::new(root),
+            origins: BTreeMap::new(),
+            prepared: BTreeMap::new(),
+            empty_groups: BTreeMap::new(),
+            io: Rc::new(RefCell::new(PythonIo::default())),
+        }
+    }
+
+    fn unit_id(unit: &PreparedUnit) -> String {
+        unit.request("identity", "").unit
+    }
+
+    pub fn io(&self) -> PythonIo {
+        self.io.borrow().clone()
+    }
+
+    /// End source custody after every dependent's staging has finished. A failed root keeps claims.
+    /// Local not-cached proofs remain independent artifacts; this never upgrades them to Stored.
+    pub fn finish(mut self) -> Result<PythonIo, Vec<String>> {
+        let mut failures = vec![];
+        for (id, origin) in std::mem::take(&mut self.origins) {
+            let outcome = match origin {
+                Origin::Recorded {
+                    transaction,
+                    record,
+                } => transaction
+                    .retain_recorded(&record, |result| (self.root)(result))
+                    .map(|_| ())
+                    .map_err(|error| error.to_string()),
+                Origin::Cached { transaction, .. } => transaction
+                    .retain_hit(|result| (self.root)(result))
+                    .map(|_| ())
+                    .map_err(|error| error.to_string()),
+                Origin::Installed(mut plan) => plan
+                    .finish_sources(|result| (self.root)(result))
+                    .map_err(|error| error.to_string()),
+                Origin::Current(_) | Origin::Local(_) => Ok(()),
+            };
+            if let Err(error) = outcome {
+                failures.push(format!("{id}: {error}"));
+            }
+        }
+        if failures.is_empty() {
+            Ok(self.io())
+        } else {
+            Err(failures)
+        }
+    }
+
+    fn identity(&self, unit: &PreparedUnit) -> Result<LeaseIdentity, String> {
+        let id = Self::unit_id(unit);
+        let declaration = self
+            .graph
+            .unit(&id)
+            .ok_or("prepared unit outside backend graph")?;
+        let mut upstream = BTreeSet::new();
+        for input in &declaration.inputs {
+            let producer = match input {
+                Input::Content {
+                    source:
+                        ContentSource::Item { unit, .. } | ContentSource::GroupMember { unit, .. },
+                    ..
+                } => Some(unit),
+                Input::Reference {
+                    producer: Some(producer),
+                    ..
+                } => Some(&producer.unit),
+                _ => None,
+            };
+            if let Some(producer) = producer {
+                upstream.insert(
+                    self.prepared
+                        .get(producer)
+                        .ok_or_else(|| format!("missing protected producer identity: {producer}"))?
+                        .key()
+                        .to_string(),
+                );
+            }
+        }
+        Ok(LeaseIdentity {
+            provenance: self.provenance.clone(),
+            owner: self.owner.clone(),
+            workers: vec![],
+            upstream_result_keys: upstream,
+        })
+    }
+
+    fn checked(&self, unit: &PreparedUnit, items: Vec<StoredItem>, current: bool) -> PythonChecked {
+        PythonChecked {
+            unit: Self::unit_id(unit),
+            key: unit.key().into(),
+            items,
+            current,
+        }
+    }
+
+    /// Exact declared identity lookup, with no implicit upstream materialization.
+    fn resolve(
+        &mut self,
+        unit: &PreparedUnit,
+        final_demands: &FinalDemands,
+    ) -> Result<Lookup<PythonChecked, PythonTicket>, String> {
+        check_py_data_unit_identity(unit)?;
+        let id = Self::unit_id(unit);
+        if self.prepared.contains_key(&id) {
+            return Err(format!("duplicate backend lookup: {id}"));
+        }
+        self.prepared.insert(id.clone(), unit.clone());
+        // Current is deliberately a checkout subset, never an assertion that store-only siblings exist.
+        if !final_demands.contains(&Demand::Stored)
+            && unit
+                .ingredients()
+                .logical_outputs
+                .iter()
+                .any(|item| item.destination == Destination::Checkout)
+        {
+            if let Some(current) = self
+                .reader
+                .current_identities(self.guard, unit)
+                .map_err(|error| error.to_string())?
+            {
+                let checked = self.checked(unit, current.items().to_vec(), true);
+                self.origins.insert(id, Origin::Current(current));
+                return Ok(Lookup::Current(checked));
+            }
+        }
+        let identity = self.identity(unit)?;
+        self.io.borrow_mut().cache_opens += 1;
+        let cache = match (self.open_cache)() {
+            Ok(cache) => cache,
+            Err(InstallError::Cache(error)) => return Ok(Self::miss(error, None)),
+            Err(error) => return Err(error.to_string()),
+        };
+        if final_demands.contains(&Demand::Checkout) {
+            self.io.borrow_mut().cache_lookups += 1;
+            return match cache.checkout.lookup_restore(
+                self.guard,
+                unit,
+                identity,
+                self.ownership,
+                vec![],
+            ) {
+                Ok(RestoreLookup::Hit(plan)) => {
+                    let checked = self.checked(unit, plan.result().result.outputs.clone(), false);
+                    self.origins.insert(id, Origin::Installed(plan));
+                    Ok(Lookup::Hit(checked))
+                }
+                Ok(RestoreLookup::Miss(transaction)) => Ok(Lookup::Miss {
+                    reason: NonHitReason::MissingRecord,
+                    ticket: PythonTicket {
+                        transaction: Some(transaction),
+                        local: None,
+                        cache_failure: None,
+                    },
+                }),
+                Err(InstallError::Cache(error)) => Ok(Self::miss(error, None)),
+                Err(error) => Err(error.to_string()),
+            };
+        }
+        let mut transaction = match cache.results.begin(
+            unit,
+            identity.provenance,
+            identity.owner,
+            identity.workers,
+            identity.upstream_result_keys,
+        ) {
+            Ok(transaction) => transaction,
+            Err(error) => return Ok(Self::miss(error, None)),
+        };
+        self.io.borrow_mut().cache_lookups += 1;
+        if final_demands.is_empty() {
+            match transaction.lookup_recorded() {
+                Ok(Some(record)) => {
+                    let checked = self.checked(unit, record.result().result.outputs.clone(), false);
+                    self.origins.insert(
+                        id,
+                        Origin::Recorded {
+                            transaction,
+                            record,
+                        },
+                    );
+                    return Ok(Lookup::Recorded(checked));
+                }
+                Ok(None) => {}
+                Err(error) => return Ok(Self::miss(error, Some(transaction))),
+            }
+        } else {
+            match transaction.lookup_groups() {
+                Ok(Some((envelope, groups))) => {
+                    if !groups.is_empty() {
+                        return Err("dynamic groups outside static Python backend".into());
+                    }
+                    let checked = self.checked(unit, envelope.result.outputs.clone(), false);
+                    self.origins.insert(
+                        id,
+                        Origin::Cached {
+                            transaction,
+                            envelope,
+                        },
+                    );
+                    return Ok(Lookup::Hit(checked));
+                }
+                Ok(None) => {}
+                Err(error) => return Ok(Self::miss(error, Some(transaction))),
+            }
+        }
+        Ok(Lookup::Miss {
+            reason: NonHitReason::MissingRecord,
+            ticket: PythonTicket {
+                transaction: Some(transaction),
+                local: None,
+                cache_failure: None,
+            },
+        })
+    }
+
+    fn miss(
+        error: ResultError,
+        transaction: Option<WriteTransaction>,
+    ) -> Lookup<PythonChecked, PythonTicket> {
+        let outcome: Result<Option<()>, ResultError> = Err(error);
+        let LookupDecision::Miss(reason) = classify_lookup_result(&outcome) else {
+            unreachable!()
+        };
+        Lookup::Miss {
+            reason,
+            ticket: PythonTicket {
+                transaction,
+                local: None,
+                cache_failure: outcome.err(),
+            },
+        }
+    }
+}
+
+impl Backend for PythonBackend<'_> {
+    type Checked = PythonChecked;
+    type Ticket = PythonTicket;
+    type Inputs = PythonInputs;
+    type Completion = PythonCompletion;
+
+    fn lookup(
+        &mut self,
+        unit: &PreparedUnit,
+        demand: &FinalDemands,
+    ) -> Result<Lookup<PythonChecked, PythonTicket>, String> {
+        self.resolve(unit, demand)
+    }
+
+    fn view<'a>(&'a self, checked: &'a PythonChecked) -> CheckedView<'a> {
+        CheckedView {
+            key: &checked.key,
+            items: &checked.items,
+            groups: &self.empty_groups,
+        }
+    }
+
+    fn into_outputs(
+        &mut self,
+        checked: PythonChecked,
+    ) -> (Vec<StoredItem>, BTreeMap<String, ValidatedGroup>) {
+        (checked.items, BTreeMap::new())
+    }
+
+    /// @cc [owner:fontanierh,label:correctness] conditional-python-input-authority
+    /// Only an actual miss MUST stage selected input views, using its original cache ticket and
+    /// local pre-write lease. Current sources MUST be reacquired/revalidated and all read guards/FDs
+    /// dropped before returning independent StagedJob files. Recorded metadata MUST not authorize
+    /// bytes without selected named-object checks/durable pins. Source changes MUST refuse before
+    /// dispatch, never invent a Stored hit or rerun a healthy identity-known producer.
+    /// See python_backend::tests (T1a pending); dynamic source materialization remains separate.
+    fn prepare_inputs(
+        &mut self,
+        unit: &PreparedUnit,
+        ticket: &mut PythonTicket,
+    ) -> Result<StagedInputs<PythonInputs>, InputFailure> {
+        if ticket.local.is_some() {
+            return Err(InputFailure::Invalid("job already staged".into()));
+        }
+        let identity = self.identity(unit).map_err(InputFailure::Invalid)?;
+        ticket.local = Some(
+            self.reader
+                .begin_completion(self.guard, unit, identity)
+                .map_err(|error| InputFailure::Invalid(error.to_string()))?,
+        );
+        let declaration = self
+            .graph
+            .unit(&Self::unit_id(unit))
+            .ok_or_else(|| InputFailure::Invalid("missing declared unit".into()))?;
+        let mut selected = BTreeMap::new();
+        for input in unit.inputs() {
+            let InputPayload::Item { files, .. } = &input.payload else {
+                continue;
+            };
+            let Some(Input::Content {
+                source:
+                    ContentSource::Item {
+                        unit: producer,
+                        item,
+                    },
+                ..
+            }) = declaration.inputs.iter().find(|declared| {
+                matches!(declared,
+                    Input::Content { name, .. } if *name == input.wire.name)
+            })
+            else {
+                return Err(InputFailure::Invalid(
+                    "unsupported static item source".into(),
+                ));
+            };
+            for file in files {
+                selected
+                    .entry(file.digest.clone())
+                    .or_insert_with(|| SelectedSource {
+                        producer: producer.clone(),
+                        item: item.clone(),
+                        input: input.clone(),
+                    });
+            }
+        }
+        let local = ticket.local.as_ref().unwrap();
+        let sources = PythonSources {
+            origins: RefCell::new(&mut self.origins),
+            prepared: &self.prepared,
+            reader: self.reader,
+            guard: self.guard,
+            selected,
+            io: &self.io,
+        };
+        let staged = staging::stage(
+            unit,
+            self.snapshot,
+            &sources,
+            &local.job_dir(),
+            &local.lease().id,
+        )
+        .map_err(|error| match error {
+            StageError::Source(error) if error.kind == SourceErrorKind::Changed => {
+                InputFailure::Changed(error.to_string())
+            }
+            StageError::Source(error) => InputFailure::Unavailable(error.to_string()),
+            StageError::Staging(message) => InputFailure::Invalid(message),
+        })?;
+        drop(sources);
+        self.io.borrow_mut().staged_jobs += 1;
+        Ok(StagedInputs {
+            inputs: PythonInputs {
+                staged,
+                io: self.io.clone(),
+            },
+            staged_units: 1,
+        })
+    }
+
+    fn publish(
+        &mut self,
+        work: Work<PythonTicket, PythonInputs>,
+        completed: PythonCompletion,
+    ) -> Result<Published<PythonChecked>, String> {
+        let unit = work.prepared().clone();
+        let id = work.unit().to_string();
+        let (mut ticket, inputs) = work.into_parts();
+        let actual = staging::collect_outputs(&inputs.staged, &completed.reported)?;
+        let mut frozen = ticket
+            .local
+            .take()
+            .ok_or("completed work has no local lease")?
+            .freeze(
+                actual,
+                |outputs| validate_py_data_unit_outputs(&unit, outputs),
+                |_, _, _| Err("dynamic groups outside static Python backend".into()),
+            )
+            .map_err(|error| error.to_string())?;
+        let publication = match ticket.transaction.take() {
+            Some(transaction) => frozen.publish_with(transaction, |result| (self.root)(result)),
+            None => Err(ticket
+                .cache_failure
+                .unwrap_or_else(|| ResultError::Io(std::io::Error::other("cache unavailable")))),
+        };
+        let decision = classify_completion(LocalOutputStatus::Valid, publication);
+        let publication = match decision {
+            CompletionDecision::Cached => Publication::Cached,
+            CompletionDecision::CompletedNotCached(reason) => {
+                Publication::NotCached(format!("{reason:?}"))
+            }
+            CompletionDecision::FailUnit(reason) => {
+                return Err(format!("Python output refused: {reason:?}"));
+            }
+        };
+        let checked = self.checked(&unit, frozen.result().result.outputs.clone(), false);
+        self.origins.insert(id, Origin::Local(frozen));
+        self.io.borrow_mut().publications += 1;
+        Ok(Published {
+            checked,
+            publication,
+        })
+    }
+
+    fn settle(
+        &mut self,
+        unit: &PreparedUnit,
+        checked: &mut PythonChecked,
+        demand: &FinalDemands,
+    ) -> Result<Effects, String> {
+        if !demand.contains(&Demand::Checkout) || checked.current {
+            return Ok(Effects::default());
+        }
+        let origin = self
+            .origins
+            .remove(&checked.unit)
+            .ok_or("checked source authority missing")?;
+        let mut plan = match origin {
+            Origin::Installed(plan) => plan,
+            Origin::Local(completion) => self
+                .reader
+                .prepare_local(self.guard, completion, self.ownership, vec![])
+                .map_err(|error| error.to_string())?,
+            _ => {
+                return Err(
+                    "Checkout requires an original restore plan or sealed local completion".into(),
+                );
+            }
+        };
+        plan.commit_with_sources(self.guard, |result| (self.root)(result))
+            .map_err(|error| error.to_string())?;
+        let receipts = unit
+            .ingredients()
+            .logical_outputs
+            .iter()
+            .filter(|item| item.destination == Destination::Checkout)
+            .count();
+        self.origins
+            .insert(checked.unit.clone(), Origin::Installed(plan));
+        let mut io = self.io.borrow_mut();
+        io.installs += 1;
+        io.receipt_writes += receipts;
+        Ok(Effects {
+            installed_units: 1,
+            receipt_writes: receipts,
+            staged_units: 0,
+        })
+    }
+}

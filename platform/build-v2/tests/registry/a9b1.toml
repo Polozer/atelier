@@ -1,6 +1,14 @@
 schema_version = 1
 
 [[scenarios]]
+id = "a9b1.worker_identity_binds_all_explicit_implementation_bytes_and_refuses_incomplete_views"
+tests = ["atelier-build-v2::python_worker_bundle/worker_identity_binds_all_explicit_implementation_bytes_and_refuses_incomplete_views"]
+
+[[scenarios]]
+id = "a9b1.command_loads_private_readonly_worker_bytes_bound_before_locator_changes"
+tests = ["atelier-build-v2/python_worker::tests::command_loads_private_readonly_worker_bytes_bound_before_locator_changes"]
+
+[[scenarios]]
 id = "a9b1.edit_between_source_read_and_observation_refuses_the_entire_snapshot"
 tests = ["atelier-build-v2/python_sources::tests::edit_between_source_read_and_observation_refuses_the_entire_snapshot"]
 

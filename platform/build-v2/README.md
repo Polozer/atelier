@@ -681,6 +681,24 @@ frozen bytes, and dispatches payload format validation strictly on the declared 
 `RouteData` finite waypoints and monotone distances, `RuntimeData` `ATD1\x01` binary tables,
 and non-empty `Data`).
 
+## Static Python backend checkpoint (A9b1, unused)
+
+`python_backend` implements the existing static scheduler's authority, conditional input staging,
+and per-unit frozen publication/local installation using B2/B3/B7 and the D1 validator. Internal
+Recorded identity, short-lived Current observation and explicit Stored/Checkout requirements stay
+separate. `finish` ends retained source custody after all consumers have staged. Explicit named source
+capture supplies complete descriptor observations; later live-edit acceptance remains A6 work.
+
+`python_worker` binds exactly the frozen worker, job bootstrap and protocol files into its implementation
+identity, then materializes those same files read-only under each unit's local lease. Installed Python
+and dependencies remain platform context. `python_executor` uses C5b's existing lifecycle and refuses
+production dispatch until actual custodian registration is available; its scripted-bridge constructor
+exists only in test builds. Scripted admission cannot prove real guarded batching or cleanup custody.
+
+This checkpoint is not ready for cutover: real sandbox/I/O T1a cases and independent-harness integration
+are being added. Dynamic cold targets, conditional regeneration of unavailable recorded payloads,
+cross-process retirement, A6 fencing, resident guarded batching and I1 caller activation remain pending.
+
 Selected downstream source custody: `WriteTransaction::pin_recorded_items` checks/pins only requested
 fixed item IDs from its same-store `RecordedIdentities`. `pinned_objects` exposes existing claims;
 both return borrowed clone-only providers. `retain_recorded` roots checked metadata and releases its
