@@ -277,13 +277,15 @@ fn encoded_discovery_keeps_roles_and_complete_render_collision_totals() {
             mode: 0o644,
         },
     ];
+    let roster = parse_manifest(&group, &bytes, &members).unwrap();
+    assert_eq!(roster.stored().projections.len(), 2);
     assert_eq!(
-        parse_manifest(&group, &bytes, &members)
-            .unwrap()
-            .stored()
-            .projections
-            .len(),
-        2
+        roster.stored().projections["Render"].role,
+        Some(EncodedRole::Render)
+    );
+    assert_eq!(
+        roster.stored().projections["Collision"].role,
+        Some(EncodedRole::Collision)
     );
     for field in ["source_render_triangles", "source_collision_triangles"] {
         let mut changed = value.clone();

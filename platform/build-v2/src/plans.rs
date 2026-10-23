@@ -228,7 +228,8 @@ impl RegisteredTemplate {
     /// Child op/script/code MUST come only from the registered template, with one
     /// GroupMember dependency per piece. Removal intents MUST contain only exact
     /// prior receipt-owned outputs; they MUST NOT delete files or infer prefix ownership.
-    /// See plans::tests. Actual planner dispatch and safe install removal remain D2/A9/B3.
+    /// See plans::tests. Actual dispatch remains D2/A9; downstream installed ownership and
+    /// safe native removals remain D4/A5/B3. These intents identify prior export Items only.
     pub fn expand(
         &self,
         base: &BuildGraph,

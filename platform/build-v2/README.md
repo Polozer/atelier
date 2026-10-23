@@ -350,7 +350,7 @@ physical sandbox boundaries; these APIs do not implement a worker or a filesyste
 
 `plans::RegisteredTemplate` binds a programmatic `ChildTemplate` to a fixed planner/group contract.
 The template supplies the exporter op, script, explicit code closure, parameters, staged payload slot
-and fixed output files. Plan rows supply only validated member metadata. A child uses a narrow
+and fixed store-only output files. Plan rows supply only validated member metadata. A child uses a narrow
 `GroupMember` dependency and stable `<unit_prefix>.<piece>` ID; its logical output ends in the same
 piece name. Export parameters name that selected member, encoding and certified role. No planner code closure,
 whole roster or producer input key enters the child contract. Key tests prove the pure identity
@@ -361,11 +361,12 @@ Cold child selection reports `NeedsPlanner` until validated membership exists, t
 children with the same global structural validator before returning a graph. It does not require
 unselected source observations. Its private in-process `ExpansionReceipt` records exact generated
 units. Re-expansion accepts that receipt only with the same template/contract and unchanged prior
-unit ownership. Removed children yield exact old-output `RemovalIntent`s, without deleting files or
+unit ownership. Removed children yield exact prior export-Item `RemovalIntent`s, without deleting files or
 inferring ownership from a prefix. A persisted previous group may be re-expanded to reconstruct its
 receipt; raw deserialization cannot mint one. Current D2 schema1 validation refuses zero-piece plans;
 retiring an entire empty family needs an explicit reviewed empty-plan contract.
 
 C1b still owns complete physical output reporting/sandboxing; D2 binds real recipe templates and A9
-schedules planners/children. B3 must preflight and apply any ownership removal. No worker execution,
+schedules planners/children. D4/A5 must supply downstream installed ownership/reference views before
+B3 can preflight and apply native-package removals; prior export Items alone do not certify those deletions. No worker execution,
 install/removal, production activation or native equivalence is claimed.
