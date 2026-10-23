@@ -1164,6 +1164,81 @@ fn retention_reports_a_missing_selected_project() {
 }
 
 #[test]
+fn a_fresh_open_of_a_deleted_project_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    drop(store);
+    fs::remove_dir_all(workspace.project_dir("yorimichi")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "a deleted project must never look like a fresh one: {error}"
+    );
+    assert!(
+        !workspace.project_dir("yorimichi").exists(),
+        "a fresh open must not recreate a registered project"
+    );
+}
+
+#[test]
+fn a_fresh_open_after_roots_is_deleted_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    drop(store);
+    fs::remove_dir_all(workspace.store().join("roots")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "losing all of roots/ must be damage: {error}"
+    );
+    assert!(
+        !workspace.store().join("roots").exists(),
+        "a fresh open must not recreate roots/"
+    );
+}
+
+#[test]
+fn a_missing_registry_with_roots_present_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    drop(store);
+    fs::remove_file(workspace.store().join("meta").join("projects.json")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "roots/ without its registry must be damage: {error}"
+    );
+}
+
+#[test]
+fn a_first_open_registers_the_project() {
+    let workspace = Workspace::new();
+    workspace.open("yorimichi");
+    let registry =
+        fs::read_to_string(workspace.store().join("meta").join("projects.json")).unwrap();
+    assert!(registry.contains("yorimichi"), "{registry}");
+
+    // A second project in the same store is a genuine first use, and it keeps the first record.
+    let store = workspace.open("hidamari");
+    assert_eq!(store.project(), "hidamari");
+    let registry =
+        fs::read_to_string(workspace.store().join("meta").join("projects.json")).unwrap();
+    assert!(registry.contains("yorimichi"), "{registry}");
+    assert!(registry.contains("hidamari"), "{registry}");
+
+    RootStore::open(workspace.store(), "yorimichi").unwrap();
+}
+
+#[test]
 fn crash_temporary_file_is_swept_and_does_not_damage() {
     let workspace = Workspace::new();
     let store = workspace.open("yorimichi");

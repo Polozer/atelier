@@ -22,6 +22,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const ROOT_VERSION: u32 = 1;
 pub const SESSION_VERSION: u32 = 1;
+/// Store-level record of initialized projects, kept beside `roots/`.
+pub const PROJECTS_VERSION: u32 = 1;
 /// DESIGN section 8 keeps the three most recent releases.
 pub const RELEASES_KEPT: usize = 3;
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -192,6 +194,66 @@ pub struct BuildSession {
     provenance: Provenance,
     id: String,
     journal: PathBuf,
+}
+
+/// One initialized project, kept in the store-level registry beside `roots/`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectRecord {
+    /// Unix seconds. Informational only; never part of cache identity.
+    created: u64,
+    /// Binds the record to this exact project name, so a hand-edited registry cannot move it.
+    digest: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectRegistry {
+    version: u32,
+    projects: BTreeMap<String, ProjectRecord>,
+}
+
+fn project_digest(project: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"atelier.build-v2.project\0");
+    hasher.update(project.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn registry_path(root: &Path) -> PathBuf {
+    root.join("meta").join("projects.json")
+}
+
+/// Reads the store-level registry. `None` means the store has never initialized a project.
+fn read_registry(root: &Path) -> Result<Option<ProjectRegistry>, RootError> {
+    let bytes = match fs::read(registry_path(root)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(damaged(format!("projects registry is unreadable: {error}"))),
+    };
+    let registry: ProjectRegistry = serde_json::from_slice(&bytes)
+        .map_err(|error| damaged(format!("projects registry is unreadable: {error}")))?;
+    if registry.version != PROJECTS_VERSION {
+        return Err(damaged(format!(
+            "unsupported projects registry version {}",
+            registry.version
+        )));
+    }
+    for (name, record) in &registry.projects {
+        if !valid_segment(name) || record.digest != project_digest(name) {
+            return Err(damaged(format!(
+                "projects registry entry {name} is invalid"
+            )));
+        }
+    }
+    Ok(Some(registry))
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 fn invalid(message: impl Into<String>) -> RootError {
@@ -454,11 +516,16 @@ impl RootStore {
     /// @cc [owner:fontanierh,label:correctness] build-v2-root-store
     /// Opening MUST require an existing trusted store root, refuse a missing one, and name one
     /// explicit project. Initialization MUST run under the shared metadata mutex and MUST fsync
-    /// every created ancestor before any publication can root a result. Reopening an initialized
-    /// project MUST NOT recreate missing metadata: a vanished directory is damage. Readers MUST be
-    /// callable with the caller's already-held guard so GC can read retention, leases and decide
-    /// deletions under one lock hold. See tests/roots.rs `missing_store_root_is_refused`,
-    /// `reopening_a_project_with_missing_metadata_is_damage`,
+    /// every created ancestor before any publication can root a result. An initialized project is
+    /// never recreated: the store records every initialized project beside `roots/`, so a fresh
+    /// open after the project directory, all of `roots/` or that record is lost is damage rather
+    /// than a silent empty project. Readers MUST be callable with the caller's already-held guard
+    /// so GC can read retention, leases and decide deletions under one lock hold. See tests/roots.rs
+    /// `missing_store_root_is_refused`, `reopening_a_project_with_missing_metadata_is_damage`,
+    /// `a_fresh_open_of_a_deleted_project_is_damage`,
+    /// `a_fresh_open_after_roots_is_deleted_is_damage`,
+    /// `a_missing_registry_with_roots_present_is_damage`,
+    /// `a_first_open_registers_the_project`,
     /// `retention_is_readable_under_the_callers_guard` and
     /// `a_hit_release_is_visible_to_a_guarded_gc_read`.
     pub fn open(
@@ -487,8 +554,39 @@ impl RootStore {
         let _guard = store.leases.lock()?;
         let roots = store.root.join("roots");
         let base = store.project_dir();
-        match fs::symlink_metadata(&base) {
-            Ok(metadata) if metadata.is_dir() => {
+        let roots_present = match fs::symlink_metadata(&roots) {
+            Ok(metadata) if metadata.is_dir() => true,
+            Ok(_) => return Err(invalid("roots metadata is not a directory")),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        let base_present = match fs::symlink_metadata(&base) {
+            Ok(metadata) if metadata.is_dir() => true,
+            Ok(_) => return Err(invalid("project metadata is not a directory")),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        let registry = read_registry(&store.root)?;
+        if let Some(registry) = registry.as_ref() {
+            if !roots_present {
+                return Err(damaged(
+                    "projects registry exists but roots metadata is missing",
+                ));
+            }
+            let registered = registry.projects.contains_key(&store.project);
+            if registered && !base_present {
+                return Err(damaged(format!(
+                    "initialized project {} lost its roots metadata",
+                    store.project
+                )));
+            }
+            if !registered && base_present {
+                return Err(damaged(format!(
+                    "project {} has roots metadata but is not registered",
+                    store.project
+                )));
+            }
+            if registered {
                 for kind in ["worktree", "release", "pin", "session", "tmp"] {
                     let path = base.join(kind);
                     match fs::symlink_metadata(&path) {
@@ -501,27 +599,34 @@ impl RootStore {
                         }
                     }
                 }
+                return Ok(store);
             }
-            Ok(_) => return Err(invalid("project metadata is not a directory")),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                match fs::symlink_metadata(&roots) {
-                    Ok(metadata) if metadata.is_dir() => {}
-                    Ok(_) => return Err(invalid("roots metadata is not a directory")),
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                        fs::create_dir(&roots)?;
-                        sync_dir(&store.root)?;
-                    }
-                    Err(error) => return Err(error.into()),
-                }
-                fs::create_dir(&base)?;
-                sync_dir(&roots)?;
-                for kind in ["worktree", "release", "pin", "session", "tmp"] {
-                    fs::create_dir(base.join(kind))?;
-                }
-                sync_dir(&base)?;
-            }
-            Err(error) => return Err(error.into()),
+        } else if roots_present {
+            return Err(damaged("roots metadata exists without a projects registry"));
         }
+        // Genuine first use of this project: create its tree, then record it durably.
+        if !roots_present {
+            fs::create_dir(&roots)?;
+            sync_dir(&store.root)?;
+        }
+        fs::create_dir(&base)?;
+        sync_dir(&roots)?;
+        for kind in ["worktree", "release", "pin", "session", "tmp"] {
+            fs::create_dir(base.join(kind))?;
+        }
+        sync_dir(&base)?;
+        let mut registry = registry.unwrap_or(ProjectRegistry {
+            version: PROJECTS_VERSION,
+            projects: BTreeMap::new(),
+        });
+        registry.projects.insert(
+            store.project.clone(),
+            ProjectRecord {
+                created: unix_seconds(),
+                digest: project_digest(&store.project),
+            },
+        );
+        store.write_registry(&registry)?;
         Ok(store)
     }
 
@@ -536,6 +641,48 @@ impl RootStore {
 
     fn project_dir(&self) -> PathBuf {
         self.root.join("roots").join(&self.project)
+    }
+
+    /// Publishes the store-level registry under the caller's metadata guard: temp file, fsync,
+    /// rename, then the directory fsync, so a registered project is never silently recreated.
+    fn write_registry(&self, registry: &ProjectRegistry) -> Result<(), RootError> {
+        let meta = self.root.join("meta");
+        let created = match fs::create_dir(&meta) {
+            Ok(()) => {
+                sync_dir(&self.root)?;
+                true
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
+            Err(error) => return Err(error.into()),
+        };
+        if !fs::symlink_metadata(&meta)?.is_dir() {
+            return Err(invalid(
+                "projects registry directory is not a real directory",
+            ));
+        }
+        let bytes = serde_json::to_vec(registry).map_err(|error| invalid(error.to_string()))?;
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        let temporary = meta.join(format!("projects-{}-{serial}.tmp", std::process::id()));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        if let Err(error) = fs::rename(&temporary, registry_path(&self.root)) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+        sync_dir(&meta)?;
+        if created {
+            sync_dir(&self.root)?;
+        }
+        Ok(())
     }
 
     fn path(&self, kind: &RootKind) -> Result<PathBuf, RootError> {

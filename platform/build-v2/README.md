@@ -438,6 +438,14 @@ writes. A root is a map from the unit's scheduling label to that unit's last res
 entry keeps the provenance of the session that wrote it; `RootRecord::provenance` describes
 only the most recent merge. Roots and provenance never enter cache identity.
 
+Beside `roots/`, the store keeps `meta/projects.json`: every initialized project with a
+creation time and a digest bound to its exact name. The first time a project is initialized,
+`open` writes that record under the metadata guard with a temporary file, fsync, rename and a
+parent-directory fsync. A registered project is never recreated: a fresh `open` after
+`roots/<project>`, all of `roots/` or the registry itself is lost is damage, so retention can
+never report a silently empty project. No production v2 store exists yet, so a store built before
+this record (with `roots/` but no registry) also reads as damage: there is no silent migration.
+
 `RootStore::begin_session(target, provenance, owner)` creates a build session whose header
 records the owner identity. `BuildSession::use_result` appends `(unit, key)` to an
 append-only journal and fsyncs it; `root_callback(unit)` is the exact
