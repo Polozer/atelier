@@ -631,6 +631,12 @@ def set_if_changed(asset, name, value):
         raise RuntimeError('Native property did not persist: ' + name)
 
 
+def without_navigation(mesh):
+    """For a game with no navigation: owner finishing drops a static mesh's navigation data (a NavCollision copy of
+    its collision, kept for a navmesh builder), dirtying the package only when it still had some. The owner saves it."""
+    set_if_changed(mesh, 'has_navigation_data', False)
+
+
 def lods_match(mesh, plan):
     """Validate saved reduction and screen settings before skipping regeneration."""
     import unreal

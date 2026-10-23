@@ -20,7 +20,8 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
 
     class Mesh(Properties):
         def __init__(self, name):
-            super().__init__(static_materials=[None], body_setup=Properties(), vertices=((0, 1, 2),))
+            super().__init__(static_materials=[None], body_setup=Properties(), vertices=((0, 1, 2),),
+                             has_navigation_data=True)   # UE's default
             self.name = name
             self.build = dict(distance_field_resolution_scale=1., use_full_precision_u_vs=True,
                               remove_degenerates=False)
@@ -79,10 +80,11 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
         __file__=str(script), runpy=SimpleNamespace(run_path=lambda path: tv_imports.append(Path(path))),
         parent=lambda: None, textures=lambda _: None, surfaces=lambda *_: None, import_mesh=imported)
     from atelier import native_membership
-    from atelier.unreal_mesh_reuse import set_if_changed
+    from atelier.unreal_mesh_reuse import set_if_changed, without_navigation
     namespace.update(native_membership=native_membership, native_context=lambda _: None, yori=SimpleNamespace(GAME=SimpleNamespace(name='test')),
         atmosphere=SimpleNamespace(__file__=str(script)), ground_grain=SimpleNamespace(__file__=str(script)),
         AssetGroup=lambda *a, **k: SimpleNamespace(matches=lambda _: True), set_if_changed=set_if_changed,
+        without_navigation=without_navigation,
         MeshReuse=lambda *a, **k: SimpleNamespace(donor={}, acquire=lambda name, *a, **k: meshes.get(name), imported=lambda *a: None,
                                                 validated=lambda _: None, finish=lambda: None))
     exec(compile(ast.Module(body=[function], type_ignores=[]), str(script), 'exec'), namespace)
@@ -99,6 +101,7 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
                                 remove_degenerates=False)
     assert render.values['body_setup'].values == dict(collision_trace_flag='complex-as-simple', double_sided_geometry=True)
     assert render.values['vertices'] == ((0, 1, 2),)
+    assert render.values['has_navigation_data'] is False and render in saved
     assert changed == (['SM_BM_House_Collision'] if with_hull else [])
     if with_hull:
         hull = meshes['SM_BM_House_Collision']
@@ -106,6 +109,7 @@ def test_import_disables_distance_fields_only_on_separate_physics_hull(tmp_path,
         assert hull.build == dict(distance_field_resolution_scale=0., use_full_precision_u_vs=True,
                                    remove_degenerates=False)
         assert hull.values['vertices'] == ((0, 1, 2),) and hull.values['body_setup'].values == {}
+        assert hull.values['has_navigation_data'] is False
 
     # A second pass through a verified reuse must validate without mutating native settings/materials.
     writes.clear(); bindings.clear(); changed.clear()

@@ -23,7 +23,9 @@ class ImportData:
 
 class Mesh:
     def __init__(self, data):
-        self.values = {'asset_import_data': data, 'static_materials': ['old slot']}
+        # UE's UStaticMesh starts with navigation data, as every mesh imported before the no-navigation finishing did.
+        self.values = {'asset_import_data': data, 'static_materials': ['old slot'], 'has_navigation_data': True}
+        self.saves = 0
         self.centimetres = None
 
     def get_editor_property(self, name):
@@ -72,9 +74,13 @@ def importer(monkeypatch, tmp_path):
             calls.append((Path(task.filename).name, package, mesh.centimetres))
             task.imported_object_paths = [package]
 
+    def save(mesh, only_if_is_dirty=False):
+        mesh.saves += 1
+        return True
+
     fake = SimpleNamespace(
         EditorAssetLibrary=SimpleNamespace(does_asset_exist=lambda path: path in assets,
-                                          load_asset=lambda path: assets.get(path)),
+                                          load_asset=lambda path: assets.get(path), save_loaded_asset=save),
         AssetToolsHelpers=SimpleNamespace(get_asset_tools=lambda: SimpleNamespace(import_asset_tasks=execute)),
         AssetImportTask=SimpleNamespace,
         FbxImportUI=lambda: SimpleNamespace(static_mesh_import_data=ImportData()),
@@ -238,7 +244,7 @@ def test_treehouse_trees_receive_their_own_source_and_current_collision(importer
     p.unreal.AssetToolsHelpers.get_asset_tools = lambda: p.module.AT
     p.unreal.EditorAssetLibrary.duplicate_asset = duplicate_asset
     p.unreal.EditorAssetLibrary.delete_asset = lambda path: deleted.append(path) or p.assets.pop(path)
-    p.unreal.EditorAssetLibrary.save_loaded_asset = lambda asset: saved.append(asset) or save_succeeds
+    p.unreal.EditorAssetLibrary.save_loaded_asset = lambda asset, only_if_is_dirty=False: saved.append(asset) or save_succeeds
     p.unreal.MaterialEditingLibrary = SimpleNamespace(**{name: lambda *args: None for name in (
         'set_material_instance_parent', 'set_material_instance_texture_parameter_value', 'update_material_instance')})
     p.unreal.SystemLibrary = SimpleNamespace(execute_console_command=lambda *args: None)
@@ -504,3 +510,27 @@ def test_base_and_lod_share_the_real_common_pending_receipt_packet(importer, mon
     assert len(native._COMMON_FBX) == 1
     assert set(packet['entries']) == {'/Game/Owned/Mesh','/Game/Owned/Mesh_LOD1'}
     assert packet['counts']['imported'] == 2
+
+
+def test_imported_and_reused_meshes_are_saved_without_navigation_data(importer, monkeypatch):
+    """Yorimichi has no navigation: finishing drops a mesh's NavCollision data, fixing a stale reuse hit in place."""
+    p = importer
+    mesh = p.module.import_mesh(p.source, '/Game/Owned', 'Mesh')
+    assert mesh.values['has_navigation_data'] is False and mesh.saves == 1   # finishing's save, after the import's
+
+    # A validated reuse hit whose package predates the finishing: no reimport, dropped and saved before its receipt.
+    stale, events = Mesh(mesh.values['asset_import_data']), []
+    reuse = SimpleNamespace(imported=lambda name: events.append('imported'),
+                            defer_validated=lambda name: events.append(('receipt', stale.values['has_navigation_data'],
+                                                                         stale.saves)))
+    monkeypatch.setattr(p.module, 'common_fbx_mesh', lambda *args, **kwargs: (stale, reuse))
+    p.calls.clear()
+    assert p.module.import_mesh(p.source, '/Game/Owned', 'Mesh') is stale
+    assert p.calls == [] and events == [('receipt', False, 1)]
+
+    # A current package is neither dirtied nor rewritten.
+    writes = []
+    monkeypatch.setattr(stale, 'set_editor_property', lambda name, value: writes.append(name))
+    events.clear()
+    p.module.import_mesh(p.source, '/Game/Owned', 'Mesh')
+    assert writes == [] and events == [('receipt', False, 2)]   # only the dirty-only save call, a no-op in UE

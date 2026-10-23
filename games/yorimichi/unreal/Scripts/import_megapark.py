@@ -12,7 +12,7 @@ import json
 import unreal
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import park_atomic_native
-from atelier.unreal_mesh_reuse import common_fbx_mesh
+from atelier.unreal_mesh_reuse import common_fbx_mesh, without_navigation
 
 OUT = yori.OUT / 'megapark'
 SOURCE = yori.ASSETS / 'megapark'
@@ -320,6 +320,7 @@ def mesh_actor(entry, collision, mis, actors, editor, results, place=True):
             slot.set_editor_property('material_interface', mis[key]); found.add(key)
         assert found == set(entry['materials']), (entry['name'], found, entry['materials'])
         mesh.set_editor_property('static_materials', slots)
+    without_navigation(mesh)
     assert E.save_loaded_asset(mesh), ('Could not save current park mesh', entry['name'])
     audit = OUT/'imported-geometry'; audit.mkdir(exist_ok=True)
     assert unreal.MeshImportAudit.dump_mesh_triangles(mesh, ue(entry['native_origin']), str(audit/(entry['name']+'.bin')))

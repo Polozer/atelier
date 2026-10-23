@@ -31,3 +31,9 @@ An unrelated generated seed/placeholder MUST NOT enter final-source identity, be
 material slots. Raw source-pass code and current validation MUST have distinct declared policies.
 Source changes, real import-option changes, package-byte changes and failed native checks MUST
 continue to refuse reuse. Obsolete seed keywords MAY remain accepted only without reading them.
+
+@cc [owner:fontanierh,label:performance;correctness] imported-meshes-without-navigation
+Yorimichi has no navigation (no navmesh, nothing finds paths), so a static mesh importer's finishing MUST
+drop the mesh's navigation data (atelier.unreal_mesh_reuse.without_navigation) on fresh imports and reuse
+hits alike, after admission, and save it dirty-only. A stale package is fixed in place, not reimported.
+Physics collision and rendering MUST stay unchanged. The cook still drops it from any other mesh (Yorimichi.cpp).

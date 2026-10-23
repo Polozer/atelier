@@ -13,7 +13,7 @@ import json
 import unreal
 from atelier.native_protocol import native_context
 from atelier import native_membership
-from atelier.unreal_mesh_reuse import AssetGroup, MeshReuse, lods_match, set_if_changed
+from atelier.unreal_mesh_reuse import AssetGroup, MeshReuse, lods_match, set_if_changed, without_navigation
 import atmosphere
 import glb_mesh_validation
 
@@ -407,6 +407,7 @@ def main():
             if not reused or not lods_match(mesh, plan):
                 generate_lods(mesh)
             assert lods_match(mesh, plan), name
+        without_navigation(mesh)
         assert E.save_loaded_asset(mesh, only_if_is_dirty=True), name
         box = mesh.get_bounding_box()
         low, high = entry['bounds_m']
