@@ -9,9 +9,12 @@ incomplete output MUST NOT be reported as a completed review. Findings MUST rema
 agents MAY resolve false positives with an explanation. A completed review is not semantic approval.
 
 @cc [owner:fontanierh,label:correctness] complete-python-ci
-Python CI groups MUST cover normal pytest collection exactly once. The aggregate merge check MUST
-fail when any group fails, is cancelled or is skipped. Cached Rust artifacts MUST NOT hide a failed
-compile: CI MUST remove the board crate's artifacts and successfully rebuild it before testing.
+Python CI groups MUST cover normal pytest collection exactly once, except that while macOS CI is
+deferred (owner 2026-10-23, TASKS MAC1) the macOS-only board group is disabled and its coverage is
+deferred, not passed. The aggregate merge check MUST fail when any enabled group fails, is cancelled
+or is skipped. Re-enabling macOS CI (MAC1) MUST restore the board group to the aggregate. Cached
+Rust artifacts MUST NOT hide a failed compile: CI MUST remove the board crate's artifacts and
+successfully rebuild it before testing.
 Only successful board jobs on main MAY publish the shared Rust cache; PRs only restore it.
 
 @cc [owner:fontanierh,label:correctness] explicit-paid-review-request

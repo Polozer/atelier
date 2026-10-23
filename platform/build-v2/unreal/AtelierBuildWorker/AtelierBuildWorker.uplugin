@@ -1,0 +1,24 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1",
+  "FriendlyName": "Atelier Build Worker",
+  "Description": "Editor-only surface for the build-v2 Unreal job loop: native context, package save recording, package and settings checks. Compiled only for a build-v2 scratch or micro project; never enabled by a game.",
+  "Category": "Atelier|Build",
+  "CreatedBy": "Atelier",
+  "CanContainContent": false,
+  "EnabledByDefault": false,
+  "Modules": [
+    {
+      "Name": "AtelierBuildWorker",
+      "Type": "Editor",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "PythonScriptPlugin",
+      "Enabled": true
+    }
+  ]
+}
