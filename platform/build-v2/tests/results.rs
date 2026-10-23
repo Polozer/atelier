@@ -696,6 +696,49 @@ fn recorded_retention_roots_metadata_without_payload_claims_and_rejects_cross_st
             .is_err()
     );
     assert!(transaction.lease().object_digests.is_empty());
+    // Strict lookup may not expose claims if persisting its updated lease fails.
+    let object = workspace.path("store/objects/sha256").join("a".repeat(64));
+    fs::write(&object, b"abc").unwrap();
+    let mut permissions = fs::metadata(&object).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&object, permissions).unwrap();
+    let lease_path = workspace
+        .path("store/leases")
+        .join(format!("{}.json", transaction.lease().id));
+    let saved_lease = workspace.path("saved-lease");
+    fs::rename(&lease_path, &saved_lease).unwrap();
+    fs::create_dir(&lease_path).unwrap();
+    assert!(transaction.lookup_groups().is_err());
+    assert!(transaction.lease().object_digests.is_empty());
+    use atelier_build_v2::{
+        staging::{ObjectSource, SourceErrorKind},
+        store::ObjectDigest,
+    };
+    let error = transaction
+        .pinned_objects()
+        .clone_object(
+            &ObjectDigest::from_hex(&"a".repeat(64)).unwrap(),
+            &workspace.path("unpersisted-source"),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind, SourceErrorKind::Unavailable);
+    assert!(!workspace.path("unpersisted-source").exists());
+    fs::remove_dir(&lease_path).unwrap();
+    fs::rename(&saved_lease, &lease_path).unwrap();
+    assert!(
+        store
+            .leases()
+            .lock()
+            .unwrap()
+            .leases()
+            .unwrap()
+            .iter()
+            .find(|lease| lease.id == transaction.lease().id)
+            .unwrap()
+            .object_digests
+            .is_empty()
+    );
+    fs::remove_file(&object).unwrap();
     let other = ResultStore::open(workspace.path("other")).unwrap();
     assert!(
         begin(&other, &unit)

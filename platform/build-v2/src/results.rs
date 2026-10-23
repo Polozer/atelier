@@ -635,10 +635,12 @@ impl WriteTransaction {
         let guard = self.store.leases.lock()?;
         let result = self.store.read_validated(&self.unit)?;
         if let Some((envelope, _)) = &result {
-            self.lease
+            let mut updated = self.lease.clone();
+            updated
                 .object_digests
                 .extend(envelope.files().map(|file| file.digest.clone()));
-            guard.save(&self.lease)?;
+            guard.save(&updated)?;
+            self.lease = updated;
         }
         Ok(result)
     }
@@ -792,10 +794,12 @@ impl WriteTransaction {
 
     fn release(&mut self) -> Result<(), ResultError> {
         let guard = self.store.leases.lock()?;
-        self.lease.result_keys.clear();
-        self.lease.object_digests.clear();
-        self.lease.rooted = true;
-        guard.save(&self.lease)?;
+        let mut updated = self.lease.clone();
+        updated.result_keys.clear();
+        updated.object_digests.clear();
+        updated.rooted = true;
+        guard.save(&updated)?;
+        self.lease = updated;
         Ok(())
     }
 }
@@ -827,12 +831,14 @@ impl StagedResult {
         observe(PublicationStep::Prepared)?;
         {
             let guard = self.transaction.store.leases.lock()?;
-            self.transaction.lease.object_digests.extend(
+            let mut updated = self.transaction.lease.clone();
+            updated.object_digests.extend(
                 self.objects
                     .iter()
                     .map(|object| object.digest().to_string()),
             );
-            guard.save(&self.transaction.lease)?;
+            guard.save(&updated)?;
+            self.transaction.lease = updated;
         }
         observe(PublicationStep::Claimed)?;
         for object in self.objects.drain(..) {
