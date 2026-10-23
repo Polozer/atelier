@@ -69,7 +69,8 @@ fn produced(space: &Workspace) -> (PathBuf, PathBuf) {
 fn context(space: &Workspace) -> UnrealContext {
     let (editor, plugin) = produced(space);
     UnrealContext {
-        engine_root: space.path("engine"),
+        // Like the installed engine, the root holds a space: it is only ever the program path.
+        engine_root: space.path("Epic Games/UE"),
         build_id: "5.8-build".into(),
         editor: Binaries {
             identity: tree_identity(&editor, None).unwrap(),
@@ -143,10 +144,10 @@ fn contexts_refuse_what_a_session_cannot_load_honestly() {
         &|c| c.engine_root = PathBuf::from("relative/UE"),
         "absolute",
     );
-    refused(
-        &|c| c.engine_root = PathBuf::from("/opt/Epic Games/UE"),
-        "whitespace",
-    );
+    // The engine root is only the program path, never Unreal command-line text: spaces are fine.
+    let mut spaced = base.clone();
+    spaced.engine_root = PathBuf::from("/opt/Epic Games/UE");
+    spaced.validate().unwrap();
     refused(&|c| c.build_id.clear(), "BuildId");
     refused(&|c| c.editor.identity = "not-a-digest".into(), "sha256");
     refused(&|c| c.modules.clear(), "at least one");
@@ -209,7 +210,7 @@ fn the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_
     let command = job_loop_command(&context, &scratch, &script).unwrap();
     assert_eq!(
         command.program,
-        space.path("engine/Engine/Binaries/Mac/UnrealEditor-Cmd")
+        space.path("Epic Games/UE/Engine/Binaries/Mac/UnrealEditor-Cmd")
     );
     let mut expected = vec![
         scratch.uproject().to_str().unwrap().to_string(),
@@ -476,12 +477,12 @@ def run(context):
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_unreal.py");
         let source = fs::read_to_string(fixture).unwrap();
         let editor = space.write(
-            "engine/Engine/Binaries/Mac/UnrealEditor-Cmd",
+            "Epic Games/UE/Engine/Binaries/Mac/UnrealEditor-Cmd",
             format!("#!{} -sS\n{source}", python().display()).as_bytes(),
         );
         fs::set_permissions(&editor, fs::Permissions::from_mode(0o755)).unwrap();
         space.write(
-            "engine/Engine/Build/Build.version",
+            "Epic Games/UE/Engine/Binaries/Mac/UnrealEditor.modules",
             format!("{{\"BuildId\": \"{build_id}\"}}").as_bytes(),
         );
     }

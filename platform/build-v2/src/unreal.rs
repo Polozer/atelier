@@ -143,7 +143,11 @@ impl UnrealContext {
         if !self.engine_root.is_absolute() {
             return Err(invalid("the engine root must be absolute"));
         }
-        argument(&self.engine_root, "the engine root")?;
+        // The engine root only names the program, which is never part of Unreal's own command
+        // line, so it may hold spaces (the installed engine lives under `Epic Games`).
+        if self.engine_root.to_str().is_none() {
+            return Err(invalid("the engine root is not UTF-8"));
+        }
         if self.build_id.is_empty() || self.build_id.chars().any(char::is_control) {
             return Err(invalid("the engine BuildId is missing"));
         }

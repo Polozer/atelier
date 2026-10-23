@@ -44,7 +44,8 @@ for token in argv[10:]:
 uproject, script = Path(argv[0]), argv[2][len('-script='):]
 project = uproject.parent
 descriptor = json.loads(uproject.read_text())
-build_id = json.loads((ENGINE / 'Engine/Build/Build.version').read_text())['BuildId']
+# As installed: the BuildId modules must match is in the engine's module manifest.
+build_id = json.loads((ENGINE / 'Engine/Binaries/Mac/UnrealEditor.modules').read_text())['BuildId']
 
 libraries = []
 for module in descriptor['Modules']:
