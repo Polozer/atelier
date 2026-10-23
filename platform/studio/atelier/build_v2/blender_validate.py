@@ -1,0 +1,125 @@
+"""D2 in-job semantic checks, reusing the existing bounded MeshIR decoder.
+
+The consumer fully decodes its selected input; producer checks finish before Completed. B2
+independently checks frozen complete inventories, roles, bounds and hash bindings, without a
+second geometry parser or semantic-run claim. No process, descriptor runner or store token lives
+here. NumPy/Blender are platform; the actual body/helper code is an explicit key ingredient.
+Native FBX geometry comparison remains separate T1b acceptance.
+"""
+import json
+import math
+
+import numpy as np
+
+from atelier import mesh_ir
+from atelier.export_manifest import TRIANGLE_LIMIT, name
+
+MAX_RECEIPT_BYTES = 1024 * 1024
+FBX_HEADER = b'Kaydara FBX Binary  \x00\x1a\x00'
+
+
+def mesh_facts(payload, *, expected_asset=None):
+    """Decode the existing MeshIR, including its collision/material/channel validation.
+
+    Only compact semantic facts leave this function. No arrays, original bytes, source locators,
+    planner key, roster or siblings become selected-child metadata.
+    """
+    return decode_mesh_payload(payload, expected_asset=expected_asset)[2]
+
+
+def decode_mesh_payload(payload, *, expected_asset=None):
+    """Return the fully checked existing decoder result and its compact facts, once."""
+    meta, piece = mesh_ir.decode(payload)
+    if meta['schema'] != 2:
+        raise ValueError('This FBX slice refuses material-graph payloads; their GLB route is pending')
+    if expected_asset is not None and meta['asset'] != name(expected_asset):
+        raise ValueError('Selected payload belongs to another piece')
+    positions = piece['positions'] @ np.asarray(meta['matrix'])[:3, :3].T + np.asarray(meta['matrix'])[:3, 3]
+    facts = dict(asset=meta['asset'], triangles=piece['triangles'], polygons=len(piece['faces']),
+                slots=meta['slots'], matrix=meta['matrix'], options=meta['options'],
+                collision_hulls=len(meta['collisions']), selection=meta['selection'],
+                uv_channels=[row[0] for row in piece['uvs']],
+                used_material_indices=sorted(set(piece['materials'].tolist())),
+                colour_channels=[list(row[:3]) for row in piece['colours']],
+                min=positions.min(0).tolist(), max=positions.max(0).tolist())
+    return meta, piece, facts
+
+
+def validate_member_row(facts, row, manifest):
+    """Cross-check the decoded member against B2's already checked complete plan roster."""
+    if not isinstance(row, dict) or not isinstance(manifest, dict):
+        raise ValueError('Expected the authoritative plan row and manifest')
+    for field, expected in [('asset', row.get('name')), ('triangles', row.get('triangles')),
+                            ('polygons', row.get('polygons')), ('matrix', manifest.get('matrix')),
+                            ('min', row.get('min')), ('max', row.get('max')),
+                            ('collision_hulls', row.get('collision_hulls'))]:
+        if facts.get(field) != expected:
+            raise ValueError('Decoded piece differs from its plan: ' + field)
+    if facts['slots'] != row.get('slots', manifest.get('slots')):
+        raise ValueError('Decoded piece material table differs from its plan')
+    indices = row.get('source_material_indices')
+    if indices is not None:
+        slots = manifest.get('slots')
+        if (not isinstance(indices, list) or not isinstance(slots, list)
+                or any(type(i) is not int or not 0 <= i < len(slots) for i in indices)
+                or indices != sorted(set(indices))
+                or [slots[i] for i in indices] != facts['slots']):
+            raise ValueError('Piece material mapping differs from the parent inventory')
+    owner = manifest.get('collision_owner')
+    expected_hulls = manifest.get('source_collision_hulls') if row.get('name') == owner else 0
+    if facts['collision_hulls'] != expected_hulls:
+        raise ValueError('Whole collision does not belong exclusively to its declared owner')
+
+
+def _pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('Duplicate receipt field')
+        result[key] = value
+    return result
+
+
+def _finite_bounds(value):
+    return (isinstance(value, list) and len(value) == 2
+            and all(isinstance(row, list) and len(row) == 3 for row in value)
+            and all(type(v) in (int, float) and math.isfinite(v) for row in value for v in row)
+            and all(a <= b for a, b in zip(*value)))
+
+
+def validate_export_receipt(receipt_bytes, primary_bytes, *, asset,
+                            primary_digest, payload_digest, facts):
+    """Validate in-job receipt binding and binary framing, not native FBX geometry fidelity.
+
+    The producer supplies the just-written bytes and their computed digests. The caller checks
+    the exact two-file inventory. B2 later compares these bindings to independently frozen hashes.
+    T1b compares real FBX geometry; this receipt/framing check is not that proof.
+    """
+    asset = name(asset)
+    if (type(primary_digest) is not str or len(primary_digest) != 64
+            or any(c not in '0123456789abcdef' for c in primary_digest)
+            or type(payload_digest) is not str or len(payload_digest) != 64
+            or any(c not in '0123456789abcdef' for c in payload_digest)):
+        raise ValueError('Expected SHA-256 content digests')
+    if not isinstance(receipt_bytes, bytes) or not 0 < len(receipt_bytes) <= MAX_RECEIPT_BYTES:
+        raise ValueError('Invalid receipt byte bound')
+    receipt = json.loads(receipt_bytes, object_pairs_hook=_pairs,
+                         parse_constant=lambda _value: (_ for _ in ()).throw(ValueError('Nonfinite receipt')))
+    if (not isinstance(receipt, dict)
+            or set(receipt) != {'schema', 'asset', 'primary', 'triangles', 'bounds', 'sha256', 'metadata'}
+            or type(receipt['schema']) is not int or receipt['schema'] != 1
+            or receipt['asset'] != asset or receipt['primary'] != asset + '.fbx'
+            or type(receipt['triangles']) is not int or not 0 < receipt['triangles'] <= TRIANGLE_LIMIT
+            or not _finite_bounds(receipt['bounds']) or receipt['sha256'] != primary_digest):
+        raise ValueError('Invalid or foreign FBX receipt')
+    metadata = receipt['metadata']
+    expected = dict(geometry_sha256=payload_digest, slots=facts['slots'], polygons=facts['polygons'],
+                    collision_hulls=facts['collision_hulls'], uv_channels=facts['uv_channels'])
+    if (metadata != expected or facts['asset'] != asset
+            or receipt['triangles'] != facts['triangles']
+            or receipt['bounds'] != [facts['min'], facts['max']]):
+        raise ValueError('Export receipt differs from its selected geometry payload')
+    # Bounded framing check only; do not claim this substitutes for native importer comparisons.
+    if not isinstance(primary_bytes, bytes) or len(primary_bytes) <= len(FBX_HEADER) + 4 or not primary_bytes.startswith(FBX_HEADER):
+        raise ValueError('Expected an emitted binary FBX primary')
+    return receipt

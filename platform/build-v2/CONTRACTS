@@ -372,3 +372,15 @@ isolation contract apply, including native probes of missing paths. See
 platform/studio/tests/test_build_v2_blender_worker.py and tests/blender_jobs.rs, including
 job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it and
 a_loop_command_converts_to_the_guarded_launcher_command_field_for_field.
+
+@cc [owner:fontanierh,label:correctness] build-v2-blender-op-boundary
+The unused D2 route MUST retain existing MeshIR schema-2 semantics and complete explicit geometry,
+material/channel/transform/collision ownership. A selected piece key MUST bind only its selected
+payload view, per-piece parameters and actual code/reference inputs, never a planner key, whole
+roster or siblings. Producer in-job semantic checks MUST finish before Completed; consumer MUST
+fully decode selected bytes and check its emitted artifact before receipt completion. B2 MUST
+independently validate its exact certified frozen inventory, schema/roles/bounds and hash bindings,
+without claiming another semantic geometry decode or reading live producer files. Unsupported
+formats, roles, incomplete/aliased/linked outputs and ownership-widening settings MUST refuse.
+See tests/blender_ops.rs and platform/studio/tests/test_build_v2_blender_ops.py. Native geometry
+fidelity/determinism, dynamic dispatch and production activation remain separate pending acceptance.
