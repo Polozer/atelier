@@ -536,3 +536,28 @@ fn completed_batch_refreshes_new_ready_hit_before_unrelated_dispatch() {
     assert_eq!(events.iter().filter(|s| *s == "lookup:c:Stored").count(), 1);
     assert_eq!(next.batches, vec![vec!["a"], vec!["c"]]);
 }
+
+#[test]
+fn current_checkout_cannot_satisfy_explicit_stored_demand() {
+    let f = fixture(false);
+    let trace = Trace::default();
+    let mut fake = Fake::new(trace.clone());
+    let mut jobs = Jobs::new(trace.clone());
+    let checkout = BTreeMap::from([("b".into(), Demand::Checkout)]);
+    build(&f, &["b"], &checkout, &mut fake, &mut jobs, &Never);
+    fake.current.insert("b".into());
+    trace.borrow_mut().clear();
+    let stored = BTreeMap::from([("b".into(), Demand::Stored)]);
+    let report = build(&f, &["b"], &stored, &mut fake, &mut jobs, &Never);
+    assert!(
+        matches!(&report.states["b"],State::Failed(reason) if reason.contains("Current does not satisfy Stored"))
+    );
+    assert!(
+        !trace
+            .borrow()
+            .iter()
+            .any(|event| event == "settle:b:Stored")
+    );
+    assert!(report.batches.is_empty());
+    assert_eq!(report.effects, Effects::default());
+}

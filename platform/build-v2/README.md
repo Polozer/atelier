@@ -575,7 +575,10 @@ in one request, resolves exact A3 keys using producer output identities, and loo
 all currently ready units before dispatching compatible misses. Hit-unlocked frontiers
 are followed before dispatch. Each completion publishes independently; unrelated work
 can succeed after a unit fails, while dependent units stay blocked. Cancellation retains
-completed publications. Backend-owned opaque checked/miss handles preserve cache and
+completed publications. Current cannot satisfy Stored availability, even when its
+checkout is valid. A later Current-but-evicted input adapter needs a distinct source
+purpose; implicit prerequisites currently require Stored availability. Backend-owned
+opaque checked/miss handles preserve cache and
 install authority: this module cannot construct production StoredHit or group tokens.
 The supplied executor owns worker sessions, retries, admission, deadlines and cleanup.
 

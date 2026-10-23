@@ -51,3 +51,7 @@ tests = ["atelier-build-v2::scheduler/missing_executor_terminal_is_failure_and_n
 [[scenarios]]
 id = "a9a.refresh-between-batches"
 tests = ["atelier-build-v2::scheduler/completed_batch_refreshes_new_ready_hit_before_unrelated_dispatch"]
+
+[[scenarios]]
+id = "a9a.current-is-not-stored"
+tests = ["atelier-build-v2::scheduler/current_checkout_cannot_satisfy_explicit_stored_demand"]

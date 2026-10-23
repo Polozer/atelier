@@ -290,7 +290,8 @@ fn integrate<B: Backend>(
 /// upstream input keys. Every currently ready lookup MUST finish before any miss is sent
 /// to an executor; only compatible misses share a batch. Original miss tickets MUST be
 /// preserved, and each completion MUST publish independently before downstream preparation.
-/// Current/hit units MUST not launch jobs. Failure/cancellation MUST retain prior publication.
+/// Current/hit units MUST not launch jobs. Current MUST NOT satisfy Stored availability.
+/// Failure/cancellation MUST retain prior publication.
 /// See tests/scheduler.rs; real lifecycle, dynamic targets and A6 integration remain pending.
 pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
     request: Request<'_>,
@@ -412,6 +413,15 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                             Lookup::Hit(checked) => (checked, State::Hit),
                             Lookup::Miss { .. } => unreachable!(),
                         };
+                        if state == State::Current && mode == Demand::Stored {
+                            report.states.insert(
+                                id.clone(),
+                                State::Failed(
+                                    "Current does not satisfy Stored availability".into(),
+                                ),
+                            );
+                            continue;
+                        }
                         let result = integrate(
                             backend,
                             id,
