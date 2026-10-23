@@ -75,6 +75,9 @@ def test_legacy_blend_review_has_an_explicit_disjoint_authoring_root(tmp_path):
     assert review.commands[0].args == ('--source', str(source))
     assert review.needs == ['world.belmonte_train_authoring']
     assert all(path.is_relative_to(source) for path in authoring.outputs + review.outputs)
+    assert GAME / 'assets/characters/pipeline/definition.py' in authoring.inputs
+    assert set((GAME / 'assets/characters').glob('*/character.toml')) <= set(authoring.inputs)
+    assert set(path.with_name('adventure.toml') for path in (GAME / 'assets/characters').glob('*/character.toml')) <= set(authoring.optional_inputs)
     assert not any(step.name == authoring.name for step in build.order(steps, ['world.belmonte_train_service']))
 
 
