@@ -1857,18 +1857,61 @@ def gondola_steps(ctx):
     folder = ctx.out / 'gondola'
     result = _load_helper_module('gondola_central_atomic', GAME / 'gondola_atomic_build.py').kit_steps(ctx)
 
-    atomic = _load_helper_module('gondola_complete_atomic',GAME/'gondola_atomic_build.py')
-    result += atomic.query_steps(ctx)
-    result += atomic.site_steps(ctx)
-    names = atomic.site_native_names(ctx.out)
+    query = WORLD / 'gondola/inputs.py'
+    queries = _load_helper_module('gondola_world_inputs', query)
+    digest = ctx.out / 'digests/world.gondola.ground.json'
+    result += [Step('world.gondola_ground_inputs',
+                    [Call('ropeway final ground inputs', lambda ctx, log:
+                          export_digest.record(digest, queries.snapshot(ctx.out), log))],
+                    inputs=[*queries.CODE.values()],
+                    # Deferred legacy collectors bind the selected product file explicitly.
+                    needs=['world.hidamari', 'world.terrain.meshes', 'world.belmonte.ground'],
+                    deferred_inputs=[DeferredInputs('gondola-ground', queries.paths, (ctx.out,), support=(query,))],
+                    outputs=[digest], cutoff=True,
+                    about='only final terrain, North Trail and corridor-selected Belmonte ground'),
+               Step('world.gondola_ground', [Blender(WORLD / 'gondola/probe.py', threads=3, factory_startup=True)],
+                    inputs=[WORLD / 'gondola/probe.py', query, GAME / 'export_digest.py', REGIONS / 'belmonte/source.py',
+                            paths.STUDIO / 'atelier/gltf.py', YORI],
+                    needs=['world.gondola_ground_inputs'],
+                    outputs=[folder / 'world/ground.npz', folder / 'world/ground.json'], heavy=True,
+                    about='final exported trail contact and owned Belmonte terrain queries')]
+    site_code = WORLD / 'gondola/validation.py'
+    validation = _load_helper_module('gondola_site_validation', site_code)
+    structure_code = WORLD / 'gondola/structures.py'
+    structures = _load_helper_module('gondola_structure_inputs', structure_code)
+    structure_digest = ctx.out / 'digests/world.gondola.structures.json'
+    result += [Step('world.gondola_structure_inputs',
+                    [Call('ropeway final structure inputs', lambda ctx, log:
+                          export_digest.record(structure_digest, structures.inputs(ctx.out), log))],
+                    inputs=[*(paths.REPO / name for name in structures.CODE),
+                            ctx.out / 'belmonte/runtime.json', ctx.out / 'belmonte/build-report.json'],
+                    needs=['world.belmonte'],
+                    deferred_inputs=[DeferredInputs('gondola-structures', structures.paths, (ctx.out,), support=(structure_code,))],
+                    outputs=[structure_digest], cutoff=True,
+                    about='collision-enabled Belmonte structures intersecting the ropeway footprint'),
+               Step('world.gondola_structures', [Python(WORLD / 'gondola/structure_probe.py')],
+                    inputs=[*(paths.REPO / name for name in structures.CODE), YORI],
+                    needs=['world.gondola_structure_inputs'],
+                    outputs=[folder / 'world/structures.npz', folder / 'world/structures.json'],
+                    about='final instanced visual and actual complex collision geometry for ropeway clearance')]
+    names = validation.network_layout().mesh_names()
+    result.append(Step('world.gondola_site',
+                       [Blender(REGIONS / 'gondola/site.py',threads=3,factory_startup=True)],
+                       inputs=[*validation.SITE_CODE, *[kit/name for name in parameters.BUILD_SOURCES],
+                               WORLD / 'solid_mesh.py', query, *craterpark_v4.input_paths(), YORI,
+                               paths.STUDIO / 'atelier/blender/__init__.py', paths.STUDIO / 'atelier/blender/fbx.py'],
+                       needs=['world.gondola_kit','world.gondola_ground','world.gondola_structures','world.craterpark_geometry','world.zeppelin'],
+                       outputs=[folder/'world/site.json',*(folder/'world/assets'/f'{name}.fbx' for name in names)],
+                       heavy=True,about='final station supports/access, exact rope paths and actual fitted-span contact gates'))
     service=WORLD/'gondola/service.py'
     result += [Step('world.gondola_service',[Python(service)],
-                    inputs=atomic.service_inputs(),
+                    inputs=[service,WORLD/'gondola/clock.py',WORLD/'gondola/inputs.py',*validation.SITE_CODE,YORI,kit/'params.py',kit/'rope.py'],
                     needs=['world.gondola_site'],outputs=[folder/'runtime.json'],
                     about='source-bound detachable cabin clocks and station boarding data'),
-               Step('unreal.gondola',[UnrealScript(SCRIPTS/'import_gondola.py','GONDOLA IMPORT COMPLETE',null_rhi=True,modules=('Yorimichi',))],
-                    inputs=atomic.native_inputs(),
-                    needs=['world.gondola_service','unreal.world',*unreal_modules.needs(('Yorimichi',))],after=['unreal.compile'],heavy=True,
+               Step('unreal.gondola',[UnrealScript(SCRIPTS/'import_gondola.py','GONDOLA IMPORT COMPLETE',null_rhi=True)],
+                    inputs=[SCRIPTS/'import_gondola.py',SCRIPTS/'mesh_import.py',SCRIPTS/'mesh_materials.py',SCRIPTS/'material_assets.py',
+                            service,WORLD/'gondola/clock.py',WORLD/'gondola/inputs.py',*validation.SITE_CODE,YORI,kit/'params.py',kit/'rope.py'],
+                    needs=['world.gondola_service','unreal.world'],after=['unreal.compile'],heavy=True,
                     outputs=[folder/'import-report.json',
                              *(GAME/'unreal/Content/Gondola/Kit'/f'{name}.uasset' for name in parameters.asset_names()),
                              *(GAME/'unreal/Content/Gondola/World'/f'{name}.uasset' for name in names if not name.endswith(('_LOD1','_LOD2'))),

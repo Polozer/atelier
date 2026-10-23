@@ -37,7 +37,7 @@ def test_legacy_float32_frame_and_order_are_byte_exact(monkeypatch):
     with pytest.raises(ValueError,match='Unsupported'):query_frames.imported_identity_triangles(rows)
 
 
-def test_normal_ground_probe_reads_final_queries_without_render_export_paths(tmp_path,monkeypatch):
+def test_normal_ground_probe_uses_npz_without_fbx_and_preserves_belmonte_path(tmp_path,monkeypatch):
     spec=importlib.util.spec_from_file_location('gondola_compat_probe',WORLD/'gondola/probe.py')
     probe=importlib.util.module_from_spec(spec);spec.loader.exec_module(probe)
     codec=json.loads(query_frames.CODEC.read_text());monkeypatch.setattr(query_frames,'checked_codec',lambda:codec)
@@ -45,23 +45,15 @@ def test_normal_ground_probe_reads_final_queries_without_render_export_paths(tmp
     surface=dict(name='HD_NorthTrail',role='render',positions=np.array([[400,4000,1],[401,4000,2],[400,4001,3]],dtype='<f4'),
                  triangles=np.array([[0,1,2]],dtype='<i4'),matrix=np.eye(4,dtype='<f8'))
     region_query.save(trail,[surface],owner='HD_NorthTrail',stage='final')
-    before=dict(belmonte_ground=dict(origin_cm=[0,0,0],groups=[dict(name=name,path='belmonte-source-data/'+name+'.surface')
+    before=dict(belmonte_ground=dict(origin_cm=[0,0,0],groups=[dict(name=name,path='ground/glb/'+name+'.glb')
         for name in ('SM_BM_BT_Terrain_near','SM_BM_NorthApron')]))
     monkeypatch.setattr(probe.yori,'OUT',tmp_path);monkeypatch.setattr(probe,'snapshot',lambda _:before)
     wanted=[];triangles=np.array([[[400,4000,4],[401,4000,4],[400,4001,4]]],dtype='<f8')
-    packet=b'exact selected final source'
-    def selected(path,*,owner,stage):
-        wanted.append((path,owner,stage));return dict(name=owner),packet
-    def decoded(data):
-        assert data==packet
-        return triangles.copy()
-    def legacy(_):raise AssertionError('Render export must not be consumed')
-    monkeypatch.setattr(probe.surface_data,'read',selected)
-    monkeypatch.setattr(probe.source,'triangles_data',decoded)
+    def legacy(path):wanted.append(path);return triangles.copy()
     monkeypatch.setattr(probe.source,'triangles',legacy)
     probe.main()
     assert not (tmp_path/'hidamari/assets/HD_NorthTrail.fbx').exists()
-    assert wanted==[(tmp_path/row['path'],row['name'],'final') for row in before['belmonte_ground']['groups']]
+    assert wanted==[tmp_path/'belmonte'/row['path'] for row in before['belmonte_ground']['groups']]
     with np.load(tmp_path/'gondola/world/ground.npz',allow_pickle=False) as result:
         expected=query_frames.imported_identity_triangles([surface])
         assert result['trail'].tobytes()==expected.tobytes()

@@ -46,29 +46,13 @@ def _write_belmonte_fixture(out_dir):
     if not ground.is_file():
         ground.parent.mkdir(parents=True, exist_ok=True)
         ground.write_text(ground_json)
-    projection=out_dir/'gondola/world/ground-sources.json'
-    if not projection.is_file():
-        ground_data=json.loads(ground_json)
-        projection.parent.mkdir(parents=True,exist_ok=True)
-        projection.write_text(json.dumps(dict(schema=1,owner='GondolaGroundSources',
-            origin_cm=ground_data['origin_cm'],groups=[dict(name=row['name'],
-                path='belmonte-source-data/'+row['name']+'.surface') for row in ground_data['surfaces']
-                if row['name']!='SM_BM_NorthCountry'])))
-
-    # The synthetic runtime above contains only ground groups, so its matching
-    # pre-export structure projection has an explicitly empty selected roster.
-    structures=out_dir/'gondola/world/structures-sources.json'
-    if not structures.is_file():
-        structures.write_text(json.dumps(dict(schema=1,owner='GondolaStructureSources',
-            bounds_m=[340.,2700.,560.,4680.],origin_cm=json.loads(ground_json)['origin_cm'],
-            groups=[],sources={})))
 
 
 def _has_custom_files(tmp_path):
     if not tmp_path.exists():
         return False
     for child in tmp_path.iterdir():
-        if child.name not in ('belmonte', 'products', 'gondola'):
+        if child.name not in ('belmonte', 'products'):
             return True
     belmonte = tmp_path / 'belmonte'
     if belmonte.is_dir():
@@ -79,11 +63,6 @@ def _has_custom_files(tmp_path):
     if products.is_dir():
         for child in products.rglob('*'):
             if child.is_file() and child.relative_to(products) != Path('belmonte/ground.json'):
-                return True
-    gondola=tmp_path/'gondola'
-    if gondola.is_dir():
-        for child in gondola.rglob('*'):
-            if child.is_file() and child.relative_to(gondola) not in (Path('world/ground-sources.json'),Path('world/structures-sources.json')):
                 return True
     return False
 

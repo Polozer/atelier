@@ -3,53 +3,13 @@
 #include "GameFramework/Actor.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "TransportRiders.h"
-#include "Components/StaticMeshComponent.h"
-#include "Engine/AssetUserData.h"
 #include "GondolaService.generated.h"
 
-class UStaticMesh;
 class UStaticMeshComponent;
 class UBoxComponent;
 class UGondolaAudioComponent;
 class UGondolaStationAudioComponent;
 class FJsonObject;
-
-/** Native measured complete logical bounds, serialized with every bounded child. */
-UCLASS(EditInlineNew, DefaultToInstanced)
-class YORIMICHI_API UGondolaLogicalBoundsData : public UAssetUserData
-{
-    GENERATED_BODY()
-public:
-    UPROPERTY() FString LogicalParent;
-    UPROPERTY() TArray<FString> Family;
-    UPROPERTY() int32 Lods = 0;
-    UPROPERTY() FVector Origin = FVector::ZeroVector;
-    UPROPERTY() FVector Extent = FVector::ZeroVector;
-    UPROPERTY() double Radius = 0.;
-};
-
-/** A declared rope/access child with the original logical parent's exact culling bounds. */
-UCLASS()
-class YORIMICHI_API UGondolaLogicalMeshComponent : public UStaticMeshComponent
-{
-    GENERATED_BODY()
-public:
-    /** Require the declared native LOD family and persist its original saved LOD0
-     * MeshDescription box/true sphere on every member. Empty refuses missing proof. */
-    UFUNCTION(BlueprintCallable, Category="Yorimichi|Import")
-    static FString FinishLogicalFamily(const FString& Parent, const TArray<UStaticMesh*>& Parts);
-    /** Actual saved source-model binding; unavailable data returns empty. */
-    UFUNCTION(BlueprintCallable, Category="Yorimichi|Import")
-    static FString RopeLodSource(UStaticMesh* Mesh, int32 Lod);
-    /** Owned editor evidence component using the actual production class and collision/bounds policy. */
-    UFUNCTION(BlueprintCallable, Category="Yorimichi|Import")
-    static UGondolaLogicalMeshComponent* CreateEvidenceComponent(AActor* Owner, UStaticMesh* Mesh,
-        const FString& Parent, const TArray<FString>& Family);
-    bool ConfigureLogicalFamily(const FString& Parent, const TArray<FString>& Family);
-    virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
-private:
-    FBoxSphereBounds LogicalBounds = FBoxSphereBounds(ForceInit);
-};
 
 /** Clock interval: constant acceleration along the audited circuit, metres/seconds. */
 struct FGondolaInterval { double Start=0., End=0., From=0., To=0., Speed=0., Acceleration=0.; };
@@ -151,7 +111,7 @@ private:
     };
     struct FRope { TObjectPtr<UStaticMeshComponent> Mesh; int32 Line=0; };
     bool Initialize(const FString& Path);
-    UStaticMeshComponent* MeshPart(const FString& Name,const FString& Path,bool Collision,bool Movable,bool Rope=false);
+    UStaticMeshComponent* MeshPart(const FString& Name,const FString& Path,bool Collision,bool Movable);
     void Place(double Time,bool First=false);
     void UpdateRiders(float Dt);
     FRiderSeat& SeatFor(AWandererCharacter* Character);
