@@ -565,8 +565,9 @@ install metadata before job/snapshot writes. Its job directory is suitable for C
 new workers before allowing writes. `CompletionWork::freeze` takes the complete authoritative actual
 output list and shares B2's fixed/group validation core. Validators read the same private snapshots
 that B1 hashes once. A read-only complete envelope plus named snapshot locations is durably recorded.
-`FrozenCompletion::publish` adopts independent verified clones into a normal CAS write lease without
-rehashing. Local evidence survives every attempt; semantic conflicts latch a hard refusal.
+`FrozenCompletion::publish_with` consumes the original A5/A9 miss write transaction, held through
+staging/run, and adopts independent verified clones without rehashing. The `publish(store, root)`
+convenience creates a late transaction only when none existed because the cache was unavailable. Local evidence survives every attempt; semantic conflicts latch a hard refusal.
 
 `ReceiptReader::prepare_local` accepts only that sealed completion, never opens CAS and uses the same
 RestorePlan journals, ownership checks, modes, atomic receipt/index publication and recovery as cached
@@ -606,3 +607,10 @@ does not materialize prerequisites. This does not prove cold key resolution, dyn
 planner scheduling, worker staging or A9's end-to-end dispatch/output cutoff; those
 integration obligations remain separate. The complete ownership view and exact
 retirement authority still come from B3/D4 callers, never path-prefix inference.
+
+`FrozenCompletion::available_groups` restores available local group tokens only after checking every
+named member against its fully validated private frozen snapshots, including normalized modes.
+`objects_for` binds complete selected consumer item views and returns borrowed `FrozenObjects` for
+clone-only C1b staging. These are local byte capabilities, not CAS hits; missing/corrupt named local
+snapshots refuse rather than becoming available from recorded metadata alone. The producer can stay
+completed while a downstream miss uses preserved store-only/group bytes without rerunning it.

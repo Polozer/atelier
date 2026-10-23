@@ -606,8 +606,8 @@ impl WriteTransaction {
         if envelope.result.key != self.unit.key()
             || &envelope.result.ingredients != self.unit.ingredients()
         {
-            return Err(invalid(
-                "local completion does not match prepared cache key",
+            return Err(ResultError::Validation(
+                "original cache ticket differs from sealed completion key/ingredients".into(),
             ));
         }
         // Detect known nondeterminism from complete recorded metadata even when winner blobs vanished.
@@ -630,9 +630,12 @@ impl WriteTransaction {
                     .adopt_in(object, &self.store.objects.root().join(&self.lease.staging))?,
             );
         }
+        let mut envelope = envelope.clone();
+        // Retention is nonsemantic; preserve the original miss ticket's already-protected lineage.
+        envelope.upstream_result_keys = self.upstream.clone();
         Ok(StagedResult {
             transaction: self,
-            envelope: envelope.clone(),
+            envelope,
             objects,
         })
     }

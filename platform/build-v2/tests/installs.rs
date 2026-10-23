@@ -1577,10 +1577,41 @@ fn frozen_completion_cache_adoption_does_not_rehash_live_output_and_conflicts_bl
     let installer = workspace.installer("first");
     let guard = installer.locks().try_build_exclusive().unwrap();
     let (graph, unit) = fixture("first", "1");
+    let store = ResultStore::open(workspace.path("cache")).unwrap();
+    let owner = identity();
+    let original_upstream = BTreeSet::from(["b".repeat(64)]);
+    let ticket = store
+        .begin(
+            &unit,
+            owner.provenance,
+            owner.owner,
+            owner.workers,
+            original_upstream.clone(),
+        )
+        .unwrap();
+    let original_id = ticket.lease().id.clone();
     let mut completion = freeze_local(&installer, &guard, &unit, &workspace, b"frozen once");
     fs::write(workspace.path("local-source"), b"changed live source").unwrap();
-    let store = ResultStore::open(workspace.path("cache")).unwrap();
-    let result = completion.publish(&store, |_| Ok(())).unwrap();
+    let result = completion
+        .publish_with(ticket, |record| {
+            assert_eq!(record.upstream_result_keys, original_upstream);
+            let records = store.leases().lock().unwrap().leases().unwrap();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].id, original_id);
+            assert!(!records[0].rooted && records[0].result_keys.contains(unit.key()));
+            assert!(original_upstream.is_subset(&records[0].result_keys));
+            assert!(!records[0].object_digests.is_empty());
+            Ok(())
+        })
+        .unwrap();
+    let records = store.leases().lock().unwrap().leases().unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].id, original_id);
+    assert!(
+        records[0].rooted
+            && records[0].result_keys.is_empty()
+            && records[0].object_digests.is_empty()
+    );
     assert_eq!(
         result.result.outputs[0].files[0].digest,
         sha256(b"frozen once")

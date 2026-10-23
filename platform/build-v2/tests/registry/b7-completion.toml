@@ -19,3 +19,8 @@ platforms = ["darwin"]
 id = "b7.installs.corrupt_cached_metadata_is_not_cached_and_does_not_invalidate_frozen_local_work"
 tests = ["atelier-build-v2::installs/corrupt_cached_metadata_is_not_cached_and_does_not_invalidate_frozen_local_work"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "b7.groups.sealed_local_group_stages_selected_bytes_without_cas_and_refuses_missing_frozen_members"
+tests = ["atelier-build-v2/groups::tests::sealed_local_group_stages_selected_bytes_without_cas_and_refuses_missing_frozen_members"]
+platforms = ["darwin"]

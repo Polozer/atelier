@@ -1,15 +1,18 @@
 //! Validated local outputs remain independent of cache publication availability.
-use crate::groups::{OutputGroupContract, PlanRoster};
+use crate::groups::{OutputGroupContract, PlanRoster, ValidatedGroup, restore_recorded};
 use crate::install::LeaseIdentity;
-use crate::keys::PreparedUnit;
+use crate::keys::{InputPayload, PreparedInput, PreparedUnit, normalized_mode};
 use crate::leases::{LeaseRecord, LeaseStore, ProcessIdentity, sync_dir};
 use crate::results::{
     ActualOutput, ENVELOPE_VERSION, FrozenOutput, ResultEnvelope, ResultError, ResultStore,
-    freeze_partitioned, partition_outputs,
+    WriteTransaction, freeze_partitioned, partition_outputs,
 };
+use crate::schema::StoredFile;
 use crate::schema::{RESULT_SCHEMA_VERSION, ResultRecord};
+use crate::staging::{ObjectSource, SourceError, SourceErrorKind};
 use crate::store::{ObjectDigest, PreparedObject, StoreError};
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -160,18 +163,31 @@ impl FrozenCompletion {
                 "completion already refused a semantic publication conflict".into(),
             ));
         }
-        let outcome = (|| {
-            store
-                .begin(
-                    &self.work.unit,
-                    self.work.identity.provenance.clone(),
-                    self.work.lease.owner.clone(),
-                    self.work.lease.workers.clone(),
-                    self.envelope.upstream_result_keys.clone(),
-                )?
-                .stage_completion(self)?
-                .publish(root)
-        })();
+        let transaction = store.begin(
+            &self.work.unit,
+            self.work.identity.provenance.clone(),
+            self.work.lease.owner.clone(),
+            self.work.lease.workers.clone(),
+            self.envelope.upstream_result_keys.clone(),
+        )?;
+        self.publish_with(transaction, root)
+    }
+
+    /// Normal A5/A9 publication consumes the original miss lease held through staging/run.
+    /// The store convenience above is only for late availability when no original CAS ticket exists.
+    pub fn publish_with(
+        &mut self,
+        transaction: WriteTransaction,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> Result<ResultEnvelope, ResultError> {
+        if self.refused {
+            return Err(ResultError::Invalid(
+                "completion already refused semantic publication conflict".into(),
+            ));
+        }
+        let outcome = transaction
+            .stage_completion(self)
+            .and_then(|staged| staged.publish(root));
         if matches!(
             &outcome,
             Err(ResultError::Validation(_) | ResultError::Nondeterminism(_))
@@ -179,6 +195,100 @@ impl FrozenCompletion {
             self.refused = true;
         }
         outcome
+    }
+    fn checked_object(&self, file: &StoredFile) -> Result<&PreparedObject, String> {
+        let object = self
+            .objects
+            .iter()
+            .find(|object| {
+                object.digest().as_hex() == file.digest
+                    && object.size() == file.size
+                    && normalized_mode(object.source_mode()) == file.mode
+            })
+            .ok_or("missing or mismatched frozen completion object")?;
+        object.check_frozen().map_err(|error| error.to_string())?;
+        Ok(object)
+    }
+    /// Available local groups require every named sealed snapshot, not merely recorded metadata.
+    /// This does not make them CAS hits or permit unchecked recorded identities to become available.
+    pub fn available_groups(&self) -> Result<BTreeMap<String, ValidatedGroup>, ResultError> {
+        if self.refused {
+            return Err(ResultError::Nondeterminism(
+                self.envelope.result.key.clone(),
+            ));
+        }
+        self.envelope
+            .result
+            .ingredients
+            .output_groups
+            .iter()
+            .zip(&self.envelope.result.output_groups)
+            .map(|(contract, stored)| {
+                let group = restore_recorded(contract, stored, |file| {
+                    self.checked_object(file).map(|_| ())
+                })
+                .map_err(ResultError::Validation)?;
+                Ok((contract.id.clone(), group))
+            })
+            .collect()
+    }
+    /// Bind exact selected item views before staging preserved complete local work downstream.
+    pub fn objects_for<'a>(
+        &'a self,
+        inputs: &[&PreparedInput],
+    ) -> Result<FrozenObjects<'a>, ResultError> {
+        if self.refused {
+            return Err(ResultError::Nondeterminism(
+                self.envelope.result.key.clone(),
+            ));
+        }
+        let groups = self.available_groups()?;
+        let mut views = self.envelope.result.outputs.clone();
+        for group in groups.values() {
+            for piece in group.stored().projections.keys() {
+                views.push(group.project(piece).map_err(ResultError::Invalid)?);
+            }
+        }
+        let mut allowed = BTreeSet::new();
+        for input in inputs {
+            let InputPayload::Item {
+                logical_path,
+                class,
+                files,
+            } = &input.payload
+            else {
+                return Err(ResultError::Invalid(
+                    "local source requires typed item input".into(),
+                ));
+            };
+            if files
+                .iter()
+                .map(|file| &file.path)
+                .collect::<BTreeSet<_>>()
+                .len()
+                != files.len()
+            {
+                return Err(ResultError::Invalid("duplicate local input member".into()));
+            }
+            if !views.iter().any(|item| {
+                item.item.logical_path == *logical_path
+                    && item.item.class == *class
+                    && item.files.len() == files.len()
+                    && files.iter().all(|file| item.files.contains(file))
+            }) {
+                return Err(ResultError::Invalid(
+                    "local input content/mode differs from sealed completion".into(),
+                ));
+            }
+            for file in files {
+                self.checked_object(file).map_err(ResultError::Validation)?;
+                allowed.insert(ObjectDigest::from_hex(&file.digest)?);
+            }
+        }
+        Ok(FrozenObjects {
+            completion: self,
+            allowed,
+        })
     }
     pub(crate) fn clone_to(
         &self,
@@ -190,5 +300,47 @@ impl FrozenCompletion {
             .find(|object| object.digest() == digest)
             .ok_or(StoreError::InvalidFile("uncertified local digest"))?
             .clone_to(destination)
+    }
+}
+
+/// Borrowed byte availability from fully validated local work, independent of CAS.
+pub struct FrozenObjects<'a> {
+    completion: &'a FrozenCompletion,
+    allowed: BTreeSet<ObjectDigest>,
+}
+impl ObjectSource for FrozenObjects<'_> {
+    fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError> {
+        let error = |kind, message: String| SourceError {
+            kind,
+            digest: digest.clone(),
+            message,
+        };
+        if !self.allowed.contains(digest) {
+            return Err(error(
+                SourceErrorKind::Unavailable,
+                "uncertified frozen completion digest".into(),
+            ));
+        }
+        self.completion
+            .clone_to(digest, destination)
+            .map_err(|failure| {
+                let kind = match &failure {
+                    StoreError::InvalidFile(_) => SourceErrorKind::Changed,
+                    StoreError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        SourceErrorKind::Changed
+                    }
+                    StoreError::Clone(error)
+                        if error.kind() == std::io::ErrorKind::Unsupported
+                            || matches!(
+                                error.raw_os_error(),
+                                Some(libc::ENOTSUP) | Some(libc::EXDEV)
+                            ) =>
+                    {
+                        SourceErrorKind::CloneUnsupported
+                    }
+                    _ => SourceErrorKind::Io,
+                };
+                error(kind, failure.to_string())
+            })
     }
 }

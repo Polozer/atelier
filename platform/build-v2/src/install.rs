@@ -339,7 +339,13 @@ impl CurrentSources<'_> {
                 .iter()
                 .find(|receipt| receipt.logical_path == *logical_path && receipt.class == *class)
                 .ok_or_else(|| invalid("current input item differs from certified receipt"))?;
-            if receipt.files.len() != files.len()
+            if files
+                .iter()
+                .map(|file| &file.path)
+                .collect::<BTreeSet<_>>()
+                .len()
+                != files.len()
+                || receipt.files.len() != files.len()
                 || files.iter().any(|file| {
                     !receipt.files.iter().any(|saved| {
                         saved.output_path == file.path
@@ -542,11 +548,7 @@ impl CheckoutInstaller {
                 .reserved
                 .insert(folded(relative), (relative.into(), "object store".into()));
         }
-        for folder in ["receipts", "transactions", "quarantine"] {
-            reader
-                .fs
-                .mkdirs(&format!("{INSTALL_METADATA}/{folder}"), 0o700)?;
-        }
+        reader.ensure_install_layout()?;
         Ok(Self {
             reader,
             objects,
@@ -575,6 +577,13 @@ impl ReceiptReader {
             policy,
             reserved,
         })
+    }
+    fn ensure_install_layout(&self) -> Result<(), InstallError> {
+        for folder in ["receipts", "transactions", "quarantine"] {
+            self.fs
+                .mkdirs(&format!("{INSTALL_METADATA}/{folder}"), 0o700)?;
+        }
+        Ok(())
     }
     pub fn locks(&self) -> &CheckoutLocks {
         &self.locks
@@ -1691,6 +1700,7 @@ impl RestorePlan {
         if self.items.is_empty() && self.removals.is_empty() {
             return Ok(self.finish_root(root));
         }
+        installer.ensure_install_layout()?;
         let before = installer.index()?;
         if matches!(self.completion.as_ref(), Some(PlanCompletion::Local(_))) {
             installer.check_local_history(&self.result, &before)?;

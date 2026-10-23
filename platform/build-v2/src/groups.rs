@@ -1098,6 +1098,128 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn sealed_local_group_stages_selected_bytes_without_cas_and_refuses_missing_frozen_members() {
+        use crate::completion::CompletionWork;
+        use crate::install::LeaseIdentity;
+        use crate::leases::ProcessIdentity;
+        use crate::results::ActualOutput;
+        use crate::schema::Provenance;
+        use std::{fs, io::Read};
+        let (contract, _) = fixture();
+        let (declaration, registry, snapshot) = key_fixture(&contract);
+        let planner = prepared(
+            &declaration,
+            &registry,
+            &snapshot,
+            &BTreeMap::new(),
+            "planner",
+        )
+        .unwrap();
+        let workspace = Workspace::new();
+        let work = CompletionWork::begin(
+            &workspace.0,
+            &planner,
+            LeaseIdentity {
+                provenance: Provenance {
+                    checkout: "fixture".into(),
+                    branch: "main".into(),
+                    commit: "source".into(),
+                    dirty: false,
+                    built_at: "fixture".into(),
+                },
+                owner: ProcessIdentity {
+                    pid: std::process::id(),
+                    boot: "fixture".into(),
+                    started: "fixture".into(),
+                },
+                workers: vec![],
+                upstream_result_keys: Default::default(),
+            },
+        )
+        .unwrap();
+        let scope = workspace.0.join(&work.lease().staging);
+        let payload = b"sealed selected group bytes";
+        let plan = serde_json::json!({"schema":1,"parent":"Village_Edges","complete":true,"triangle_limit":32768,"source_triangles":3,"source_collision_hulls":0,"pieces":[{"name":"Village_Edges","payload":"Village_Edges.npz","sha256":sha256(payload),"triangles":3,"collision_hulls":0}]});
+        let source = workspace.0.join("source.npz");
+        fs::write(&source, payload).unwrap();
+        let manifest = workspace.0.join("plan.json");
+        fs::write(&manifest, serde_json::to_vec(&plan).unwrap()).unwrap();
+        let completion = work
+            .freeze(
+                vec![
+                    ActualOutput {
+                        path: "geometry/plan.json".into(),
+                        source: manifest,
+                    },
+                    ActualOutput {
+                        path: "geometry/Village_Edges.npz".into(),
+                        source: source.clone(),
+                    },
+                ],
+                |fixed| {
+                    assert!(fixed.is_empty());
+                    Ok(())
+                },
+                |_, _, objects| {
+                    let mut bytes = vec![];
+                    objects["Village_Edges.npz"]
+                        .reader()
+                        .unwrap()
+                        .read_to_end(&mut bytes)
+                        .unwrap();
+                    assert_eq!(bytes, payload);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        fs::write(&source, b"changed live output").unwrap();
+        let groups = completion.available_groups().unwrap();
+        assert_eq!(
+            groups["geometry"].stored().projections["Village_Edges"].encoding,
+            PlanEncoding::MeshIr
+        );
+        let produced = groups
+            .into_iter()
+            .map(|(id, token)| (("planner".into(), id), token))
+            .collect();
+        let child = prepared(&declaration, &registry, &snapshot, &produced, "export").unwrap();
+        let objects = completion.objects_for(&[&child.inputs()[0]]).unwrap();
+        let staged = crate::staging::stage(
+            &child,
+            &snapshot,
+            &objects,
+            &workspace.0.join("child-job"),
+            "child",
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(staged.job_dir().join("inputs/payload/Village_Edges.npz")).unwrap(),
+            payload
+        );
+        assert!(!workspace.0.join("objects").exists());
+        assert!(!workspace.0.join("results").exists());
+        let evidence: Value =
+            serde_json::from_slice(&fs::read(scope.join("completion.json")).unwrap()).unwrap();
+        let named = evidence["objects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|object| object["digest"] == sha256(payload))
+            .unwrap()["path"]
+            .as_str()
+            .unwrap();
+        fs::remove_file(scope.join(named)).unwrap();
+        assert!(completion.available_groups().is_err());
+        assert!(completion.objects_for(&[&child.inputs()[0]]).is_err());
+        assert_eq!(
+            fs::read(staged.job_dir().join("inputs/payload/Village_Edges.npz")).unwrap(),
+            payload
+        );
+        crate::staging::remove_job(staged.job_dir()).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn leased_group_publication_restores_tokens_and_compares_whole_manifest() {
         use crate::results::{ActualOutput, ResultError, ResultStore};
         use std::{fs, io::Read};

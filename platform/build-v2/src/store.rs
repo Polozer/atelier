@@ -181,11 +181,14 @@ impl PreparedObject {
             .strip_prefix(scope)
             .map_err(|_| StoreError::WrongStore)
     }
-    pub(crate) fn clone_to(&self, destination: &Path) -> Result<(), StoreError> {
-        let metadata = immutable(&self.staging)?;
-        if metadata.len() != self.size {
+    pub(crate) fn check_frozen(&self) -> Result<(), StoreError> {
+        if immutable(&self.staging)?.len() != self.size {
             return Err(StoreError::InvalidFile("frozen snapshot size differs"));
         }
+        Ok(())
+    }
+    pub(crate) fn clone_to(&self, destination: &Path) -> Result<(), StoreError> {
+        self.check_frozen()?;
         native::clone_file(&self.staging, destination).map_err(StoreError::Clone)?;
         match immutable(destination) {
             Ok(metadata) if metadata.len() == self.size => Ok(()),
