@@ -178,23 +178,23 @@ fn lease_is_durable_before_staging_and_unknown_liveness_never_expires() {
     drop(transaction);
     let records = store.leases().lock().unwrap().leases().unwrap();
     assert_eq!(records, [lease.clone()]);
-    assert!(!lease.may_reclaim(|_| Liveness::Unknown));
-    assert!(!lease.may_reclaim(|identity| if identity.pid == 2 {
+    assert!(!lease.identities_all_dead(|_| Liveness::Unknown));
+    assert!(!lease.identities_all_dead(|identity| if identity.pid == 2 {
         Liveness::Alive
     } else {
         Liveness::Dead
     }));
-    assert!(!lease.may_reclaim(|identity| if identity.pid == 3 {
+    assert!(!lease.identities_all_dead(|identity| if identity.pid == 3 {
         Liveness::Alive
     } else {
         Liveness::Dead
     }));
-    assert!(!lease.may_reclaim(|identity| if identity.pid == 2 {
+    assert!(!lease.identities_all_dead(|identity| if identity.pid == 2 {
         Liveness::Unknown
     } else {
         Liveness::Dead
     }));
-    assert!(lease.may_reclaim(|_| Liveness::Dead));
+    assert!(lease.identities_all_dead(|_| Liveness::Dead));
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn validator_reads_frozen_hashed_bytes_and_modes_survive_source_changes() {
     assert!(
         leases
             .iter()
-            .all(|lease| !lease.may_reclaim(|_| Liveness::Unknown))
+            .all(|lease| !lease.identities_all_dead(|_| Liveness::Unknown))
     );
 }
 
