@@ -48,7 +48,10 @@ fn provenance(name: &str) -> Provenance {
 }
 
 fn prepared(id: &str) -> PreparedUnit {
-    let declaration = Declaration {
+    prepared_with_sibling(id, false)
+}
+fn prepared_with_sibling(id: &str, sibling: bool) -> PreparedUnit {
+    let mut declaration = Declaration {
         schema_version: SCHEMA_VERSION,
         cache_version: "1".into(),
         units: vec![Unit {
@@ -83,6 +86,17 @@ fn prepared(id: &str) -> PreparedUnit {
             }],
         }],
     };
+    if sibling {
+        let mut item = declaration.units[0].outputs[0].clone();
+        item.id = "sibling".into();
+        item.logical_path = "/Data/sibling".into();
+        item.files = vec![OutputFile {
+            path: "sibling.bin".into(),
+            install_path: None,
+            required: true,
+        }];
+        declaration.units[0].outputs.push(item);
+    }
     let registry = BTreeMap::from([(
         ("data".into(), "1".into()),
         OpDefinition {
@@ -548,4 +562,287 @@ fn concurrent_publication_and_gc_observer_share_claim_mutex_without_gap() {
     assert_eq!(writer.join().unwrap(), second);
     assert_eq!(removed, 0);
     assert_eq!(begin(&store, &unit).lookup().unwrap().unwrap(), second);
+}
+
+#[test]
+fn recorded_identity_checks_complete_metadata_without_opening_payloads() {
+    let workspace = Workspace::new();
+    let store = workspace.store();
+    let unit = prepared("unit");
+    let mut record = ResultEnvelope {
+        version: ENVELOPE_VERSION,
+        result: ResultRecord {
+            schema_version: RESULT_SCHEMA_VERSION,
+            unit: "diagnostic-only".into(),
+            key: unit.key().into(),
+            ingredients: unit.ingredients().clone(),
+            outputs: vec![StoredItem {
+                item: unit.ingredients().logical_outputs[0].clone(),
+                files: vec![StoredFile {
+                    path: "result.bin".into(),
+                    digest: "a".repeat(64),
+                    size: 17,
+                    mode: 0o755,
+                }],
+                external_locator: None,
+            }],
+            output_groups: vec![],
+            provenance: provenance("fixture"),
+        },
+        upstream_result_keys: BTreeSet::new(),
+    };
+    let path = workspace
+        .path("store/results")
+        .join(format!("{}.json", unit.key()));
+    let save = |record: &ResultEnvelope| {
+        fs::write(&path, serde_json::to_vec(record).unwrap()).unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&path, permissions).unwrap();
+    };
+    save(&record);
+    // Poison the entire object namespace: even a path existence probe would fail.
+    fs::remove_dir(workspace.path("store/objects/sha256")).unwrap();
+    fs::write(workspace.path("store/objects/sha256"), b"unavailable").unwrap();
+    let mut transaction = begin(&store, &unit);
+    let identity = transaction.lookup_recorded().unwrap().unwrap();
+    assert_eq!(identity.result(), &record);
+    assert!(identity.groups().is_empty());
+    assert!(transaction.lease().result_keys.contains(unit.key()));
+    assert!(transaction.lease().object_digests.is_empty());
+    assert!(transaction.lookup().is_err());
+    fs::remove_file(&path).unwrap();
+    record.result.outputs[0].files[0].mode = 0o777;
+    save(&record);
+    assert!(matches!(
+        transaction.lookup_recorded(),
+        Err(ResultError::Invalid(_))
+    ));
+    fs::remove_file(&path).unwrap();
+    record.result.outputs[0].files.clear();
+    save(&record);
+    assert!(matches!(
+        transaction.lookup_recorded(),
+        Err(ResultError::Invalid(_))
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn published_record_identity_survives_eviction_without_becoming_available() {
+    let workspace = Workspace::new();
+    let store = workspace.store();
+    let unit = prepared("unit");
+    let result = begin(&store, &unit)
+        .stage(sources(&workspace, b"actual frozen output"), |_| Ok(()))
+        .unwrap()
+        .publish(|_| Ok(()))
+        .unwrap();
+    let digest = &result.result.outputs[0].files[0].digest;
+    fs::remove_file(workspace.path("store/objects/sha256").join(digest)).unwrap();
+    let mut transaction = begin(&store, &unit);
+    assert_eq!(
+        transaction.lookup_recorded().unwrap().unwrap().result(),
+        &result
+    );
+    assert!(transaction.lookup_groups().is_err());
+    assert!(transaction.lease().object_digests.is_empty());
+}
+
+#[test]
+fn recorded_retention_roots_metadata_without_payload_claims_and_rejects_cross_store() {
+    let workspace = Workspace::new();
+    let store = workspace.store();
+    let unit = prepared("unit");
+    let envelope = ResultEnvelope {
+        version: ENVELOPE_VERSION,
+        result: ResultRecord {
+            schema_version: RESULT_SCHEMA_VERSION,
+            unit: "diagnostic".into(),
+            key: unit.key().into(),
+            ingredients: unit.ingredients().clone(),
+            outputs: vec![StoredItem {
+                item: unit.ingredients().logical_outputs[0].clone(),
+                files: vec![StoredFile {
+                    path: "result.bin".into(),
+                    digest: "a".repeat(64),
+                    size: 3,
+                    mode: 0o644,
+                }],
+                external_locator: None,
+            }],
+            output_groups: vec![],
+            provenance: provenance("first"),
+        },
+        upstream_result_keys: BTreeSet::new(),
+    };
+    let path = workspace
+        .path("store/results")
+        .join(format!("{}.json", unit.key()));
+    fs::write(&path, serde_json::to_vec(&envelope).unwrap()).unwrap();
+    let mut permissions = fs::metadata(&path).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&path, permissions).unwrap();
+    let mut transaction = begin(&store, &unit);
+    let recorded = transaction.lookup_recorded().unwrap().unwrap();
+    assert!(
+        transaction
+            .pin_recorded_items(&recorded, &["missing"])
+            .is_err()
+    );
+    assert!(
+        transaction
+            .pin_recorded_items(&recorded, &["data"])
+            .is_err()
+    );
+    assert!(transaction.lease().object_digests.is_empty());
+    // Strict lookup may not expose claims if persisting its updated lease fails.
+    let object = workspace.path("store/objects/sha256").join("a".repeat(64));
+    fs::write(&object, b"abc").unwrap();
+    let mut permissions = fs::metadata(&object).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&object, permissions).unwrap();
+    let lease_path = workspace
+        .path("store/leases")
+        .join(format!("{}.json", transaction.lease().id));
+    let saved_lease = workspace.path("saved-lease");
+    fs::rename(&lease_path, &saved_lease).unwrap();
+    fs::create_dir(&lease_path).unwrap();
+    assert!(transaction.lookup_groups().is_err());
+    assert!(transaction.lease().object_digests.is_empty());
+    use atelier_build_v2::{
+        staging::{ObjectSource, SourceErrorKind},
+        store::ObjectDigest,
+    };
+    let error = transaction
+        .pinned_objects()
+        .clone_object(
+            &ObjectDigest::from_hex(&"a".repeat(64)).unwrap(),
+            &workspace.path("unpersisted-source"),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind, SourceErrorKind::Unavailable);
+    assert!(!workspace.path("unpersisted-source").exists());
+    fs::remove_dir(&lease_path).unwrap();
+    fs::rename(&saved_lease, &lease_path).unwrap();
+    assert!(
+        store
+            .leases()
+            .lock()
+            .unwrap()
+            .leases()
+            .unwrap()
+            .iter()
+            .find(|lease| lease.id == transaction.lease().id)
+            .unwrap()
+            .object_digests
+            .is_empty()
+    );
+    fs::remove_file(&object).unwrap();
+    let other = ResultStore::open(workspace.path("other")).unwrap();
+    assert!(
+        begin(&other, &unit)
+            .retain_recorded(&recorded, |_| panic!("cross-store token"))
+            .is_err()
+    );
+    let failed = begin(&store, &unit);
+    let failed_lease = failed.lease().clone();
+    assert!(matches!(
+        failed.retain_recorded(&recorded, |_| Err("root failed".into())),
+        Err(ResultError::Root(_))
+    ));
+    assert!(
+        LeaseStore::open(workspace.path("store"))
+            .unwrap()
+            .lock()
+            .unwrap()
+            .leases()
+            .unwrap()
+            .iter()
+            .any(|lease| lease.id == failed_lease.id && lease.result_keys.contains(unit.key()))
+    );
+    let lease = transaction.lease().clone();
+    transaction
+        .retain_recorded(&recorded, |result| {
+            assert_eq!(result, &envelope);
+            Ok(())
+        })
+        .unwrap();
+    let leases = LeaseStore::open(workspace.path("store")).unwrap();
+    let guard = leases.lock().unwrap();
+    let retained = guard
+        .leases()
+        .unwrap()
+        .into_iter()
+        .find(|record| record.id == lease.id)
+        .unwrap();
+    assert!(
+        retained.rooted && retained.result_keys.is_empty() && retained.object_digests.is_empty()
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn selected_recorded_sources_require_durable_claims_and_preserve_clone_independence() {
+    use atelier_build_v2::{staging::ObjectSource, store::ObjectDigest};
+    let workspace = Workspace::new();
+    let store = workspace.store();
+    let unit = prepared_with_sibling("unit", true);
+    let mut source_map = sources(&workspace, b"selected bytes");
+    fs::write(workspace.path("sibling"), b"unneeded sibling").unwrap();
+    source_map.insert(
+        ("sibling".into(), "sibling.bin".into()),
+        workspace.path("sibling"),
+    );
+    let result = begin(&store, &unit)
+        .stage(source_map, |_| Ok(()))
+        .unwrap()
+        .publish(|_| Ok(()))
+        .unwrap();
+    let digest = ObjectDigest::from_hex(&result.result.outputs[0].files[0].digest).unwrap();
+    let sibling = &result
+        .result
+        .outputs
+        .iter()
+        .find(|item| item.item.id == "sibling")
+        .unwrap()
+        .files[0]
+        .digest;
+    fs::remove_file(workspace.path("store/objects/sha256").join(sibling)).unwrap();
+    let mut transaction = begin(&store, &unit);
+    assert!(transaction.lookup_groups().is_err());
+    assert!(
+        transaction
+            .pinned_objects()
+            .clone_object(&digest, &workspace.path("unclaimed"))
+            .is_err()
+    );
+    let recorded = transaction.lookup_recorded().unwrap().unwrap();
+    let selected = transaction
+        .pin_recorded_items(&recorded, &["data"])
+        .unwrap();
+    selected
+        .clone_object(&digest, &workspace.path("clone"))
+        .unwrap();
+    assert_eq!(
+        fs::read(workspace.path("clone")).unwrap(),
+        b"selected bytes"
+    );
+    drop(selected);
+    assert!(transaction.lease().object_digests.contains(digest.as_hex()));
+    transaction
+        .pinned_objects()
+        .clone_object(&digest, &workspace.path("strict-clone"))
+        .unwrap();
+    fs::remove_file(workspace.path("store/objects/sha256").join(digest.as_hex())).unwrap();
+    assert_eq!(
+        fs::read(workspace.path("clone")).unwrap(),
+        b"selected bytes"
+    );
+    assert!(
+        transaction
+            .pinned_objects()
+            .clone_object(&digest, &workspace.path("evicted"))
+            .is_err()
+    );
 }

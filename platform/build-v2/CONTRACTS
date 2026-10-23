@@ -65,8 +65,9 @@ tree walks or rehashing. See tests/results.rs and
 groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest.
 
 @cc [owner:fontanierh,label:correctness;safety] build-v2-checkout-install
-Checkout installs MUST hold build and exclusive content custody, pin named cache objects and
-durably journal exact old/new ownership before payload staging or mutation. They MUST use
+Checkout installs MUST hold build and exclusive content custody, retain certified source custody
+(named cache-object pins for cached restores or durable sealed snapshots for local completions),
+and durably journal exact old/new ownership before payload staging or mutation. They MUST use
 clone-only restoration and recorded normalized modes, without payload hashing or tree discovery.
 Receipt identity MUST include explicit stable project namespace plus logical item path, never
 selected roots or Unit.id. Foreign files, other projects and current code/sources MUST be preserved.
@@ -134,6 +135,18 @@ unknown private leaves MUST preserve the active barrier and evidence. Only check
 directories MAY remain populated. See unknown_private_cleanup_leaves_preserve_journal_and_block_readers
 in tests/installs.rs.
 
+@cc [owner:fontanierh,label:correctness;safety] build-v2-local-completion-capabilities
+Recorded identities MUST validate the exact complete prepared record without probing payload objects;
+they MUST NOT certify byte availability or convert into available group/staging tokens. CurrentSources
+MUST come from the shared receipt validator under read custody with no-follow pinned file descriptors,
+and clone only certified consumer content/mode views with pre/post observations. Custody ends after
+staging independent job clones, before running a worker. No copy, hash or live-path reopen is permitted.
+FrozenCompletion MUST validate/hash independent snapshots once and retain them across cache publication
+failure. Local installation MUST reuse the existing journal/ownership/receipt engine without opening
+CAS or claiming a StoredHit; known semantic conflicts MUST refuse before mutation. Local scopes and
+real owner/worker evidence remain independent from shared CAS claims and MUST be preserved on failure.
+See tests/results.rs metadata lookup cases and tests/installs.rs current/local completion scenarios.
+
 @cc [owner:fontanierh,label:correctness] build-v2-independent-oracle
 The test harness oracle MUST derive expected roots, order, typed edges, run sets and target outputs
 from its own fixture specification, without calling production key, graph, store or plan parsing.
@@ -150,3 +163,16 @@ is pending, even when every fake-adapter check succeeds. See tests/harness.rs.
 @cc [owner:fontanierh,label:correctness] build-v2-seeded-reproduction
 A seeded graph, edit or store-failure mismatch MUST carry the seed and ordered steps needed to
 reconstruct the scenario, and the same seed MUST rebuild the same scenario. See tests/harness.rs.
+
+@cc [owner:fontanierh,label:correctness] build-v2-selected-source-retention
+Selected recorded item sources MUST validate only requested fixed items and persist their digest
+claims under the shared GC mutex before exposing a borrowed provider. In-memory claims MUST NOT
+advance if persistence fails, including the existing strict full-hit path. Providers MUST use their
+transaction's own object store and refuse unclaimed digests, with clone-only restoration and no
+payload hashing. Metadata-only retention MUST root the exact sealed record before claim release
+without asserting byte availability. Opt-in installed cached sources MUST retain live claims until
+explicit finish_sources, even after root success; normal commit semantics remain unchanged.
+Committed local plans MUST retain their private completion proof for store-only sibling staging.
+See recorded_retention_roots_metadata_without_payload_claims_and_rejects_cross_store,
+selected_recorded_sources_require_durable_claims_and_preserve_clone_independence in tests/results.rs,
+and retained_restore_sources_survive_settlement_until_explicit_release in tests/installs.rs.
