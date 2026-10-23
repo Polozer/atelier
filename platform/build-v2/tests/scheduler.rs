@@ -8,7 +8,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 type Trace = Rc<RefCell<Vec<String>>>;
-#[derive(Clone)]
 struct Checked {
     key: String,
     items: Vec<StoredItem>,
@@ -33,6 +32,19 @@ impl Fake {
             fail_publish: BTreeSet::new(),
             bad_key: false,
             bad_settle: false,
+        }
+    }
+}
+impl Clone for Checked {
+    fn clone(&self) -> Self {
+        assert!(
+            self.groups.is_empty(),
+            "static fixture does not clone group authority"
+        );
+        Self {
+            key: self.key.clone(),
+            items: self.items.clone(),
+            groups: BTreeMap::new(),
         }
     }
 }
@@ -65,6 +77,12 @@ impl Backend for Fake {
             items: &c.items,
             groups: &c.groups,
         }
+    }
+    fn into_outputs(
+        &mut self,
+        checked: Checked,
+    ) -> (Vec<StoredItem>, BTreeMap<String, ValidatedGroup>) {
+        (checked.items, checked.groups)
     }
     fn publish(&mut self, w: Work<String>, _: ()) -> Result<Published<Checked>, String> {
         assert_eq!(w.ticket(), w.prepared().key());

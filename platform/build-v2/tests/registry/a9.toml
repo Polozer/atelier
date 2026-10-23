@@ -31,3 +31,11 @@ tests = ["atelier-build-v2::scheduler/faulty_backend_key_and_materialization_cla
 [[scenarios]]
 id = "a9a.target_materialization_is_explicit_and_current_does_not_rewrite"
 tests = ["atelier-build-v2::scheduler/target_materialization_is_explicit_and_current_does_not_rewrite"]
+
+[[scenarios]]
+id = "a9a.independent-harness"
+tests = ["atelier-build-v2::scheduler_harness/independent_model_and_clean_oracle_judge_real_static_scheduler"]
+
+[[scenarios]]
+id = "a9a.harness-negative"
+tests = ["atelier-build-v2::scheduler_harness/independent_model_rejects_faulty_scheduler_adapter_overbuild"]

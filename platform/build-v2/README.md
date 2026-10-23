@@ -585,6 +585,9 @@ install and receipt effects. Incorrect backend key or materialization claims are
 these counters do not certify native I/O. Existing `t0.output-cutoff` remains pending for
 the full A9 integration. Production A5/B7/C1 adapters, resident C5c batching, recorded
 identity availability, A6 mid-build edits, dynamic cold targets, persisted retirement
-ownership and independent A8 harness integration remain separate acceptance work. A known
+ownership remain separate acceptance work. A test-only BuildAdapter maps static fixture
+declarations into this scheduler and is judged by the unchanged A8 model plus its clean
+fake worker oracle; a deliberately overbuilding adapter is rejected. These checks do not
+add native materialization observation to A8. A known
 prepared Current result short-circuits execution, but this static core still resolves
 its dependency identity closure; it does not claim target-first cold identity discovery.

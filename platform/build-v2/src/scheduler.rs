@@ -122,6 +122,11 @@ pub trait Backend {
         demand: Demand,
     ) -> Result<Lookup<Self::Checked, Self::Ticket>, String>;
     fn view<'a>(&'a self, checked: &'a Self::Checked) -> CheckedView<'a>;
+    /// Move sealed outputs into the scheduling identity context; tokens are never cloned or deserialized here.
+    fn into_outputs(
+        &mut self,
+        checked: Self::Checked,
+    ) -> (Vec<StoredItem>, BTreeMap<String, ValidatedGroup>);
     fn publish(
         &mut self,
         work: Work<Self::Ticket>,
@@ -268,11 +273,12 @@ fn integrate<B: Backend>(
     if view.key != prepared.key() {
         return Err("settlement changed prepared-key authority".into());
     }
-    for item in view.items {
-        items.insert((unit_id.into(), item.item.id.clone()), item.clone());
+    let (owned_items, owned_groups) = backend.into_outputs(checked);
+    for item in owned_items {
+        items.insert((unit_id.into(), item.item.id.clone()), item);
     }
-    for (id, group) in view.groups {
-        groups.insert((unit_id.into(), id.clone()), group.clone());
+    for (id, group) in owned_groups {
+        groups.insert((unit_id.into(), id.clone()), group);
     }
     Ok(())
 }
