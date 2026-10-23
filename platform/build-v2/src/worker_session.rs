@@ -14,7 +14,6 @@
 use crate::protocol::{
     FailureKind, JobOutputs, JobRequest, Request, Response, WorkerFailure, read_frame, write_frame,
 };
-use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Read, Write};
@@ -348,16 +347,6 @@ impl Session {
     }
 }
 
-/// serde-derived structs also accept positional arrays (a protocol.rs leniency reported for A0).
-/// A response is accepted only if it is exactly the object form it decodes to.
-fn object_shaped(message: Value) -> Result<Response, String> {
-    let response: Response = serde_json::from_value(message.clone()).map_err(|e| e.to_string())?;
-    match serde_json::to_value(&response) {
-        Ok(canonical) if canonical == message => Ok(response),
-        _ => Err("records must be JSON objects".into()),
-    }
-}
-
 fn terminal(response: Response) -> (String, Result<JobOutputs, WorkerFailure>) {
     match response {
         Response::Completed { job_id, outputs } => (job_id, Ok(outputs)),
@@ -416,14 +405,8 @@ impl<R: Read, W: Write> Channel<R, W> {
         if self.session.state == State::Broken {
             return misuse("the session is broken");
         }
-        match read_frame::<_, Value>(&mut self.reader) {
-            Ok(Some(message)) => {
-                let response = object_shaped(message).map_err(|problem| {
-                    self.session.state = State::Broken;
-                    SessionError::Protocol(format!("malformed response: {problem}"))
-                })?;
-                self.session.receive(response).map(Some)
-            }
+        match read_frame::<_, Response>(&mut self.reader) {
+            Ok(Some(response)) => self.session.receive(response).map(Some),
             Ok(None) => self.session.end_of_stream().map(|()| None),
             Err(error) => Err(self.session.lost(error)),
         }

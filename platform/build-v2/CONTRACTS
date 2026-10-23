@@ -10,9 +10,12 @@ platform invalidation uses explicit cache/op versions. See tests/interfaces.rs.
 
 @cc [owner:fontanierh,label:correctness] build-v2-wire-boundary
 Worker messages MUST use a separate pipe with a versioned, bounded JSON frame. Unknown message
-shapes, unsupported protocol versions and truncated frames MUST fail; only EOF between frames
-may be a clean close. Bulk asset bytes MUST travel in staged files, not wire messages.
-See tests/protocol.rs.
+shapes, unsupported protocol versions and truncated frames MUST fail, as MUST duplicate keys and
+positional (array) forms of the envelope, message or any typed record; arrays inside params and
+lists remain data. Only EOF between frames may be a clean close. Bulk asset bytes MUST travel in
+staged files, not wire messages. See tests/protocol.rs and the shared vectors
+tests/vectors/protocol_v1.json checked by tests/worker_session.rs and
+platform/studio/tests/test_build_v2_protocol.py.
 
 @cc [owner:fontanierh,label:correctness] build-v2-t0-registry
 CI MUST compile the current crate successfully before running its T0 tests. Its matrix MUST cover
