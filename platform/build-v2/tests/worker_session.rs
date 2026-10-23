@@ -441,8 +441,14 @@ fn channel_turns_framing_faults_into_session_failures() {
     let mut wrong_version = ready_frame.clone();
     let future = br#"{"version":2,"message":{"type":"started","job_id":"job-1"}}"#;
     wrong_version.extend(header_and(future, future.len() as u32));
+    // protocol.rs decodes a positional `failure` record; the channel must refuse it.
+    let mut positional = frames(&[hello(VERSION), started("job-1")]);
+    let record =
+        br#"{"version":1,"message":{"type":"failed","job_id":"job-1","failure":["job","m"]}}"#;
+    positional.extend(header_and(record, record.len() as u32));
     // (bytes, whether the worker broke the protocol rather than losing the pipe)
     let cases = [
+        (positional, true),
         (ready_frame.clone(), false),
         (truncated_header, false),
         (truncated_body, false),
@@ -467,6 +473,18 @@ fn channel_turns_framing_faults_into_session_failures() {
         silent.handshake(),
         Err(SessionError::Disconnected(_))
     ));
+}
+
+/// Accepts every byte, then fails to flush with a data error.
+struct FlushFails;
+
+impl Write for FlushFails {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Err(io::ErrorKind::InvalidData.into())
+    }
 }
 
 struct BrokenPipe;
@@ -513,6 +531,21 @@ fn unframeable_requests_are_not_sent_and_write_failures_break_the_session() {
         Err(SessionError::Disconnected(_))
     ));
     assert_eq!(broken.session().state(), &State::Broken);
+
+    // A writer error of any kind after the frame was handed over breaks the session, so a second
+    // job can never start while the first may still be running.
+    let mut flaky = Channel::new(
+        Session::new(VERSION),
+        Cursor::new(frames(&[hello(VERSION)])),
+        FlushFails,
+    );
+    flaky.handshake().unwrap();
+    assert!(matches!(
+        flaky.start(job("job-1")),
+        Err(SessionError::Disconnected(_))
+    ));
+    assert_eq!(flaky.session().state(), &State::Broken);
+    misuse(flaky.start(job("job-2")));
 }
 
 fn vector_bytes(vector: &Value) -> Vec<u8> {
@@ -744,6 +777,10 @@ fn python_worker_round_trip_over_dedicated_pipes() {
         "limits".into(),
         json!({"max": u64::MAX, "min": i64::MIN, "flags": [true, null]}),
     );
+    first.params.insert(
+        "floats".into(),
+        json!([1e-7, 0.00001, 1e16, 1e15, 1.5e300, 0.1, -2.5e-10]),
+    );
     first.outputs[0].install_path = Some("out/piece.glb".into());
     let finished = channel.run(first).unwrap();
     // The worker answers `failed` if its own encoding of the request differs from Rust's bytes.
@@ -781,7 +818,7 @@ fn python_worker_round_trip_over_dedicated_pipes() {
 fn python_worker_faults_break_the_session_over_dedicated_pipes() {
     let cases = [
         ("wrong_version", "worker version", Some(0)),
-        ("unknown_field_hello", "malformed frame", Some(0)),
+        ("unknown_field_hello", "malformed response", Some(0)),
         ("oversize_hello", "malformed frame", Some(0)),
         ("wrong_job_id", "unexpected started", Some(0)),
         ("terminal_before_started", "before started", Some(0)),

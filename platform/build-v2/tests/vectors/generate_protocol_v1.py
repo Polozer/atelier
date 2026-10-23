@@ -74,6 +74,16 @@ deep_ok = '[' * 123 + ']' * 123
 deep_bad = '[' * 124 + ']' * 124
 def deep_job(value):
     return SMALL_JOB.replace('"params":{}', '"params":{"d":' + value + '}')
+# Rust's float text (serde_json via zmij): shortest digits, fixed layout for leading-digit exponents
+# -5..=15, otherwise `e+N`/`e-N`. Written by hand here, not by the Python encoder.
+FLOATS = ('1e-7,0.00001,0.00001234,1e-6,1e+16,1000000000000000.0,1.2345678901234568e+17,1.5e+300,5e-324,'
+          '1.7976931348623157e+308,0.1,2.5,100.0,123.456,-2.5e-10,-0.0')
+FLOAT_VALUES = [1e-7, 0.00001, 0.00001234, 1e-6, 1e16, 1e15, 1.2345678901234568e17, 1.5e300, 5e-324,
+                1.7976931348623157e308, 0.1, 2.5, 100.0, 123.456, -2.5e-10, -0.0]
+add('floats_use_rust_shortest_text', 'request',
+    frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"f":[' + FLOATS + ']}'))),
+    [{'type': 'run', 'job': {**small_expected([{'path': 'o.json', 'required': True}])['job'], 'params': {'f': FLOAT_VALUES}}}],
+    canonical=True)
 # Too deep to embed as an expected value here; the canonical byte comparison checks its content.
 add('nesting_depth_127_is_accepted', 'request', frame(small_run(job=deep_job(deep_ok))), canonical=True, opaque=1)
 
