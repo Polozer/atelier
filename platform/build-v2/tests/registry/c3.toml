@@ -3,70 +3,85 @@ schema_version = 1
 [[scenarios]]
 id = "c3.unreal.profile_ignores_locations"
 tests = ["atelier-build-v2::unreal/the_profile_ignores_locations_and_follows_every_identity_field"]
+tier = "t0"
 
 [[scenarios]]
 id = "c3.unreal.context_validation"
 tests = ["atelier-build-v2::unreal/contexts_refuse_what_a_session_cannot_load_honestly"]
+tier = "t0"
 
 [[scenarios]]
 id = "c3.unreal.tree_identity"
 tests = ["atelier-build-v2::unreal/a_tree_identity_names_paths_and_bytes_and_refuses_links"]
+tier = "t0"
 
 [[scenarios]]
 id = "c3.unreal.command_line"
 tests = ["atelier-build-v2::unreal/the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_settings"]
+tier = "t0"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.scratch_project_read_only_clones"
 tests = ["atelier-build-v2::unreal/a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity"]
+tier = "t0"
 
 [[scenarios]]
 id = "c3.unreal.evidence_files"
 tests = ["atelier-build-v2::unreal/context_and_import_evidence_are_required_well_formed_and_exact"]
+tier = "t0"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.session_serves_jobs_with_clean_game_folder"
 tests = ["atelier-build-v2::unreal/editor_session::one_editor_serves_jobs_in_order_with_a_clean_game_folder_between_them"]
+tier = "t1a"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.membership_failures_and_next_job"
 tests = ["atelier-build-v2::unreal/editor_session::undeclared_saves_files_dirty_packages_and_op_errors_fail_and_the_next_job_runs"]
+tier = "t1a"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.reset_failure_retires_editor"
 tests = ["atelier-build-v2::unreal/editor_session::a_package_left_loaded_a_changed_setting_or_a_raising_reset_retires_the_editor_after_its_reply"]
+tier = "t1a"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.context_mismatch_and_rebuild_refused"
 tests = ["atelier-build-v2::unreal/editor_session::a_different_native_context_or_a_module_rebuild_never_says_hello"]
+tier = "t1a"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.ddc_folder_and_session_identity"
 tests = ["atelier-build-v2::unreal/the_ddc_folder_persists_per_engine_and_its_flags_and_graph_are_session_identity"]
+tier = "t0"
 
 [[scenarios]]
 id = "c3.unreal.ddc_policy"
 tests = ["atelier-build-v2::unreal/the_ddc_policy_allows_only_the_v2_folder_and_the_engine_pak"]
+tier = "t0"
 
 [[scenarios]]
 id = "c3.unreal.bad_cache_graph_refused"
 tests = ["atelier-build-v2::unreal/editor_session::a_cache_graph_with_zen_or_a_folder_outside_the_v2_ddc_never_says_hello"]
+tier = "t1a"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.frozen_worker_bundle"
 tests = ["atelier-build-v2::unreal/each_session_runs_a_frozen_worker_bundle_whose_digest_is_session_identity"]
+tier = "t0"
 platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.worker_bundle_regular_files_only"
 tests = ["atelier-build-v2::unreal/a_worker_bundle_freezes_only_regular_files_and_never_follows_or_blocks"]
+tier = "t0"
 
 [[pending]]
 id = "t2.unreal-worker-purity"
