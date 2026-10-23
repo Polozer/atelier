@@ -149,7 +149,8 @@
     "track_provider_checked_host": "92538e60a5aa763b4abff83ca3a178a63a65ca3d1386e1fb3b48125264c14036",
     "track_seven_query_host": "b818fb4b5a7869c3c7b74ca430a7fac19738f8cc4e1003261c3eb4e73a395ced",
     "carriage_paired_revalidation": "d22e649d225f8602fd0e6a71ec301c1085d3644626238b2d141438157afaaf6c",
-    "authored_source_lod_metadata_observation": "14116775efbbb4682452996adfed81fe5f33210e84b4d1085e5784600735955a"
+    "authored_source_lod_metadata_observation": "14116775efbbb4682452996adfed81fe5f33210e84b4d1085e5784600735955a",
+    "authored_source_lod_predicate_replay": "44b90188b7352499a415a9ce16eb2b4e52256aa62bbccbf60c2b40b487ea0026"
   },
   "not_certified": [
     "Independent current paired Track native equivalence; original whole remains failed",
@@ -163,5 +164,17 @@
     "skeletal character and horse splitting",
     "additional small-asset splitting"
   ],
-  "authority": "Informational evidence index only; never a cache admission token or replacement for current validation."
+  "authority": "Informational evidence index only; never a cache admission token or replacement for current validation.",
+  "source_lod_predicate_replay": {
+    "kind": "metadata-derived exact-condition replay only",
+    "track_original_owners": 137,
+    "track_original_lods": 362,
+    "carriage_owners_per_side": 67,
+    "carriage_lods_per_side": 81,
+    "owner_side_projections": 271,
+    "known_page_suffix_bytes_read": 34496,
+    "raw_geometry_or_archive_hash_replay": false,
+    "native_execution": false,
+    "track_current_pair_fabricated": false
+  }
 }
