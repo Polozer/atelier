@@ -8,6 +8,7 @@ pub mod cleanup;
 pub mod completion;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod demand;
+pub mod explain;
 pub mod failure_policy;
 pub mod fixture;
 pub mod graph;
