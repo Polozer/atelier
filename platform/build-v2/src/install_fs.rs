@@ -40,6 +40,14 @@ impl FileObservation {
     pub fn same_inode(&self, other: &Self) -> bool {
         self.device == other.device && self.inode == other.inode
     }
+    /// Renaming changes ctime; the remaining payload observations must still match.
+    pub fn same_payload(&self, other: &Self) -> bool {
+        self.same_inode(other)
+            && self.size == other.size
+            && self.mode == other.mode
+            && self.modified_seconds == other.modified_seconds
+            && self.modified_nanos == other.modified_nanos
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -152,6 +160,28 @@ impl RootFs {
             directory = next;
         }
         Ok(created)
+    }
+
+    pub fn create_directory(&self, path: &str, mode: u32) -> io::Result<CreatedDirectory> {
+        let (parent, leaf) = self.parent(path)?;
+        if unsafe {
+            libc::mkdirat(
+                parent.as_raw_fd(),
+                name(&leaf)?.as_ptr(),
+                mode as libc::mode_t,
+            )
+        } != 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let directory = opened(&parent, &leaf, libc::O_RDONLY | libc::O_DIRECTORY, 0)?;
+        let metadata = directory.metadata()?;
+        parent.sync_all()?;
+        Ok(CreatedDirectory {
+            path: path.into(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
     }
 
     pub fn file(&self, path: &str) -> io::Result<File> {

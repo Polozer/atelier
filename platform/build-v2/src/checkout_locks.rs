@@ -214,3 +214,126 @@ impl ContentReadGuard {
         self.0.duplicate()
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    struct OwnedChild(std::process::Child);
+    impl Drop for OwnedChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    struct Workspace(PathBuf);
+    impl Workspace {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "atelier-v2-locks-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn locks(&self) -> CheckoutLocks {
+            CheckoutLocks::open(&self.0).unwrap()
+        }
+    }
+    impl Drop for Workspace {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn checkout_build_and_content_locks_have_independent_lifetimes() {
+        let workspace = Workspace::new();
+        let first = workspace.locks();
+        let second = workspace.locks();
+        let build = first.try_build_exclusive().unwrap();
+        assert!(matches!(second.try_build_exclusive(), Err(LockError::Busy)));
+        let reader1 = first.try_read_content().unwrap();
+        let reader2 = second.try_read_content().unwrap();
+        assert!(matches!(build.try_write_content(), Err(LockError::Busy)));
+        drop(reader1);
+        assert!(matches!(build.try_write_content(), Err(LockError::Busy)));
+        drop(reader2);
+        let writer = build.try_write_content().unwrap();
+        assert!(matches!(first.try_read_content(), Err(LockError::Busy)));
+        drop(writer);
+        first.try_read_content().unwrap();
+        drop(build);
+        second.try_build_exclusive().unwrap();
+    }
+    #[test]
+    fn explicit_custody_duplicate_keeps_same_description_and_cloexec() {
+        let workspace = Workspace::new();
+        let locks = workspace.locks();
+        let build = locks.try_build_exclusive().unwrap();
+        let custody = build.duplicate_for_custodian().unwrap();
+        assert_ne!(
+            unsafe { libc::fcntl(custody.as_raw_fd(), libc::F_GETFD) } & libc::FD_CLOEXEC,
+            0
+        );
+        drop(build);
+        assert!(matches!(locks.try_build_exclusive(), Err(LockError::Busy)));
+        drop(custody);
+        let build = locks.try_build_exclusive().unwrap();
+        let reader = locks.try_read_content().unwrap();
+        let custody = reader.duplicate_for_custodian().unwrap();
+        drop(reader);
+        assert!(matches!(build.try_write_content(), Err(LockError::Busy)));
+        drop(custody);
+        build.try_write_content().unwrap();
+    }
+    #[test]
+    fn any_journal_entry_blocks_readers_without_touching_lock_inodes() {
+        let workspace = Workspace::new();
+        let locks = workspace.locks();
+        let journal = locks.metadata.join("journal.json");
+        fs::write(&journal, b"malformed").unwrap();
+        assert!(matches!(
+            locks.try_read_content(),
+            Err(LockError::RecoveryRequired)
+        ));
+        fs::remove_file(&journal).unwrap();
+        std::os::unix::fs::symlink("missing", &journal).unwrap();
+        assert!(matches!(
+            locks.try_read_content(),
+            Err(LockError::RecoveryRequired)
+        ));
+        fs::remove_file(&journal).unwrap();
+        locks.try_read_content().unwrap();
+        assert!(locks.metadata.join("content.lock").is_file());
+    }
+    #[test]
+    fn real_process_shared_reader_excludes_checkout_writer() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::process::{Command, Stdio};
+        let workspace = Workspace::new();
+        let locks = workspace.locks();
+        let build = locks.try_build_exclusive().unwrap();
+        let path = locks.metadata.join("content.lock");
+        let mut child=OwnedChild(Command::new("python3").args(["-c","import fcntl,sys; f=open(sys.argv[1],'a+'); fcntl.flock(f,fcntl.LOCK_SH); print('held',flush=True); sys.stdin.readline()"])
+            .arg(path).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap());
+        let mut output = BufReader::new(child.0.stdout.take().unwrap());
+        let mut line = String::new();
+        output.read_line(&mut line).unwrap();
+        assert_eq!(line, "held\n");
+        let refused = matches!(build.try_write_content(), Err(LockError::Busy));
+        child
+            .0
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"release\n")
+            .unwrap();
+        assert!(child.0.wait().unwrap().success());
+        assert!(refused);
+        build.try_write_content().unwrap();
+    }
+}

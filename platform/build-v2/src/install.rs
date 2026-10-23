@@ -1,6 +1,6 @@
 //! Exact-owned-set checkout installs. Store/root/worker lifecycle policy remains separate.
-//! Checkpoint: planning/receipt readers only; journal commit/recovery and acceptance tests
-//! are still under implementation. No production caller uses this draft module.
+//! Checkpoint: journal commit/recovery is drafted; acceptance tests and hosted compilation
+//! are still pending. No production caller uses this draft module.
 use crate::checkout_locks::{BuildGuard, CheckoutLocks, INSTALL_METADATA, LockError};
 use crate::graph::BuildGraph;
 pub use crate::install_fs::FileObservation;
@@ -599,6 +599,642 @@ impl CheckoutInstaller {
             desired,
             items,
         }))
+    }
+}
+
+/// Fault boundaries are after durable journal/publication steps, never successful stamps.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstallEvent {
+    JournalCreated,
+    FileStaged(usize),
+    Ready,
+    OldMoved(usize),
+    NewMoved(usize),
+    ReceiptsReady,
+    IndexCommitted,
+    CleanupComplete,
+}
+
+#[derive(Debug)]
+pub enum InstallOutcome {
+    Installed,
+    /// Checkout receipts are committed. B2 keeps its lease when rooting fails.
+    InstalledWithRootPending(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalEntry {
+    old_path: Option<String>,
+    old: Option<FileObservation>,
+    destination: String,
+    stage: String,
+    trash: String,
+    new: Option<StoredFile>,
+    staged: Option<FileObservation>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstallJournal {
+    version: u32,
+    project: ProjectNamespace,
+    scope: String,
+    old_index: ReceiptIndex,
+    after_index: Option<ReceiptIndex>,
+    ready: bool,
+    entries: Vec<JournalEntry>,
+    directories: Vec<CreatedDirectory>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalRecord {
+    digest: String,
+    journal: InstallJournal,
+}
+
+impl CheckoutInstaller {
+    fn journal_present(&self) -> Result<bool, InstallError> {
+        match fs::symlink_metadata(self.fs.absolute(JOURNAL)) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+    fn save_journal(&self, journal: &InstallJournal) -> Result<(), InstallError> {
+        let record = JournalRecord {
+            digest: sha256(&bytes(journal)?),
+            journal: journal.clone(),
+        };
+        self.fs.replace_metadata(JOURNAL, &bytes(&record)?)?;
+        Ok(())
+    }
+    fn load_journal(&self, view: &OwnershipSnapshot) -> Result<InstallJournal, InstallError> {
+        let record: JournalRecord = decode(&self.fs.read(JOURNAL)?)?;
+        let journal = record.journal;
+        if record.digest != sha256(&bytes(&journal)?)
+            || journal.version != JOURNAL_VERSION
+            || journal.project != self.policy.project
+            || !view.projects.contains(&journal.project)
+        {
+            return Err(recovery("journal identity/version/project mismatch"));
+        }
+        for index in std::iter::once(&journal.old_index).chain(journal.after_index.iter()) {
+            if index.version != RECEIPT_VERSION {
+                return Err(recovery("unsupported journal receipt index"));
+            }
+            let mut claims = self.reserved.clone();
+            for (owner, receipt) in &index.receipts {
+                digest(owner)?;
+                digest(receipt)?;
+            }
+            for (path, owner) in &index.paths {
+                relative_path(path, true).map_err(recovery)?;
+                if folded(path) != *path || !index.receipts.contains_key(owner) {
+                    return Err(recovery("invalid journal receipt ownership"));
+                }
+                claim(&mut claims, path, owner).map_err(recovery)?;
+            }
+        }
+        if journal.after_index.is_some() && !journal.ready {
+            return Err(recovery("unready journal has committed receipts"));
+        }
+        let prefix = format!("{INSTALL_METADATA}/transactions/");
+        let serial = journal
+            .scope
+            .strip_prefix(&prefix)
+            .ok_or_else(|| recovery("foreign journal scope"))?;
+        if serial.is_empty()
+            || serial.contains('/')
+            || !serial.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+        {
+            return Err(recovery("invalid transaction scope"));
+        }
+        let mut claims = Claims::new();
+        for (i, entry) in journal.entries.iter().enumerate() {
+            self.output_path(&entry.destination)?;
+            if conflict(&view.sources, &entry.destination).is_some() {
+                return Err(recovery("journal destination is now source/code"));
+            }
+            claim(&mut claims, &entry.destination, "journal output").map_err(recovery)?;
+            if let Some(old) = &entry.old_path {
+                self.output_path(old)?;
+                if folded(old) != folded(&entry.destination)
+                    || conflict(&view.sources, old).is_some()
+                {
+                    return Err(recovery("journal old output is foreign or now source/code"));
+                }
+            }
+            if entry.old.is_some() && entry.old_path.is_none()
+                || entry.stage != format!("{}/new/{i}", journal.scope)
+                || entry.trash != format!("{}/trash/{i}", journal.scope)
+                || entry.staged.is_some() && entry.new.is_none()
+                || journal.ready && entry.new.is_some() && entry.staged.is_none()
+            {
+                return Err(recovery("invalid journal entry"));
+            }
+            if let Some(file) = &entry.new {
+                digest(&file.digest)?;
+                if ![0o644, 0o755].contains(&file.mode) {
+                    return Err(recovery("invalid staged mode"));
+                }
+                if let Some(staged) = &entry.staged {
+                    if staged.size != file.size || staged.mode != file.mode {
+                        return Err(recovery("invalid staged observation"));
+                    }
+                }
+            }
+        }
+        for directory in &journal.directories {
+            relative_path(&directory.path, true).map_err(recovery)?;
+            let private = directory.path == journal.scope
+                || directory.path.starts_with(&(journal.scope.clone() + "/"));
+            let output_parent = journal
+                .entries
+                .iter()
+                .any(|e| e.destination.starts_with(&(directory.path.clone() + "/")));
+            if !private && !output_parent {
+                return Err(recovery("foreign directory cleanup intent"));
+            }
+        }
+        Ok(journal)
+    }
+
+    fn consistent_receipt(
+        &self,
+        index: &ReceiptIndex,
+        owner: &OwnerId,
+    ) -> Result<Option<(String, ItemReceipt)>, InstallError> {
+        let key = owner.fingerprint()?;
+        let Some(id) = index.receipts.get(&key) else {
+            return Ok(None);
+        };
+        let receipt = self.receipt(id)?;
+        if &receipt.owner != owner {
+            return Err(recovery("receipt index owner mismatch"));
+        }
+        let recorded: BTreeSet<_> = receipt
+            .files
+            .iter()
+            .map(|f| folded(&f.install_path))
+            .collect();
+        let indexed: BTreeSet<_> = index
+            .paths
+            .iter()
+            .filter(|(_, v)| *v == &key)
+            .map(|(p, _)| p.clone())
+            .collect();
+        if recorded != indexed {
+            return Err(recovery("receipt/index file membership mismatch"));
+        }
+        Ok(Some((id.clone(), receipt)))
+    }
+
+    /// @cc [owner:fontanierh,label:correctness;safety] recover-owned-checkout-install
+    /// Recovery MUST hold build and exclusive content custody. Before the receipt-index commit
+    /// it MUST restore the prior owned bytes; after commit it MUST finish only exact owned cleanup.
+    /// Unknown/replaced leaves and newly declared source paths MUST preserve the journal and refuse.
+    /// No output-directory discovery, payload hashing, cache mutation or process launch is permitted.
+    pub fn recover(
+        &self,
+        guard: &BuildGuard,
+        view: &OwnershipSnapshot,
+    ) -> Result<(), InstallError> {
+        self.guard(guard)?;
+        let _writer = guard.try_write_content()?;
+        if !self.journal_present()? {
+            return Ok(());
+        }
+        let journal = self.load_journal(view)?;
+        let index = self.index()?;
+        let committed = journal.after_index.as_ref() == Some(&index);
+        if !committed && index != journal.old_index {
+            return Err(recovery("receipt index changed outside journal"));
+        }
+        if !committed {
+            self.rollback(&journal)?;
+        }
+        self.cleanup_journal(&journal, committed)
+    }
+
+    fn rollback(&self, journal: &InstallJournal) -> Result<(), InstallError> {
+        // Reverse the exact leaf moves. File contents are never read or copied.
+        for entry in journal.entries.iter().rev() {
+            let destination = self.fs.observe(&entry.destination)?;
+            if let Some(actual) = destination {
+                if entry
+                    .staged
+                    .as_ref()
+                    .is_some_and(|new| actual.same_payload(new))
+                {
+                    self.fs.remove_owned(&entry.destination, &actual)?;
+                } else if !entry
+                    .old
+                    .as_ref()
+                    .is_some_and(|old| actual.same_payload(old))
+                {
+                    return Err(recovery("rollback destination replaced by unknown file"));
+                }
+            }
+            if let (Some(old), Some(path)) = (&entry.old, &entry.old_path) {
+                if let Some(trash) = self.fs.observe(&entry.trash)? {
+                    if !trash.same_payload(old) {
+                        return Err(recovery("rollback trash was replaced"));
+                    }
+                    if self.fs.observe(path)?.is_some() {
+                        return Err(recovery("rollback old name is occupied"));
+                    }
+                    self.fs.rename_exclusive(&entry.trash, path)?;
+                } else if !self
+                    .fs
+                    .observe(path)?
+                    .is_some_and(|actual| actual.same_payload(old))
+                {
+                    return Err(recovery("rollback prior bytes missing"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn cleanup_journal(
+        &self,
+        journal: &InstallJournal,
+        committed: bool,
+    ) -> Result<(), InstallError> {
+        for entry in &journal.entries {
+            for (path, expected) in [
+                (&entry.stage, entry.staged.as_ref()),
+                (&entry.trash, entry.old.as_ref()),
+            ] {
+                if let Some(actual) = self.fs.observe(path)? {
+                    let expected = expected.ok_or_else(|| {
+                        recovery("unrecorded staging leaf; preserve for investigation")
+                    })?;
+                    if !actual.same_payload(expected) {
+                        return Err(recovery("cleanup leaf replaced"));
+                    }
+                    self.fs.remove_owned(path, expected)?;
+                }
+            }
+            if committed {
+                match (
+                    &entry.new,
+                    &entry.staged,
+                    self.fs.observe(&entry.destination)?,
+                ) {
+                    (Some(_), Some(expected), Some(actual)) if actual.same_payload(expected) => {}
+                    (None, _, None) => {}
+                    _ => return Err(recovery("committed output disappeared or changed identity")),
+                }
+            }
+        }
+        for directory in journal.directories.iter().rev() {
+            self.fs.remove_empty_directory(directory)?;
+        }
+        let observation = self
+            .fs
+            .observe(JOURNAL)?
+            .ok_or_else(|| recovery("journal disappeared"))?;
+        self.fs.remove_owned(JOURNAL, &observation)?;
+        Ok(())
+    }
+}
+
+impl RestorePlan {
+    pub fn result(&self) -> &ResultEnvelope {
+        &self.result
+    }
+
+    pub fn commit(
+        &mut self,
+        guard: &BuildGuard,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> Result<InstallOutcome, InstallError> {
+        self.commit_with(guard, |_| Ok(()), root)
+    }
+
+    /// @cc [owner:fontanierh,label:correctness;safety] checkout-install-transaction
+    /// Install MUST pin cache objects, acquire build/exclusive content custody and durably journal
+    /// exact old/new leaf ownership before staging or mutation. It MUST clone named CAS objects,
+    /// apply recorded normalized modes and publish complete per-project receipts before cleanup.
+    /// Existing foreign files, other projects and declared code/sources MUST never be overwritten.
+    /// Faults preserve recovery evidence and cache leases; successful later rooting releases claims.
+    /// No fallback copy, payload rehash, tree walk or inferred prefix ownership is permitted.
+    pub fn commit_with(
+        &mut self,
+        guard: &BuildGuard,
+        mut event: impl FnMut(InstallEvent) -> io::Result<()>,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> Result<InstallOutcome, InstallError> {
+        let installer = &self.installer;
+        installer.guard(guard)?;
+        if self.transaction.is_none() {
+            return Err(invalid("restore plan already consumed"));
+        }
+        let _writer = guard.try_write_content()?;
+        if installer.journal_present()? {
+            return Err(recovery("prior journal requires recovery"));
+        }
+        if self.items.is_empty() && self.removals.is_empty() {
+            return Ok(self.finish_root(root));
+        }
+        let before = installer.index()?;
+        let (mut journal, affected) = self.plan_journal(before)?;
+        installer.save_journal(&journal)?;
+        event(InstallEvent::JournalCreated)?;
+        for i in 0..journal.entries.len() {
+            let entry = &mut journal.entries[i];
+            if let Some(stored) = &entry.new {
+                installer.objects.clone_to(
+                    &ObjectDigest::from_hex(&stored.digest)?,
+                    installer.fs.absolute(&entry.stage),
+                )?;
+                let file = installer.fs.file(&entry.stage)?;
+                file.set_permissions(fs::Permissions::from_mode(stored.mode))?;
+                file.sync_all()?;
+                entry.staged = Some(FileObservation::from_metadata(&file.metadata()?));
+                if entry.staged.as_ref().unwrap().size != stored.size {
+                    return Err(recovery("staged object size changed"));
+                }
+                installer.save_journal(&journal)?;
+                event(InstallEvent::FileStaged(i))?;
+            }
+        }
+        journal.ready = true;
+        installer.save_journal(&journal)?;
+        event(InstallEvent::Ready)?;
+        for i in 0..journal.entries.len() {
+            let entry = journal.entries[i].clone();
+            if let Some(path) = &entry.old_path {
+                if let Some(expected) = &entry.old {
+                    let actual = installer
+                        .fs
+                        .observe(path)?
+                        .ok_or_else(|| recovery("old output disappeared"))?;
+                    if actual != *expected {
+                        return Err(recovery("old output changed after preflight"));
+                    }
+                    installer.fs.rename_exclusive(path, &entry.trash)?;
+                    event(InstallEvent::OldMoved(i))?;
+                }
+            }
+            if entry.new.is_some() {
+                if let Some((parent, _)) = entry.destination.rsplit_once('/') {
+                    journal
+                        .directories
+                        .extend(installer.fs.mkdirs(parent, 0o755)?);
+                    installer.save_journal(&journal)?;
+                }
+                installer
+                    .fs
+                    .rename_exclusive(&entry.stage, &entry.destination)?;
+                event(InstallEvent::NewMoved(i))?;
+            }
+        }
+        let after = self.receipt_index(&journal, &affected)?;
+        journal.after_index = Some(after.clone());
+        installer.save_journal(&journal)?;
+        event(InstallEvent::ReceiptsReady)?;
+        installer.fs.replace_metadata(INDEX, &bytes(&after)?)?;
+        event(InstallEvent::IndexCommitted)?;
+        installer.cleanup_journal(&journal, true)?;
+        event(InstallEvent::CleanupComplete)?;
+        Ok(self.finish_root(root))
+    }
+
+    fn finish_root(
+        &mut self,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> InstallOutcome {
+        match self.transaction.take().unwrap().retain_hit(root) {
+            Ok(_) => InstallOutcome::Installed,
+            Err(error) => InstallOutcome::InstalledWithRootPending(error.to_string()),
+        }
+    }
+
+    fn plan_journal(
+        &self,
+        before: ReceiptIndex,
+    ) -> Result<(InstallJournal, BTreeSet<OwnerId>), InstallError> {
+        let installer = &self.installer;
+        let mut affected: BTreeSet<_> = self.items.keys().cloned().collect();
+        let mut prior = BTreeMap::new();
+        for removal in &self.removals {
+            if !affected.insert(removal.owner.clone()) {
+                return Err(invalid("duplicate removal or live replacement owner"));
+            }
+            let Some((id, receipt)) = installer.consistent_receipt(&before, &removal.owner)? else {
+                return Err(invalid("removal has no owned receipt"));
+            };
+            if id != removal.expected_receipt_id
+                || receipt
+                    .files
+                    .iter()
+                    .map(|f| f.install_path.clone())
+                    .collect::<BTreeSet<_>>()
+                    != removal.exact_paths
+            {
+                return Err(invalid("stale or incomplete removal intent"));
+            }
+            prior.insert(removal.owner.clone(), receipt);
+        }
+        for owner in self.items.keys() {
+            if let Some((_, receipt)) = installer.consistent_receipt(&before, owner)? {
+                prior.insert(owner.clone(), receipt);
+            }
+        }
+        let mut old_files = BTreeMap::new();
+        for receipt in prior.values() {
+            for file in &receipt.files {
+                installer.output_path(&file.install_path)?;
+                if conflict(&self.view.sources, &file.install_path).is_some() {
+                    return Err(invalid("prior output became declared source/code"));
+                }
+                if let Some((_, current_owner)) = conflict(&self.view.paths, &file.install_path) {
+                    let desired_owner = self
+                        .desired
+                        .get(&folded(&file.install_path))
+                        .map(|desired| desired.owner.fingerprint())
+                        .transpose()?;
+                    if current_owner != &receipt.owner.fingerprint()?
+                        && desired_owner.as_ref() != Some(current_owner)
+                    {
+                        return Err(invalid(
+                            "prior output path is now assigned to another current owner",
+                        ));
+                    }
+                }
+                if old_files
+                    .insert(folded(&file.install_path), file.clone())
+                    .is_some()
+                {
+                    return Err(recovery("duplicate prior file"));
+                }
+            }
+        }
+        for (path, new) in &self.desired {
+            if let Some(owner) = before.paths.get(path) {
+                if !affected
+                    .iter()
+                    .any(|affected| affected.fingerprint().ok().as_ref() == Some(owner))
+                {
+                    return Err(invalid("output owned by another logical item/project"));
+                }
+            }
+            if let Some((_, owner)) = conflict(&self.view.paths, &new.install_path) {
+                if owner != &new.owner.fingerprint()? {
+                    return Err(invalid(
+                        "current declaration assigns output to another owner",
+                    ));
+                }
+            }
+        }
+        let paths: BTreeSet<_> = old_files
+            .keys()
+            .chain(self.desired.keys())
+            .cloned()
+            .collect();
+        let mut entries = vec![];
+        for path in paths {
+            let old_file = old_files.get(&path);
+            let desired = self.desired.get(&path);
+            let destination = desired
+                .map(|f| f.install_path.clone())
+                .unwrap_or_else(|| old_file.unwrap().install_path.clone());
+            let old_path = old_file.map(|f| f.install_path.clone());
+            let old = old_path
+                .as_ref()
+                .map(|p| installer.fs.observe(p))
+                .transpose()?
+                .flatten();
+            if let Some(existing) = installer.fs.observe(&destination)? {
+                if !old.as_ref().is_some_and(|old| old.same_inode(&existing)) {
+                    return Err(invalid("unmanaged or foreign destination file"));
+                }
+            }
+            entries.push(JournalEntry {
+                old_path,
+                old,
+                destination,
+                stage: String::new(),
+                trash: String::new(),
+                new: desired.map(|d| d.stored.clone()),
+                staged: None,
+            });
+        }
+        // Scope creation owns only a fresh private directory. No payload precedes the journal.
+        let (scope, root_directory) = loop {
+            let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+            let scope = format!(
+                "{INSTALL_METADATA}/transactions/{}-{serial}",
+                std::process::id()
+            );
+            match installer.fs.create_directory(&scope, 0o700) {
+                Ok(directory) => break (scope, directory),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let mut directories = vec![root_directory];
+        directories.extend(installer.fs.mkdirs(&format!("{scope}/new"), 0o700)?);
+        directories.extend(installer.fs.mkdirs(&format!("{scope}/trash"), 0o700)?);
+        for (i, entry) in entries.iter_mut().enumerate() {
+            entry.stage = format!("{scope}/new/{i}");
+            entry.trash = format!("{scope}/trash/{i}");
+        }
+        Ok((
+            InstallJournal {
+                version: JOURNAL_VERSION,
+                project: installer.policy.project.clone(),
+                scope,
+                old_index: before,
+                after_index: None,
+                ready: false,
+                entries,
+                directories,
+            },
+            affected,
+        ))
+    }
+
+    fn receipt_index(
+        &self,
+        journal: &InstallJournal,
+        affected: &BTreeSet<OwnerId>,
+    ) -> Result<ReceiptIndex, InstallError> {
+        let installer = &self.installer;
+        let mut after = journal.old_index.clone();
+        let fingerprints: BTreeSet<_> = affected
+            .iter()
+            .map(OwnerId::fingerprint)
+            .collect::<Result<_, _>>()?;
+        after
+            .receipts
+            .retain(|owner, _| !fingerprints.contains(owner));
+        after.paths.retain(|_, owner| !fingerprints.contains(owner));
+        for (owner, item) in &self.items {
+            let fingerprint = owner.fingerprint()?;
+            let mut files = vec![];
+            for desired in self.desired.values().filter(|file| &file.owner == owner) {
+                let observation = installer
+                    .fs
+                    .observe(&desired.install_path)?
+                    .ok_or_else(|| recovery("installed file missing before receipt publication"))?;
+                let entry = journal
+                    .entries
+                    .iter()
+                    .find(|e| e.destination == desired.install_path)
+                    .unwrap();
+                if !entry
+                    .staged
+                    .as_ref()
+                    .is_some_and(|expected| expected.same_payload(&observation))
+                    || observation.size != desired.stored.size
+                    || observation.mode != desired.stored.mode
+                {
+                    return Err(recovery(
+                        "installed file changed before receipt publication",
+                    ));
+                }
+                files.push(ReceiptFile {
+                    output_path: desired.output_path.clone(),
+                    install_path: desired.install_path.clone(),
+                    digest: desired.stored.digest.clone(),
+                    size: desired.stored.size,
+                    mode: desired.stored.mode,
+                    observation,
+                });
+                if after
+                    .paths
+                    .insert(folded(&desired.install_path), fingerprint.clone())
+                    .is_some()
+                {
+                    return Err(recovery("receipt path ownership collision"));
+                }
+            }
+            let receipt = ItemReceipt {
+                version: RECEIPT_VERSION,
+                owner: owner.clone(),
+                logical_path: item.logical_path.clone(),
+                class: item.class.clone(),
+                result_key: self.result.result.key.clone(),
+                files,
+            };
+            let payload = bytes(&receipt)?;
+            let id = sha256(&payload);
+            let path = format!("{INSTALL_METADATA}/receipts/{id}.json");
+            match installer.fs.publish_metadata(&path, &payload) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    if installer.fs.read(&path)? != payload {
+                        return Err(recovery("immutable receipt winner differs"));
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+            after.receipts.insert(fingerprint, id);
+        }
+        Ok(after)
     }
 }
 
