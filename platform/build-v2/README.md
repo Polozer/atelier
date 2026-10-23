@@ -379,6 +379,83 @@ determinism fixtures remain required.
 Other open work: Linux has no sandbox yet. The worker implementation digest, B3 installs, A6 live-edit
 revalidation and C3/C7 supervision are not here.
 
+## C2b Blender job loop
+
+`platform/studio/atelier/build_v2/blender_worker.py` is the Blender job loop. `launch::WorkerCommand::blender_job_loop`
+starts it inside the installed background Blender as
+`Blender --factory-startup -b --threads 3 --python-exit-code 1 --disable-autoexec -P blender_worker.py --`; the
+launcher appends the protocol descriptors after `--`. The thread count precedes `-P`, so capacity admission
+reads three threads rather than the full pool. The loop is the Python job loop with another platform and
+child command: the same protocol, cancel and output reporting, and its own `hello` version
+(`atelier-blender-job-1`, `launch::BLENDER_JOB_LOOP_VERSION`). One loop serves any number of jobs; it holds no
+Blender state itself.
+
+Each job runs in a fresh Blender from the same binary (`bpy.app.binary_path`), in the staged job folder:
+the loop's flags plus `--python-use-system-env`, then `--python-expr` with the bootstrap `blender_job.py`
+and the Python job bootstrap `python_job.py` as source text. The configuration arrives on stdin. The
+bootstrap resets the scene to an empty factory file (`read_factory_settings(use_empty=True)`) and runs
+the Python job bootstrap, so a Blender op is `def run(context)` with `bpy` importable and the whole
+Python job isolation above applies. The environment is the Python job's (`LC_ALL=C`, `TZ=UTC`,
+`PYTHONHASHSEED=0`, two Python I/O settings), with `--python-use-system-env` so the embedded Python
+honours it, plus `HOME` and every `BLENDER_USER_*` folder (resources, config, scripts, datafiles,
+extensions) pointed at a missing path inside the job folder. With `--factory-startup` no user
+preferences, startup file, add-ons, extensions or scripts load; only Blender's bundled add-ons are
+available. A new process per job means no scene, module or interpreter state reaches the next job.
+Two Blender-only adjustments to the Python job bootstrap, both in `blender_job.py`: `uuid.uuid4()`
+returns UUIDs drawn from the declared seed through its own generator, because the bundled glTF
+exporter keys its node tree with them (`uuid1`, `os.urandom`, `secrets` and `SystemRandom` still
+raise); and the undeclared-module check skips the module objects Blender's own startup loaded before
+the bootstrap (`__main__`, add-on and extension namespace packages, some named after the missing user
+folders), which are platform. Blender's bundled Python has no `time.clock_gettime`, so there is no
+realtime clock of that kind to fix. With `--python-use-system-env` the declared `PYTHONHASHSEED=0`
+applies: string hashes are the same in every job and process.
+
+On macOS the child runs under the Python job profile with the Blender application bundle as the
+platform: it may execute only the Blender binary (its path, links and target), read the bundle, the
+platform files of the Python profile and its job folder, and write only `output/`. Added allowances,
+each needed by Blender itself:
+- the application bundle (`Blender.app`), as a read subpath: Blender's binary, bundled Python, `bpy`
+  modules, bundled add-ons and data files;
+- `/usr/share/icu`, as a read subpath: the system ICU data Blender loads at startup;
+- `/Library/Preferences/.GlobalPreferences.plist`, as a read literal: the system-wide (not per-user)
+  CoreFoundation preferences read at startup;
+- opening the GPU's IOKit user clients (`AGXDeviceUserClient`, `IOSurfaceRootUserClient`), no file
+  access: Blender probes the Metal device during startup even in background mode and crashes
+  (SIGSEGV in its GPU backend detection) without one;
+- metadata only (no listing) of `/tmp` (`/private/tmp`) and `/Applications/Xcode.app`: Blender's
+  temp-folder probe and a system framework's developer-folder probe at startup; writes to `/tmp` stay
+  denied, so Blender runs without a temp folder;
+- reading `/dev/urandom` in the kernel profile only: the bundled Python's `os.urandom` reads it and the
+  bundled extensions add-on calls it at startup. Job code still cannot: the guard refuses
+  `os.urandom` and opening `/dev/urandom`;
+- binding a socket is refused without ending the job (a later `(deny network-bind)` replaces the
+  kill for binds only): the bundled HTTP library, imported by the extensions add-on at startup,
+  probes IPv6 support by binding a local socket. Connections and all other network use still end the
+  job, and job code cannot create sockets at all.
+
+Nothing in the home folder is readable: user preferences, `~/Library` and caches stay denied, and
+user-database, temp-folder and window-server service lookups stay denied without ending the job.
+
+The Python guard does not see Blender's native (C) file access: an existing undeclared path read
+natively (for example `bpy.data.images.load`) is stopped by the kernel sandbox and fails the job as
+`dependency`; a native probe of a *missing* undeclared path is the same documented gap as for Python
+native extensions (in the T1b session the probe used, `bpy.data.images.load` of a missing file in an
+existing undeclared folder, was still stopped by the kernel, but that is not a guarantee). Installed Blender and its bundled add-ons are platform, not key ingredients; a
+change of Blender is an explicit cache or op version change.
+
+Portable tests run the loop's test-only entry
+[tests/fixtures/unsandboxed_blender_loop.py](tests/fixtures/unsandboxed_blender_loop.py), announcing
+`atelier-blender-job-1+unsandboxed-test`, over a stand-in Blender
+([tests/fixtures/fake_blender.py](tests/fixtures/fake_blender.py)) that accepts only the job command line
+and installs a minimal `bpy`. They cover the protocol, command line, environment, order independence,
+seed and params, cancel, failures and output refusal through the result store. Blender itself, its
+exporter, the sandbox profile and native reads are proven only by the T1b session
+(`blender_jobs::t1b_blender_session`, ignored by default): the production entry in the installed
+Blender, run once in one admitted session over the frozen pyramid in
+[tests/fixtures/t1b](tests/fixtures/t1b), checking equal export bytes alone, after another job and in a
+fresh loop, seed determinism, the selected payload, params and code, refusals and denials, and the
+GLB's corners, UVs and materials. The registry keeps it pending until its evidence is recorded.
+
 ## B2 fixed-result publication and leases
 
 `ResultStore::begin(&PreparedUnit, provenance, owner, workers, upstream_keys)` persists a unique

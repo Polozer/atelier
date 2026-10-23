@@ -131,10 +131,12 @@ def fix_clock_and_entropy(seed):
     # (monotonic, perf_counter, process and thread CPU time) still measure real durations.
     wall = {getattr(time, name) for name in ('CLOCK_REALTIME', 'CLOCK_REALTIME_COARSE', 'CLOCK_TAI')
             if hasattr(time, name)}
-    original_clock, original_clock_ns = time.clock_gettime, time.clock_gettime_ns
-    time.clock_gettime = lambda clock: float(FIXED_EPOCH) if clock in wall else original_clock(clock)
-    time.clock_gettime_ns = lambda clock: (FIXED_EPOCH * 1_000_000_000 if clock in wall
-                                           else original_clock_ns(clock))
+    # Some interpreter builds (Blender's bundled Python) have no clock_gettime; there is nothing to fix then.
+    if hasattr(time, 'clock_gettime'):
+        original_clock, original_clock_ns = time.clock_gettime, time.clock_gettime_ns
+        time.clock_gettime = lambda clock: float(FIXED_EPOCH) if clock in wall else original_clock(clock)
+        time.clock_gettime_ns = lambda clock: (FIXED_EPOCH * 1_000_000_000 if clock in wall
+                                               else original_clock_ns(clock))
 
     class FixedDatetime(datetime.datetime):
         @classmethod

@@ -1,0 +1,33 @@
+schema_version = 1
+
+[[scenarios]]
+id = "c2b.blender.loop_command_threads_before_script"
+tests = ["atelier-build-v2::blender_jobs/blender_job_loop_command_keeps_explicit_threads_before_the_script"]
+
+[[scenarios]]
+id = "c2b.blender.unsandboxed_loop_refused_by_production_handshake"
+tests = ["atelier-build-v2::blender_jobs/an_unsandboxed_blender_loop_never_passes_a_production_keyed_handshake"]
+
+[[scenarios]]
+id = "c2b.blender.order_and_fresh_process_equal_bytes"
+tests = ["atelier-build-v2::blender_jobs/blender_jobs_give_equal_bytes_in_any_order_and_in_a_fresh_loop"]
+
+[[scenarios]]
+id = "c2b.blender.seed_and_params_change_output"
+tests = ["atelier-build-v2::blender_jobs/blender_job_seed_and_params_alone_change_the_bytes"]
+
+[[scenarios]]
+id = "c2b.blender.failures_publish_nothing"
+tests = ["atelier-build-v2::blender_jobs/failed_or_incomplete_blender_jobs_publish_nothing_and_the_next_job_publishes"]
+
+[[scenarios]]
+id = "c2b.blender.missing_blender_fails_cleanly"
+tests = ["atelier-build-v2::blender_jobs/a_missing_blender_fails_the_job_and_leaves_the_loop_stoppable"]
+
+[[scenarios]]
+id = "c2b.blender.glb_fidelity_reader"
+tests = ["atelier-build-v2::blender_jobs/glb_reader_matches_a_hand_built_file"]
+
+[[pending]]
+id = "t1b.blender-session"
+task = "C2b"

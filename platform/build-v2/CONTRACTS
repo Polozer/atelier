@@ -190,3 +190,26 @@ closure MUST retain. One absolute deadline covers validation/planning without re
 plan on expiry. Plans MUST remain diagnostic, with no deletion authority, process-liveness decision,
 filesystem access, physical-space claim or new cache identity. See tests/cleanup.rs and
 cleanup::tests::deadline_covers_validation_and_planning_without_returning_partial_authority.
+
+@cc [owner:fontanierh,label:correctness] build-v2-blender-job-isolation
+The Blender job loop MUST run inside the installed background Blender started with
+`--factory-startup -b --threads 3 --python-exit-code 1 --disable-autoexec` before its `-P` script, so
+admission reads its threads, and MUST serve the same protocol as the Python job loop with its own
+worker version. Each job MUST run in a fresh Blender from that same binary, in its staged folder,
+with the same flags plus `--python-use-system-env`, the declared environment only, every Blender
+user folder and `HOME` pointed at a missing path inside the job folder, and the scene reset to an
+empty factory file before the op runs; no state of one job may reach another. Each job MUST run the
+Python job bootstrap, so the Python job isolation contract applies inside it with the Blender
+application bundle as its installed platform. On macOS the child MUST run under the same deny-default
+kill-on-deny sandbox that lets it execute only the Blender binary, read only the bundle, the named
+platform files and its job folder, and write only `output/`; every further kernel allowance MUST be a
+reviewed, named rule (GPU user clients, metadata of `/tmp` and the developer folder, kernel-only
+`/dev/urandom`, socket binds refused without the kill), and nothing in the home folder may be readable.
+Native Blender reads of an existing undeclared path and any other network use MUST fail the job as
+`dependency`. In Blender jobs `uuid.uuid4` MUST draw from the declared seed and every other entropy
+source stays refused; only module objects loaded by Blender's own startup are exempt from the
+undeclared-module check. The production entry MUST have no unsandboxed
+mode, and the test-only entry MUST announce a distinct worker version. Installed Blender and its
+bundled add-ons are platform, not key ingredients. The same limitations and scope as the Python job
+isolation contract apply, including native probes of missing paths. See
+platform/studio/tests/test_build_v2_blender_worker.py and tests/blender_jobs.rs.
