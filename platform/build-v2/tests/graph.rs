@@ -13,6 +13,7 @@ fn unit(id: &str) -> Unit {
         inputs: vec![],
         params: BTreeMap::new(),
         conditional: None,
+        output_groups: vec![],
         outputs: vec![Item {
             id: "result".into(),
             logical_path: format!("/Game/Data/{}", id.replace('.', "_")),
@@ -107,21 +108,21 @@ fn target_closure_includes_content_and_reference_producers_only() {
             Dependency {
                 producer: "leaf.alpha".into(),
                 consumer: "middle".into(),
-                item: "result".into(),
+                output: DependencyOutput::Item("result".into()),
                 input: "data".into(),
                 role: EdgeRole::Content
             },
             Dependency {
                 producer: "leaf.beta".into(),
                 consumer: "middle".into(),
-                item: "result".into(),
+                output: DependencyOutput::Item("result".into()),
                 input: "reference".into(),
                 role: EdgeRole::Reference
             },
             Dependency {
                 producer: "middle".into(),
                 consumer: "final".into(),
-                item: "result".into(),
+                output: DependencyOutput::Item("result".into()),
                 input: "data".into(),
                 role: EdgeRole::Content
             },

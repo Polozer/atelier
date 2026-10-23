@@ -1,7 +1,8 @@
 # Build v2 interfaces (A0)
 
 This unused Rust library is the shared interface for the build-v2 tracks. Production v1 is unchanged.
-Declaration schema **1**, result schema **2** and protocol version **1** are the wire contracts; incompatible changes
+Declaration schema **2** (fixed declarations v1 remain readable), result schema **3** and protocol
+version **1** are the wire contracts; incompatible changes
 require a version bump and coordination with consumers. The lockfile pins this crate's dependencies,
 not game cache identities.
 
@@ -183,7 +184,7 @@ must not influence semantic output. The pending `c1.staged-view-semantic-indepen
 actual worker output equality under different control metadata and source locators; logs may differ.
 A3 tests establish encoding and Run mapping only, not that future workers already enforce isolation.
 
-**Result schema 2:** `IdentityIngredients.script` identifies the selected entrypoint even when the code
+**Result schema 3:** `IdentityIngredients.script` identifies the selected entrypoint even when the code
 closure is unchanged; `staged_inputs` records the visible slot map and `input_kinds` binds each slot
 as a file or item directory, even if content digests coincide. `StoredFile.mode` is 0644 or 0755.
 B1 blob hashes remain byte-only and stored blobs immutable. B2 must normalize captured source mode
@@ -191,7 +192,9 @@ B1 blob hashes remain byte-only and stored blobs immutable. B2 must normalize ca
 B3 must restore semantic modes before publishing checkout installs. C1/B2/B3 and package tests must
 prove those mode rules. General ACL/xattr handling is outside this format. Old result records lack
 these required fields; B2 must reject unsupported result versions rather than infer missing metadata.
-Declaration schema and worker framing protocol remain version 1.
+Declaration schema 2 adds fixed output groups and selected member references; fixed schema1
+declarations remain readable. Result3 adds required group contracts/runtime membership; key encoding2
+binds fixed group contracts. Worker framing protocol remains version1.
 
 `SourceHashCache` hashes each frozen whole-file or selected-view version once. Its advisory version
 hint includes device, inode, size, nanosecond mtime and ctime; selector hints also identify the selected
@@ -305,11 +308,11 @@ transaction alive while consuming/cloning the hit, then call `retain_hit(require
 Missing or malformed entries return absence/error; B7 defines higher-level miss/current-but-not-cached
 handling. Whole-store corruption auditing remains separate.
 
-Envelope version 1 wraps result schema 2 and `upstream_result_keys` for future retention traversal.
+Envelope version 1 wraps result schema 3 and `upstream_result_keys` for future retention traversal.
 Those links, provenance and unit labels never participate in semantic winner equality. The first
 winner retains its own immutable lineage/evidence even when an equivalent unit has another graph ID.
 Different complete output manifests, including file modes, report non-determinism without replacing
-the winner. External/Zen adapters and dynamic groups are not supported by this fixed-result boundary.
+the winner. External/Zen adapters remain unsupported; groups use the separately validated complete-manifest entrypoint.
 
 Per-unit claim release marks the lease rooted but retains its process/staging header. Dropping a
 transaction also preserves durable claims. A later lifecycle/GC adapter may reclaim a scope only when
@@ -318,3 +321,56 @@ All such decisions and deletions must hold the same persistent `metadata.lock` i
 public `LeaseStore::lock()` guard; never remove that mutex file. `MetadataGuard::leases()` fails closed
 on malformed/unsupported records. B2 does not implement root selection, scope deletion, checkout
 installs, OS process probing, age-based retention or GC. Production v1 remains unchanged.
+
+## Bounded groups and typed child expansion (A4b)
+
+`groups` reads the existing D2 schema1 plan envelope and checks complete flat membership, authored
+names, encoding, budgets, payload digests and whole-collision ownership. Payload geometry stays
+opaque; a source-specific validator must inspect the same B1 frozen objects before a private
+`ValidatedGroup` can exist. `PlanRoster` alone is discovery metadata, never a format certificate.
+The retained Village_Edges plan fixture is source-format evidence, not native acceptance.
+
+A fixed `OutputGroupContract` owns an exclusive job-output-relative root, including its manifest.
+A manifest or payload cannot also be a fixed output; auxiliary query/runtime outputs remain
+explicitly outside that group or in separately declared groups. The worker output-root parameter
+is declared and keyed and must equal `output/<group.root>`. Run/protocol v1 stays unchanged: the
+controller obtains group contracts from exact prepared ingredients; Run.outputs remains its fixed
+file portion. Future C1b must report all fixed plus group output membership and reject unknown,
+aliasing or over-budget members. C1a framing alone proves none of that group behavior.
+
+Selected projections reuse one-member Item staging and bind that member's logical identity,
+path, byte digest, size, mode and certified encoding/role. A complete saved manifest can restore a token through B2's
+trusted reader with named object checks, without scanning mutable output folders. Group/roster
+changes remain separate from a selected member's content view.
+
+This slice remains unused by production callers. Declaration2/result3/key2 bind fixed groups and
+selected member identities. `stage_groups` partitions one complete actual fixed+group list, freezes
+under the existing lease and invokes source validators on those snapshots; every group object,
+including the plan, is claimed before publication. Full groups/projections participate in winner
+equality. The old `stage` API refuses group units. `lookup_groups` restores private tokens only after
+trusted record checks, named CAS metadata checks and durable pins under the same GC mutex; it reads
+no plan bytes and scans no output folders. C1b must supply the complete actual manifest and preserve
+physical sandbox boundaries; these APIs do not implement a worker or a filesystem sandbox.
+
+`plans::RegisteredTemplate` binds a programmatic `ChildTemplate` to a fixed planner/group contract.
+The template supplies the exporter op, script, explicit code closure, parameters, staged payload slot
+and fixed store-only output files. Plan rows supply only validated member metadata. A child uses a narrow
+`GroupMember` dependency and stable `<unit_prefix>.<piece>` ID; its logical output ends in the same
+piece name. Export parameters name that selected member, encoding and certified role. No planner code closure,
+whole roster or producer input key enters the child contract. Key tests prove the pure identity
+boundary; actual skipped worker launches remain D2/A9 acceptance.
+
+Cold child selection reports `NeedsPlanner` until validated membership exists, then `Ready` or
+`UnknownChild`; it never exports a provisional unit or fictional hit. `expand` checks all generated
+children with the same global structural validator before returning a graph. It does not require
+unselected source observations. Its private in-process `ExpansionReceipt` records exact generated
+units. Re-expansion checks the stable producer/group/unit-prefix/logical-namespace ownership scope
+and unchanged prior units; exporter code/op versions and planner versions/budgets may evolve. Removed children yield exact prior export-Item `RemovalIntent`s, without deleting files or
+inferring ownership from a prefix. A persisted previous group may be re-expanded to reconstruct its
+receipt; raw deserialization cannot mint one. Current D2 schema1 validation refuses zero-piece plans;
+retiring an entire empty family needs an explicit reviewed empty-plan contract.
+
+C1b still owns complete physical output reporting/sandboxing; D2 binds real recipe templates and A9
+schedules planners/children. D4/A5 must supply downstream installed ownership/reference views before
+B3 can preflight and apply native-package removals; prior export Items alone do not certify those deletions. No worker execution,
+install/removal, production activation or native equivalence is claimed.

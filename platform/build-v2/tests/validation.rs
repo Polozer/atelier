@@ -233,7 +233,7 @@ fn missing_sources_and_nonregular_entries_fail_even_when_optional() {
 fn unknown_versions_ops_and_classes_fail() {
     let (declaration, registry, snapshot, roots) = fixture();
     let mut changed = declaration.clone();
-    changed.schema_version += 1;
+    changed.schema_version = SCHEMA_VERSION + 1;
     rejected(&changed, &registry, &snapshot, &roots, "schema version");
     for (kind, version) in [("other", "1"), ("py_data", "2")] {
         changed = declaration.clone();

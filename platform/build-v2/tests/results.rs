@@ -62,6 +62,7 @@ fn prepared(id: &str) -> PreparedUnit {
             inputs: vec![],
             params: BTreeMap::new(),
             conditional: None,
+            output_groups: vec![],
             outputs: vec![Item {
                 id: "data".into(),
                 logical_path: "/Data/result".into(),
@@ -104,6 +105,7 @@ fn prepared(id: &str) -> PreparedUnit {
             snapshot: &snapshot,
             versions: &BTreeMap::new(),
             produced: &BTreeMap::new(),
+            produced_groups: &BTreeMap::new(),
             staged_inputs: &BTreeMap::new(),
             worker: &implementation,
             validator: &implementation,
@@ -235,7 +237,7 @@ fn missing_extra_outputs_and_incomplete_process_identity_refuse_before_publish()
 }
 
 #[test]
-fn unsupported_result_versions_and_dynamic_group_fields_refuse() {
+fn unsupported_result_versions_and_undeclared_groups_refuse() {
     let workspace = Workspace::new();
     let store = workspace.store();
     let unit = prepared("unit");
@@ -247,6 +249,7 @@ fn unsupported_result_versions_and_dynamic_group_fields_refuse() {
             key: unit.key().into(),
             ingredients: unit.ingredients().clone(),
             outputs: vec![],
+            output_groups: vec![],
             provenance: provenance("fixture"),
         },
         upstream_result_keys: BTreeSet::new(),
@@ -254,9 +257,10 @@ fn unsupported_result_versions_and_dynamic_group_fields_refuse() {
     let mut envelope_version = serde_json::to_value(&record).unwrap();
     envelope_version["version"] = 99.into();
     let mut result_version = serde_json::to_value(&record).unwrap();
-    result_version["result"]["schema_version"] = 3.into();
+    result_version["result"]["schema_version"] = (RESULT_SCHEMA_VERSION + 1).into();
     let mut groups = serde_json::to_value(&record).unwrap();
-    groups["result"]["output_groups"] = serde_json::json!([]);
+    groups["result"]["output_groups"] =
+        serde_json::json!([{ "id":"geometry", "files":[], "projections":{} }]);
     let path = workspace
         .path("store/results")
         .join(format!("{}.json", unit.key()));

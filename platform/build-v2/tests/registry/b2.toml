@@ -5,8 +5,8 @@ id = "b2.results.lease_is_durable_before_staging_and_unknown_liveness_never_expi
 tests = ["atelier-build-v2::results/lease_is_durable_before_staging_and_unknown_liveness_never_expires"]
 
 [[scenarios]]
-id = "b2.results.unsupported_result_versions_and_dynamic_group_fields_refuse"
-tests = ["atelier-build-v2::results/unsupported_result_versions_and_dynamic_group_fields_refuse"]
+id = "b2.results.unsupported_result_versions_and_undeclared_groups_refuse"
+tests = ["atelier-build-v2::results/unsupported_result_versions_and_undeclared_groups_refuse"]
 
 [[scenarios]]
 id = "b2.leases.dangling_lease_and_staging_names_remain_occupied"

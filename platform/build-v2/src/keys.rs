@@ -1,4 +1,5 @@
 //! Pure unit identity and explicit worker-input staging plans. No scheduling/store I/O.
+use crate::groups::ValidatedGroup;
 use crate::paths::{Claims, claim, relative_path};
 use crate::protocol::{JobRequest, StagedInput};
 use crate::schema::*;
@@ -7,9 +8,16 @@ use crate::validate::{FileSelection, SnapshotEntry, SourceSnapshot, ValidatedDec
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const KEY_ENCODING_VERSION: u32 = 1;
+/// @cc [owner:fontanierh,label:correctness] fixed-plan-input-identity
+/// Key encoding v2 MUST bind fixed group contracts before execution and MUST NOT
+/// include runtime group membership, plan/roster digests or producer input keys in
+/// a selected member consumer key. See groups::tests::fixed_group_contract_keys_planner_without_runtime_membership
+/// and member_keys_cut_off_planner_and_sibling_changes_but_bind_selected_view;
+/// actual scheduler/worker cutoff remains pending A9/D2 integration.
+pub const KEY_ENCODING_VERSION: u32 = 2;
 pub const CANONICAL_JSON_VERSION: u32 = 1;
 pub type ProducedItems = BTreeMap<(String, String), StoredItem>;
+pub type ProducedGroups = BTreeMap<(String, String), ValidatedGroup>;
 pub type SourceVersions = BTreeMap<String, FileVersion>;
 
 #[derive(Clone, Debug)]
@@ -23,6 +31,7 @@ pub struct KeyContext<'a> {
     pub snapshot: &'a SourceSnapshot,
     pub versions: &'a SourceVersions,
     pub produced: &'a ProducedItems,
+    pub produced_groups: &'a ProducedGroups,
     /// Exact worker-visible file names, or directory roots for multi-file items.
     pub staged_inputs: &'a BTreeMap<String, String>,
     pub worker: &'a ImplementationIdentity,
@@ -106,7 +115,10 @@ fn normalized_item(item: &Item) -> Item {
     item
 }
 
-fn safe_staged_paths(paths: &BTreeMap<String, String>, code: &[String]) -> Result<(), String> {
+pub(crate) fn safe_staged_paths(
+    paths: &BTreeMap<String, String>,
+    code: &[String],
+) -> Result<(), String> {
     let mut claims = Claims::new();
     claim(&mut claims, "output", "writable output root")?;
     for path in code.iter().collect::<BTreeSet<_>>() {
@@ -182,6 +194,26 @@ struct ContentItem<'a> {
     logical_path: &'a str,
     class: &'a str,
     files: &'a [StoredFile],
+}
+
+fn item_identity(payload: &InputPayload) -> Result<ContentIdentity, String> {
+    let InputPayload::Item {
+        logical_path,
+        class,
+        files,
+    } = payload
+    else {
+        return Err("expected typed item payload".into());
+    };
+    Ok(ContentIdentity::Digest {
+        digest: sha256(&canonical_bytes(&ContentItem {
+            domain: "atelier-item-content",
+            version: 1,
+            logical_path,
+            class,
+            files,
+        })?),
+    })
 }
 
 /// @cc [owner:fontanierh,label:correctness] key-exact-visible-ingredients
@@ -312,22 +344,48 @@ pub fn prepare(
                     .get(&(producer.clone(), item.clone()))
                     .ok_or("producer has no validated saved content")?;
                 let payload = item_payload(expected, stored)?;
-                let InputPayload::Item {
-                    logical_path,
-                    class,
-                    files,
-                } = &payload
-                else {
-                    unreachable!()
+                let identity = item_identity(&payload)?;
+                content.insert(name.clone(), identity.clone());
+                (name, identity, payload)
+            }
+            Input::Content {
+                name,
+                source:
+                    ContentSource::GroupMember {
+                        unit: producer,
+                        group,
+                        piece,
+                    },
+                ..
+            } => {
+                let expected = declaration
+                    .units
+                    .iter()
+                    .find(|unit| unit.id == *producer)
+                    .and_then(|unit| {
+                        unit.output_groups
+                            .iter()
+                            .find(|contract| contract.id == *group)
+                    })
+                    .ok_or("unknown producer group")?;
+                let validated_group = context
+                    .produced_groups
+                    .get(&(producer.clone(), group.clone()))
+                    .ok_or("validated producer group is unavailable")?;
+                if validated_group.contract() != expected {
+                    return Err("group contract differs from validated result".into());
+                }
+                let selected = validated_group.project(piece)?;
+                let payload = item_payload(&selected.item, &selected)?;
+                // Only the selected certified type/role joins its Item content view.
+                // The runtime roster, planner contract and planner input key stay out.
+                let identity = ContentIdentity::Digest {
+                    digest: sha256(&canonical_bytes(&serde_json::json!({
+                        "domain": "atelier-group-member-content", "version": 1,
+                        "item": item_identity(&payload)?,
+                        "projection": validated_group.stored().projections[piece],
+                    }))?),
                 };
-                let digest = sha256(&canonical_bytes(&ContentItem {
-                    domain: "atelier-item-content",
-                    version: 1,
-                    logical_path,
-                    class,
-                    files,
-                })?);
-                let identity = ContentIdentity::Digest { digest };
                 content.insert(name.clone(), identity.clone());
                 (name, identity, payload)
             }
@@ -361,6 +419,12 @@ pub fn prepare(
     inputs.sort_by(|a, b| a.wire.name.cmp(&b.wire.name));
     let mut outputs: Vec<_> = unit.outputs.iter().map(normalized_item).collect();
     outputs.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut output_groups = unit.output_groups.clone();
+    output_groups.sort_by(|a, b| a.id.cmp(&b.id));
+    for contract in &output_groups {
+        contract.validate()?;
+        contract.validate_root_param(&unit.params)?;
+    }
     let ingredients = IdentityIngredients {
         cache_version: declaration.cache_version.clone(),
         op: unit.op.clone(),
@@ -387,6 +451,7 @@ pub fn prepare(
             })
             .collect(),
         logical_outputs: outputs.clone(),
+        output_groups,
     };
     #[derive(Serialize)]
     struct Encoding<'a> {

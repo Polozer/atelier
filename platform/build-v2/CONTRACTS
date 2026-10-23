@@ -56,6 +56,10 @@ Fresh lease/staging names MUST preserve every occupied entry, including dangling
 
 @cc [owner:fontanierh,label:correctness] build-v2-frozen-result-validation
 Output validators MUST read the same frozen snapshots hashed and published by B1. Result winner
-comparison MUST include complete fixed output manifests and semantic modes, but exclude provenance,
-unit scheduling labels and upstream retention links. Dynamic groups and external outputs MUST refuse
-until their typed adapters are implemented. See tests/results.rs.
+comparison MUST include complete fixed and group manifests/projections and semantic modes, but
+exclude provenance, unit scheduling labels and upstream retention links. Group publication MUST
+require complete actual membership, fixed keyed contracts and sealed frozen-source validation.
+External outputs MUST refuse until their typed adapter exists. Cached group tokens MUST issue
+only after named object checks and durable pins under the GC mutex, without plan reads, output
+tree walks or rehashing. See tests/results.rs and
+groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest.
