@@ -1270,7 +1270,7 @@ fn retirement_valid_at_prepare_refuses_new_owner_receipt_before_journal_or_mutat
     };
     let (after, target) = fixture_named("first", "2", "/Game/Replacement");
     publish(&workspace, &target, b"target", None, 0o644);
-    let plan = installer
+    let mut plan = installer
         .prepare_restore(
             &guard,
             &target,
