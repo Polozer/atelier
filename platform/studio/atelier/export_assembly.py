@@ -53,6 +53,22 @@ def destination_members(destination, current):
         raise ValueError('Foreign atomic assembly members')
 
 
+def copy_verified(source,destination):
+    """Copy a preflighted assembly member atomically while preserving unchanged bytes and mtimes."""
+    real_directory(destination.parent,create=True)
+    if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+        raise ValueError('Foreign/link generated assembly destination')
+    digest=sha(source)
+    if destination.is_file() and sha(destination)==digest:return
+    staging=destination.with_name(destination.name+'.atomic-copy')
+    if staging.exists() or staging.is_symlink():raise ValueError('Unowned generated copy staging')
+    try:
+        copy_file(source,staging)
+        if sha(source)!=digest or sha(staging)!=digest:raise ValueError('Generated source changed during assembly')
+        staging.replace(destination)
+    finally:staging.unlink(missing_ok=True)
+
+
 def assemble(items, destination):
     """@cc [owner:fontanierh,label:correctness;performance] assembled-atomic-export-inventory
     Validate ALL independently owned products and the exclusive destination tree before writes.
