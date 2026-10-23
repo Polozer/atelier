@@ -25,6 +25,11 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// @cc [owner:fontanierh,label:safety] lifecycle-unconfirmed-cleanup-held
+/// An attempt MUST become `Released` only from the guard's confirmed cleanup receipt, or when its
+/// launch never started. Unconfirmed receipts, policy deadlines, cleanup limits and controller
+/// gaps MUST leave it `Held`; a held attempt MUST NOT be relaunched, and the lifecycle MUST NOT
+/// release capacity or checkout custody itself. See tests/worker_lifecycle.rs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Custody {
     /// Started and not yet settled by a receipt.

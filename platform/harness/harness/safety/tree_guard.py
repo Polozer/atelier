@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import sys
 import time
 
@@ -153,7 +154,98 @@ def controller_live(pin):
     except ProcessLookupError:
         return False  # Losing controller observation stops only this guard's owned workload.
 
-def run_child(pid, started, report, duration=None, limit_gib=10., controller=None, launch_nonce=None):
+def custody_descriptors(values):
+    """Validate checkout-lock custody descriptors before any worker is released.
+
+    Each must be a distinct int of at least 3 naming an open regular file. The descriptors keep
+    their open file description (BSD flock exclusion); nothing here unlocks them.
+    Returns (descriptor, (device, inode)) pairs.
+    """
+    seen, found = set(), []
+    for fd in values:
+        if type(fd) is not int or fd < 3 or fd in seen:
+            raise ValueError(f'invalid custody descriptor {fd!r}')
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f'custody descriptor {fd} is not a regular lock file')
+        seen.add(fd)
+        found.append((fd, (info.st_dev, info.st_ino)))
+    return found
+
+
+def _write_quietly(report, value):
+    try:
+        write_report(report, value)
+        return True
+    except Exception as error:  # A missing or unwritable receipt never releases custody.
+        print(f'custody receipt not written: {error!r}', file=sys.stderr, flush=True)
+        return False
+
+
+def _custody_pause(seconds):
+    time.sleep(seconds)
+
+
+def _close_custody(custody):
+    for fd, _ in custody:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+def keep_custody(tree, report, value, custody, code):
+    """Close custody only after verified pinned cleanup; otherwise hold it in a continuation.
+
+    The terminal outcome in `value` (state, termination_reason, cleanup_complete) is already
+    final. Late cleanup is recorded separately as `late_cleanup_complete` and never changes it.
+    """
+    files = [list(identity) for _, identity in custody]
+    if value.get('cleanup_complete') is True:
+        value['custody'] = dict(held=False, released='cleanup_complete', lock_files=files)
+        _write_quietly(report, value)
+        _close_custody(custody)
+        return code
+    try:
+        from atelier.harness.safety import process_tree
+        monitor = [os.getpid(), process_tree.started(os.getpid())]
+    except Exception:
+        monitor = [os.getpid(), None]
+    reason = value.get('termination_reason') or value.get('state')
+    record = value['custody'] = dict(held=True, reason=f'owned cleanup unverified after {reason}',
+                                     lock_files=files, monitor=monitor, since=time.time(),
+                                     last_observation=None, last_error=None, remaining=None)
+    _write_quietly(report, value)
+    print(f'custody held by monitor {monitor} for {report}: {record["reason"]}', file=sys.stderr, flush=True)
+    while True:
+        verified = False
+        try:
+            drained = drain_owned(tree)
+            remaining = tree.sample()
+            reporters = getattr(tree, 'reporters', None)
+            quiet = reporters is None or reporters.empty()
+            verified = drained and not remaining and quiet
+            record.update(last_observation=time.time(), remaining=remaining, late_reporters_empty=quiet,
+                          last_error=None)
+        except BaseException as error:  # Retry; never unwind while custody is held.
+            record['last_error'] = repr(error)
+        record['refreshed'] = time.time()
+        if verified:
+            break
+        _write_quietly(report, value)
+        try:
+            _custody_pause(.25)
+        except BaseException:
+            pass
+    record.update(held=False, released='late_cleanup_complete', released_at=time.time())
+    value['late_cleanup_complete'] = True
+    _write_quietly(report, value)
+    _close_custody(custody)
+    return code
+
+
+def run_child(pid, started, report, duration=None, limit_gib=10., controller=None, launch_nonce=None,
+              custody=()):
     """@cc [owner:fontanierh,label:safety] owned-child-aggregate-limit
     Every sampled owned process MUST contribute to the simultaneous footprint limit except shared
     engine services and their descendants. Failure or launcher exit MUST stop the retained pinned
@@ -161,6 +253,12 @@ def run_child(pid, started, report, duration=None, limit_gib=10., controller=Non
     complete within its bound MUST fail; PID reuse MUST NOT transfer ownership. A bound controller
     disappearing MUST stop the owned tree and publish controller_exited with post-drain cleanup,
     never successful completion. Independent guards MUST outlive the controller process group.
+    That bounded terminal outcome is the job's result. An opt-in custody monitor MUST publish it
+    unchanged, then MAY continue without a time bound, keeping its checkout custody descriptors
+    until pinned cleanup, including late reporters, is verified on two empty samples. Timeouts,
+    telemetry or receipt failures, TERM/HUP and controller loss MUST NOT release custody, and late
+    cleanup MUST NOT change the recorded state, termination reason or exit status. SIGKILL or an
+    OS crash of the monitor itself is outside this guarantee.
     """
     from atelier.harness.safety import process_tree
     adopted = adopt_reporters(launch_nonce)
@@ -168,6 +266,14 @@ def run_child(pid, started, report, duration=None, limit_gib=10., controller=Non
     report = Path(report)
     began, peak = time.monotonic(), 0
     limit = int(limit_gib * 1024**3)
+    terminated = []
+    if custody:
+        # Installed before the first readiness receipt: TERM/HUP drain the owned tree and never
+        # end a custodian. Default monitors keep their ordinary signal behaviour.
+        def request_drain(number, frame):
+            terminated.append(number)
+        for number in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(number, request_drain)
     try:
         if adopted is not None:
             adopted.bind_root(pid, started)
@@ -183,6 +289,8 @@ def run_child(pid, started, report, duration=None, limit_gib=10., controller=Non
                 state = 'memory_limit'
             elif duration is not None and elapsed >= duration:
                 state = 'test_duration'
+            elif terminated:
+                state = 'terminated'
             elif controller is not None and not controller_live(controller):
                 state = 'controller_exited'
             elif not any((p['pid'], p['started']) == tree.root for p in samples):
@@ -216,11 +324,20 @@ def run_child(pid, started, report, duration=None, limit_gib=10., controller=Non
                 value['time'] = time.time()
             write_report(report, value)
             if state != 'running':
-                return 0 if state == 'child_exited' else 1
+                code = 0 if state == 'child_exited' else 1
+                return keep_custody(tree, report, value, custody, code) if custody else code
             time.sleep(.25)
-    except BaseException:
-        drain_owned(tree)
-        raise
+    except BaseException as error:
+        if not custody:
+            drain_owned(tree)
+            raise
+        failed = dict(owner=pid, owner_started=started, time=time.time(), observed_monotonic=time.monotonic(),
+                      elapsed_seconds=time.monotonic() - began, footprint_bytes=0, peak_bytes=peak,
+                      limit_bytes=limit, state='cleanup_incomplete', termination_reason='monitor_error',
+                      error=repr(error), processes=[], cleanup_complete=False)
+        if controller is not None:
+            failed['controller'] = list(controller)
+        return keep_custody(tree, report, failed, custody, 1)
 
 
 def run(pid, started, report, duration, stop_file, limit_gib=10., launch_nonce=None):
@@ -300,7 +417,19 @@ def main():
     parser.add_argument('--child', action='store_true', help='guard an owned launcher until it exits')
     parser.add_argument('--launch-context-fd', type=int, help='private inherited launch ownership context')
     parser.add_argument('--limit-gib', type=float, default=10.)
+    parser.add_argument('--custody-fd', type=int, action='append', default=[],
+                        help='checkout-lock descriptor this child monitor holds until verified cleanup')
     args = parser.parse_args()
+    custody = ()
+    if args.custody_fd:
+        if not args.child:
+            parser.error('custody descriptors are only valid with --child')
+        try:
+            custody = custody_descriptors(args.custody_fd)
+        except (OSError, ValueError) as error:
+            parser.error(f'invalid custody descriptor: {error}')
+        for fd, _ in custody:
+            os.set_inheritable(fd, False)
     nonce = None
     if args.launch_context_fd is not None:
         if args.launch_context_fd < 3:
@@ -315,7 +444,8 @@ def main():
         if args.stop_file is not None:
             parser.error('--child does not use --stop-file')
         return run_child(args.pid, args.expected_start, args.report, args.duration, args.limit_gib,
-                         None if args.controller_pid is None else (args.controller_pid, args.controller_start), nonce)
+                         None if args.controller_pid is None else (args.controller_pid, args.controller_start), nonce,
+                         custody=custody)
     if args.stop_file is None or args.duration is None or args.limit_gib != 10.:
         parser.error('compound guards require --stop-file and --duration, with the fixed 10 GiB ceiling')
     # There is deliberately no CLI switch to raise this compound job's 10 GiB ceiling.
