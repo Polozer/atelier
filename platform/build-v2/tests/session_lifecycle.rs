@@ -1,7 +1,9 @@
 //! T0 tests of the pure C5c session lifecycle: units queued behind one guarded session at a
 //! time, each with its own C5a policy. Times are milliseconds from the session's start.
 use atelier_build_v2::failure_policy::{CleanupState, End, Expiry, Limits, MonoTime, Stop};
-use atelier_build_v2::guard_adapter::{AttemptEvent, CleanupReceipt, ExitInfo, LaunchEvent};
+use atelier_build_v2::guard_adapter::{
+    AttemptEvent, CleanupReceipt, ExitInfo, LaunchEvent, StoppedBy,
+};
 use atelier_build_v2::leases::ProcessIdentity;
 use atelier_build_v2::protocol::{FailureKind, JobOutputs, WorkerFailure};
 use atelier_build_v2::session_lifecycle::*;
@@ -1019,4 +1021,85 @@ fn a_later_unit_that_does_not_fit_the_sessions_lifetime_gets_a_fresh_session() {
         vec![SessionCommand::Submit { session: 2 }]
     );
     sim.start(300, 2, 202, "b");
+}
+
+#[test]
+fn a_cancel_the_worker_cannot_read_stops_the_session_and_the_receipt_settles_the_unit() {
+    // C3: a running Unreal job owns the game thread, so `cancel` is never answered.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(
+        sim.at(50, SessionInput::CancelUnit("a".into())),
+        vec![SessionCommand::Cancel {
+            session: 1,
+            unit: "a".into()
+        }]
+    );
+    assert_eq!(
+        sim.at(50 + QUIET, SessionInput::Tick),
+        vec![SessionCommand::Stop { session: 1 }],
+        "no terminal reply and no evidence in time: the guard stops the session"
+    );
+    sim.launch(
+        60 + QUIET,
+        1,
+        LaunchEvent::ChildExited {
+            worker: worker(101),
+            exit: ExitInfo::Signal(9),
+            stopped_by: Some(StoppedBy::Cancel),
+        },
+    );
+    assert_eq!(
+        sim.launch(70 + QUIET, 1, confirmed()),
+        vec![
+            SessionCommand::Submit { session: 2 },
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "the remaining unit gets a fresh session"
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(a.outcome.end, End::Failed(Stop::Cancelled));
+    assert_eq!(a.outcome.cleanup, CleanupState::Finished);
+    assert_eq!(a.attempts[0].custody, Custody::Released);
+    sim.start(2_000, 2, 202, "b");
+}
+
+#[test]
+fn a_worker_that_exits_after_completed_ends_its_session_without_crash_evidence() {
+    // C3: a worker that cannot reset replies `completed` and then exits cleanly.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+    assert_eq!(
+        sim.launch(110, 1, exited(101)),
+        vec![],
+        "not crash evidence"
+    );
+    assert_eq!(
+        sim.quiet(120, 1),
+        vec![],
+        "no reuse after the worker exited"
+    );
+    assert_eq!(
+        sim.launch(130, 1, confirmed()),
+        vec![
+            SessionCommand::Submit { session: 2 },
+            SessionCommand::Settled { unit: "a".into() }
+        ]
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(a.outcome.end, End::Completed);
+    assert_eq!(a.outcome.attempts, 1, "never retried");
+    assert_eq!(
+        a.attempts[0].custody,
+        Custody::Released,
+        "settled by the receipt"
+    );
+    sim.start(200, 2, 202, "b");
 }

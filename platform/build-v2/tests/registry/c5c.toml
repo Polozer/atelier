@@ -103,3 +103,11 @@ tests = ["atelier-build-v2::guard_adapter/run_session_refuses_a_unit_with_anothe
 [[scenarios]]
 id = "c5c.session.run_session_refuses_custody_that_is_not_its_keys_custody_set"
 tests = ["atelier-build-v2::guard_adapter/run_session_refuses_custody_that_is_not_its_keys_custody_set"]
+
+[[scenarios]]
+id = "c5c.session.a_cancel_the_worker_cannot_read_stops_the_session_and_the_receipt_settles_the_unit"
+tests = ["atelier-build-v2::session_lifecycle/a_cancel_the_worker_cannot_read_stops_the_session_and_the_receipt_settles_the_unit"]
+
+[[scenarios]]
+id = "c5c.session.a_worker_that_exits_after_completed_ends_its_session_without_crash_evidence"
+tests = ["atelier-build-v2::session_lifecycle/a_worker_that_exits_after_completed_ends_its_session_without_crash_evidence"]
