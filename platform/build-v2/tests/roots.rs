@@ -1,0 +1,1389 @@
+use atelier_build_v2::keys::{ImplementationIdentity, KeyContext, PreparedUnit, prepare};
+use atelier_build_v2::leases::{LEASE_VERSION, LeaseRecord, Liveness, ProcessIdentity};
+use atelier_build_v2::results::{ResultError, ResultStore};
+use atelier_build_v2::roots::*;
+use atelier_build_v2::schema::{
+    Declaration, Destination, Item, Op, OutputFile, Provenance, SCHEMA_VERSION, Unit,
+};
+use atelier_build_v2::source_hashes::SourceHashCache;
+use atelier_build_v2::validate::{OpDefinition, SnapshotEntry, ValidatedDeclaration, validate};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::io;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static SERIAL: AtomicU64 = AtomicU64::new(0);
+
+struct Workspace(PathBuf);
+impl Workspace {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "atelier-v2-roots-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+    fn store(&self) -> PathBuf {
+        self.0.join("store")
+    }
+    fn open(&self, project: &str) -> RootStore {
+        fs::create_dir_all(self.store()).unwrap();
+        RootStore::open(self.store(), project).unwrap()
+    }
+    fn project_dir(&self, project: &str) -> PathBuf {
+        self.store().join("roots").join(project)
+    }
+}
+impl Drop for Workspace {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn provenance(name: &str) -> Provenance {
+    Provenance {
+        checkout: name.into(),
+        branch: name.into(),
+        commit: name.into(),
+        dirty: false,
+        built_at: format!("{name}-time"),
+    }
+}
+
+fn process(pid: u32) -> ProcessIdentity {
+    ProcessIdentity {
+        pid,
+        boot: "boot".into(),
+        started: format!("start-{pid}"),
+    }
+}
+
+fn key(seed: u8) -> String {
+    format!("{seed:02x}").repeat(32)
+}
+
+fn declaration(units: &[&str]) -> Declaration {
+    Declaration {
+        schema_version: SCHEMA_VERSION,
+        cache_version: "1".into(),
+        units: units
+            .iter()
+            .map(|id| Unit {
+                id: (*id).into(),
+                op: Op {
+                    kind: "data".into(),
+                    version: "1".into(),
+                },
+                script: "ops/run.py".into(),
+                code: vec!["ops/run.py".into()],
+                inputs: vec![],
+                params: BTreeMap::new(),
+                outputs: vec![Item {
+                    id: "data".into(),
+                    logical_path: format!("/Data/{id}"),
+                    class: "Data".into(),
+                    destination: Destination::Store,
+                    files: vec![OutputFile {
+                        path: "result.bin".into(),
+                        install_path: None,
+                        required: true,
+                    }],
+                }],
+                output_groups: vec![],
+                conditional: None,
+            })
+            .collect(),
+    }
+}
+
+fn validated(units: &[&str]) -> ValidatedDeclaration {
+    let declaration = declaration(units);
+    let registry = BTreeMap::from([(
+        ("data".to_string(), "1".to_string()),
+        OpDefinition {
+            inputs: BTreeMap::new(),
+            output_classes: BTreeSet::from(["Data".to_string()]),
+            params: BTreeMap::new(),
+        },
+    )]);
+    let snapshot = BTreeMap::from([(
+        "ops/run.py".to_string(),
+        SnapshotEntry::File(b"code".to_vec()),
+    )]);
+    validate(&declaration, &registry, &snapshot, &[]).unwrap()
+}
+
+fn roster(units: &[&str]) -> DeclaredRoster {
+    DeclaredRoster::from_validated(&declaration(units), &validated(units)).unwrap()
+}
+
+fn prepared(id: &str) -> PreparedUnit {
+    let declaration = declaration(&[id]);
+    let registry = BTreeMap::from([(
+        ("data".to_string(), "1".to_string()),
+        OpDefinition {
+            inputs: BTreeMap::new(),
+            output_classes: BTreeSet::from(["Data".to_string()]),
+            params: BTreeMap::new(),
+        },
+    )]);
+    let snapshot = BTreeMap::from([(
+        "ops/run.py".to_string(),
+        SnapshotEntry::File(b"code".to_vec()),
+    )]);
+    let validated = validate(&declaration, &registry, &snapshot, &[]).unwrap();
+    let implementation = ImplementationIdentity {
+        version: "1".into(),
+        digest: "a".repeat(64),
+    };
+    prepare(
+        &declaration,
+        &validated,
+        id,
+        &KeyContext {
+            snapshot: &snapshot,
+            versions: &BTreeMap::new(),
+            produced: &BTreeMap::new(),
+            produced_groups: &BTreeMap::new(),
+            staged_inputs: &BTreeMap::new(),
+            worker: &implementation,
+            validator: &implementation,
+        },
+        &mut SourceHashCache::default(),
+    )
+    .unwrap()
+}
+
+fn session_files(root: &Path, project: &str) -> Vec<PathBuf> {
+    let directory = root.join("roots").join(project).join("session");
+    let mut paths: Vec<PathBuf> = fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    paths.sort();
+    paths
+}
+
+fn only_session(root: &Path, project: &str) -> PathBuf {
+    let paths = session_files(root, project);
+    assert_eq!(paths.len(), 1, "expected one open session");
+    paths.into_iter().next().unwrap()
+}
+
+fn session_id(path: &Path) -> String {
+    path.file_stem().unwrap().to_string_lossy().to_string()
+}
+
+struct FakeCustodians {
+    registered: BTreeMap<u32, String>,
+    unreadable: bool,
+}
+impl SessionCustodians for FakeCustodians {
+    fn correlation(&self, identity: &ProcessIdentity) -> Result<Option<String>, String> {
+        if self.unreadable {
+            return Err("custodian registry unreadable".into());
+        }
+        Ok(self.registered.get(&identity.pid).cloned())
+    }
+}
+
+struct FakeCleanup {
+    confirmed: BTreeSet<String>,
+    unreadable: bool,
+}
+impl CustodianCleanup for FakeCleanup {
+    fn cleanup_confirmed(&self, correlation: &str) -> Result<bool, String> {
+        if self.unreadable {
+            return Err("cleanup record unreadable".into());
+        }
+        Ok(self.confirmed.contains(correlation))
+    }
+}
+
+fn no_custodians() -> FakeCustodians {
+    FakeCustodians {
+        registered: BTreeMap::new(),
+        unreadable: false,
+    }
+}
+
+fn no_cleanup() -> FakeCleanup {
+    FakeCleanup {
+        confirmed: BTreeSet::new(),
+        unreadable: false,
+    }
+}
+
+fn lease(owner: u32, workers: &[u32]) -> LeaseRecord {
+    LeaseRecord {
+        version: LEASE_VERSION,
+        id: "1-0".into(),
+        staging: "staging/1-0".into(),
+        owner: process(owner),
+        workers: workers.iter().map(|pid| process(*pid)).collect(),
+        result_keys: BTreeSet::new(),
+        object_digests: BTreeSet::new(),
+        rooted: false,
+    }
+}
+
+fn begin(store: &RootStore, kind: RootKind, name: &str, pid: u32) -> BuildSession {
+    store
+        .begin_session(kind, provenance(name), process(pid))
+        .unwrap()
+}
+
+#[test]
+fn partial_build_merges_and_keeps_other_units_with_their_own_provenance() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut first = begin(&store, RootKind::Main, "first", 1);
+    first.use_result("unit.a", &key(1)).unwrap();
+    first.use_result("unit.b", &key(2)).unwrap();
+    let root = first.commit(None).unwrap();
+    assert_eq!(root.entries.len(), 2);
+
+    let mut second = begin(&store, RootKind::Main, "second", 1);
+    second.use_result("unit.a", &key(3)).unwrap();
+    let root = second.commit(None).unwrap();
+
+    assert_eq!(root.entries["unit.a"].key, key(3));
+    assert_eq!(root.entries["unit.a"].provenance, provenance("second"));
+    assert_eq!(root.entries["unit.b"].key, key(2));
+    assert_eq!(
+        root.entries["unit.b"].provenance,
+        provenance("first"),
+        "an untouched entry must keep the provenance of the build that wrote it"
+    );
+    assert_eq!(root.provenance, provenance("second"));
+}
+
+#[test]
+fn complete_roster_prunes_units_that_are_no_longer_declared() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.use_result("unit.removed", &key(2)).unwrap();
+    session.commit(None).unwrap();
+
+    let mut session = begin(&store, RootKind::Main, "second", 1);
+    session.use_result("unit.a", &key(3)).unwrap();
+    let root = session.commit(Some(&roster(&["unit.a"]))).unwrap();
+
+    assert_eq!(
+        root.entries.keys().cloned().collect::<Vec<_>>(),
+        vec!["unit.a".to_string()]
+    );
+    assert_eq!(root.entries["unit.a"].key, key(3));
+}
+
+#[test]
+fn none_never_prunes() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.use_result("unit.b", &key(2)).unwrap();
+    session.commit(None).unwrap();
+
+    let mut session = begin(&store, RootKind::Main, "second", 1);
+    session.use_result("unit.a", &key(3)).unwrap();
+    let root = session.commit(None).unwrap();
+    assert_eq!(root.entries.len(), 2);
+    assert_eq!(root.entries["unit.b"].key, key(2));
+}
+
+#[test]
+fn a_release_is_a_frozen_snapshot_and_never_merges() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+
+    let release_one = RootKind::Release {
+        sequence: 1,
+        label: "r13".into(),
+    };
+    let mut session = begin(&store, release_one.clone(), "release-one", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+
+    let release_two = RootKind::Release {
+        sequence: 2,
+        label: "r14".into(),
+    };
+    let mut session = begin(&store, release_two.clone(), "release-two", 1);
+    session.use_result("unit.b", &key(2)).unwrap();
+    session.commit(None).unwrap();
+
+    let second = store.root(&release_two).unwrap().unwrap();
+    assert_eq!(
+        second.entries.keys().cloned().collect::<Vec<_>>(),
+        vec!["unit.b".to_string()],
+        "a release must not inherit entries from another release or root"
+    );
+    let first = store.root(&release_one).unwrap().unwrap();
+    assert_eq!(first.entries.len(), 1);
+    assert_eq!(first.entries["unit.a"].key, key(1));
+}
+
+#[test]
+fn a_commit_removes_only_its_own_session_journal() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut alpha = begin(&store, RootKind::Main, "alpha", 1);
+    alpha.use_result("unit.a", &key(1)).unwrap();
+    let mut beta = begin(&store, RootKind::Main, "beta", 2);
+    beta.use_result("unit.b", &key(2)).unwrap();
+
+    let open_before = session_files(&workspace.store(), "yorimichi").len();
+    alpha.commit(None).unwrap();
+    assert_eq!(
+        session_files(&workspace.store(), "yorimichi").len(),
+        open_before - 1,
+        "another build's journal must survive"
+    );
+    let view = store.retention().unwrap();
+    assert!(view.keys.contains(&key(1)));
+    assert!(
+        view.keys.contains(&key(2)),
+        "the open session still retains its own keys"
+    );
+
+    let root = beta.commit(None).unwrap();
+    assert_eq!(root.entries.len(), 2);
+    assert!(session_files(&workspace.store(), "yorimichi").is_empty());
+}
+
+#[test]
+fn a_torn_journal_tail_fails_the_commit_and_preserves_root_and_journal() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+
+    let mut session = begin(&store, RootKind::Main, "second", 1);
+    session.use_result("unit.a", &key(2)).unwrap();
+    let journal = only_session(&workspace.store(), "yorimichi");
+    let bytes = fs::read(&journal).unwrap();
+    fs::write(&journal, &bytes[..bytes.len() - 1]).unwrap();
+
+    let error = session.commit(None).unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "unexpected error: {error}"
+    );
+    assert!(
+        journal.exists(),
+        "the damaged journal must be kept for inspection"
+    );
+    let root = store.root(&RootKind::Main).unwrap().unwrap();
+    assert_eq!(root.entries["unit.a"].key, key(1));
+}
+
+#[test]
+fn a_corrupt_middle_record_fails_closed_and_retention_counts_parseable_keys() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "one", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.use_result("unit.b", &key(2)).unwrap();
+    let journal = only_session(&workspace.store(), "yorimichi");
+    let text = fs::read_to_string(&journal).unwrap();
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    lines.pop();
+    let mut damaged = format!("{}\n{}\n", lines[0], lines[1]);
+    damaged.push_str("this is not a record\n");
+    damaged.push_str(lines[2]);
+    damaged.push('\n');
+    fs::write(&journal, damaged).unwrap();
+
+    let error = session.commit(None).unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "unexpected: {error}"
+    );
+    assert!(store.root(&RootKind::Main).unwrap().is_none());
+
+    let view = store.retention().unwrap();
+    assert!(view.keys.contains(&key(1)));
+    assert!(view.keys.contains(&key(2)));
+    assert_eq!(view.damaged.len(), 1, "damage must be reported, not hidden");
+}
+
+#[test]
+fn faults_at_each_commit_boundary_keep_the_journal_and_never_lose_retention() {
+    let steps = [
+        (CommitStep::JournalRead, false, true),
+        (CommitStep::RootTemporary, false, true),
+        (CommitStep::RootReplaced, true, true),
+        (CommitStep::DirectorySynced, true, true),
+        (CommitStep::SessionRemoved, true, false),
+    ];
+    for (fault, root_written, journal_kept) in steps {
+        let workspace = Workspace::new();
+        let store = workspace.open("yorimichi");
+        let mut seed = begin(&store, RootKind::Main, "seed", 1);
+        seed.use_result("unit.a", &key(1)).unwrap();
+        seed.commit(None).unwrap();
+
+        let mut session = begin(&store, RootKind::Main, "faulty", 1);
+        session.use_result("unit.b", &key(2)).unwrap();
+        let journal = only_session(&workspace.store(), "yorimichi");
+        let error = session
+            .commit_observed(None, |step| {
+                if step == fault {
+                    Err(io::Error::other("injected"))
+                } else {
+                    Ok(())
+                }
+            })
+            .unwrap_err();
+        assert!(matches!(error, RootError::Io(_)), "{fault:?}: {error}");
+        assert_eq!(journal.exists(), journal_kept, "{fault:?}");
+        let root = store.root(&RootKind::Main).unwrap().unwrap();
+        assert_eq!(
+            root.entries.contains_key("unit.b"),
+            root_written,
+            "{fault:?}"
+        );
+        assert_eq!(root.entries["unit.a"].key, key(1), "{fault:?}");
+    }
+}
+
+#[test]
+fn concurrent_commits_to_one_target_serialize_without_losing_entries() {
+    let workspace = Workspace::new();
+    let store = Arc::new(workspace.open("yorimichi"));
+    let mut handles = vec![];
+    for index in 0..4u8 {
+        let store = Arc::clone(&store);
+        handles.push(std::thread::spawn(move || {
+            let mut session = store
+                .begin_session(
+                    RootKind::Main,
+                    provenance(&format!("thread-{index}")),
+                    process(10 + u32::from(index)),
+                )
+                .unwrap();
+            session
+                .use_result(&format!("unit.{index}"), &key(index + 1))
+                .unwrap();
+            session.commit(None).unwrap();
+        }));
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    let root = store.root(&RootKind::Main).unwrap().unwrap();
+    assert_eq!(root.entries.len(), 4);
+    for index in 0..4u8 {
+        assert_eq!(root.entries[&format!("unit.{index}")].key, key(index + 1));
+    }
+    assert!(session_files(&workspace.store(), "yorimichi").is_empty());
+}
+
+#[test]
+fn projects_and_worktrees_are_isolated() {
+    let workspace = Workspace::new();
+    let alpha = workspace.open("alpha");
+    let beta = workspace.open("beta");
+    let mut session = begin(&alpha, RootKind::Main, "alpha", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    let mut session = begin(&beta, RootKind::Main, "beta", 1);
+    session.use_result("unit.a", &key(2)).unwrap();
+    session.commit(None).unwrap();
+
+    assert_eq!(
+        alpha.root(&RootKind::Main).unwrap().unwrap().entries["unit.a"].key,
+        key(1)
+    );
+    assert_eq!(
+        beta.root(&RootKind::Main).unwrap().unwrap().entries["unit.a"].key,
+        key(2)
+    );
+
+    let one = RootKind::Worktree {
+        id: "checkout-one".into(),
+    };
+    let two = RootKind::Worktree {
+        id: "checkout-two".into(),
+    };
+    let mut session = begin(&alpha, one.clone(), "one", 1);
+    session.use_result("unit.w", &key(3)).unwrap();
+    session.commit(None).unwrap();
+    assert!(alpha.root(&two).unwrap().is_none());
+}
+
+#[test]
+fn releases_keep_the_three_greatest_sequences_and_refuse_a_different_duplicate() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    for sequence in 1..=5u64 {
+        let kind = RootKind::Release {
+            sequence,
+            label: format!("r{sequence}"),
+        };
+        let mut session = begin(&store, kind, &format!("release-{sequence}"), 1);
+        session
+            .use_result(&format!("unit.{sequence}"), &key(sequence as u8))
+            .unwrap();
+        session.commit(None).unwrap();
+        let records = store.roots().unwrap();
+        let sequences: Vec<u64> = records
+            .iter()
+            .filter_map(|record| match &record.kind {
+                RootKind::Release { sequence, .. } => Some(*sequence),
+                _ => None,
+            })
+            .collect();
+        let first = sequence.saturating_sub(2).max(1);
+        let expected: Vec<u64> = (first..=sequence).collect();
+        assert_eq!(sequences, expected, "after release {sequence}");
+    }
+
+    let duplicate = RootKind::Release {
+        sequence: 4,
+        label: "conflict".into(),
+    };
+    let mut session = begin(&store, duplicate, "conflict", 1);
+    session.use_result("unit.other", &key(9)).unwrap();
+    let error = session.commit(None).unwrap_err();
+    assert!(
+        matches!(error, RootError::Conflict(_)),
+        "unexpected: {error}"
+    );
+    let kept = store
+        .root(&RootKind::Release {
+            sequence: 4,
+            label: "r4".into(),
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.entries["unit.4"].key, key(4), "the first release wins");
+}
+
+#[test]
+fn a_sequence_below_the_retained_window_is_refused() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    for sequence in 3..=5u64 {
+        let kind = RootKind::Release {
+            sequence,
+            label: format!("r{sequence}"),
+        };
+        let mut session = begin(&store, kind, "release", 1);
+        session.use_result("unit.a", &key(sequence as u8)).unwrap();
+        session.commit(None).unwrap();
+    }
+    let stale = RootKind::Release {
+        sequence: 1,
+        label: "r1".into(),
+    };
+    let mut session = begin(&store, stale, "stale", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    let error = session.commit(None).unwrap_err();
+    assert!(
+        matches!(error, RootError::Conflict(_)),
+        "unexpected: {error}"
+    );
+    assert!(
+        !workspace
+            .project_dir("yorimichi")
+            .join("release/1.json")
+            .exists()
+    );
+}
+
+#[test]
+fn an_identical_release_retry_keeps_the_first_record() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let kind = RootKind::Release {
+        sequence: 1,
+        label: "r13".into(),
+    };
+    let mut first = begin(&store, kind.clone(), "first", 1);
+    first.use_result("unit.a", &key(1)).unwrap();
+    first.commit(None).unwrap();
+
+    let mut retry = begin(&store, kind.clone(), "retry", 1);
+    retry.use_result("unit.a", &key(1)).unwrap();
+    retry.commit(None).unwrap();
+    let record = store.root(&kind).unwrap().unwrap();
+    assert_eq!(
+        record.provenance,
+        provenance("first"),
+        "the first frozen record is kept"
+    );
+}
+
+#[test]
+fn a_release_fault_after_publish_before_trim_recovers_on_retry() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    for sequence in 1..=3u64 {
+        let kind = RootKind::Release {
+            sequence,
+            label: format!("r{sequence}"),
+        };
+        let mut session = begin(&store, kind, "release", 1);
+        session.use_result("unit.a", &key(sequence as u8)).unwrap();
+        session.commit(None).unwrap();
+    }
+    let fourth = RootKind::Release {
+        sequence: 4,
+        label: "r16".into(),
+    };
+    let mut session = begin(&store, fourth.clone(), "fourth", 1);
+    session.use_result("unit.a", &key(9)).unwrap();
+    let journal = only_session(&workspace.store(), "yorimichi");
+    let error = session
+        .commit_observed(None, |step| {
+            if step == CommitStep::DirectorySynced {
+                Err(io::Error::other("injected before trim"))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+    assert!(matches!(error, RootError::Io(_)), "unexpected: {error}");
+    assert!(
+        store.root(&fourth).unwrap().is_some(),
+        "snapshot is durable"
+    );
+    assert!(journal.exists(), "the journal survives the failed trim");
+    assert_eq!(store.roots().unwrap().len(), 4, "trimming has not run yet");
+
+    let mut retry = begin(&store, fourth.clone(), "retry", 1);
+    retry.use_result("unit.a", &key(9)).unwrap();
+    retry.commit(None).unwrap();
+    let sequences: Vec<u64> = store
+        .roots()
+        .unwrap()
+        .iter()
+        .filter_map(|record| match &record.kind {
+            RootKind::Release { sequence, .. } => Some(*sequence),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sequences, vec![2, 3, 4]);
+}
+
+#[test]
+fn pins_survive_trimming_until_an_exact_explicit_drop() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let pin = RootKind::Pin {
+        id: "keep-me".into(),
+    };
+    let mut session = begin(&store, pin.clone(), "pin", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+
+    for sequence in 1..=4u64 {
+        let kind = RootKind::Release {
+            sequence,
+            label: format!("r{sequence}"),
+        };
+        let mut session = begin(&store, kind, "release", 1);
+        session
+            .use_result("unit.r", &key(sequence as u8 + 8))
+            .unwrap();
+        session.commit(None).unwrap();
+    }
+    assert!(store.root(&pin).unwrap().is_some());
+    assert_eq!(
+        store.roots().unwrap().len(),
+        4,
+        "three releases plus one pin"
+    );
+
+    let removed = store.drop_root(&pin).unwrap().expect("pin exists");
+    assert_eq!(removed.entries["unit.a"].key, key(1));
+    assert!(store.root(&pin).unwrap().is_none());
+    assert!(store.drop_root(&pin).unwrap().is_none());
+    assert_eq!(store.roots().unwrap().len(), 3);
+}
+
+#[test]
+fn malformed_root_metadata_fails_reads_and_retention_reports_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    let path = workspace.project_dir("yorimichi").join("main.json");
+    fs::write(&path, b"{ not json").unwrap();
+
+    let error = store.root(&RootKind::Main).unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "unexpected: {error}"
+    );
+    let view = store.retention().unwrap();
+    assert_eq!(view.damaged.len(), 1);
+    assert_eq!(fs::read(&path).unwrap(), b"{ not json");
+}
+
+#[test]
+fn a_record_filed_under_another_target_fails_the_listing() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let pin = RootKind::Pin { id: "kept".into() };
+    let mut session = begin(&store, pin, "pin", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    let base = workspace.project_dir("yorimichi");
+    fs::copy(base.join("pin/kept.json"), base.join("worktree/kept.json")).unwrap();
+
+    let error = store.roots().unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "unexpected: {error}"
+    );
+}
+
+#[test]
+fn retention_counts_root_and_open_session_keys() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    let mut open = begin(&store, RootKind::Main, "second", 1);
+    open.use_result("unit.b", &key(2)).unwrap();
+
+    let view = store.retention().unwrap();
+    assert_eq!(
+        view.keys.iter().cloned().collect::<Vec<_>>(),
+        vec![key(1), key(2)]
+    );
+    assert!(view.damaged.is_empty());
+}
+
+#[test]
+fn abandoning_a_session_releases_only_its_own_in_flight_retention() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+
+    let mut abandoned = begin(&store, RootKind::Main, "abandoned", 1);
+    abandoned.use_result("unit.b", &key(2)).unwrap();
+    assert!(store.retention().unwrap().keys.contains(&key(2)));
+    abandoned.abandon().unwrap();
+
+    assert!(session_files(&workspace.store(), "yorimichi").is_empty());
+    let view = store.retention().unwrap();
+    assert_eq!(view.keys.iter().cloned().collect::<Vec<_>>(), vec![key(1)]);
+    let root = store.root(&RootKind::Main).unwrap().unwrap();
+    assert_eq!(root.entries.len(), 1);
+    assert_eq!(root.entries["unit.a"].key, key(1));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn b2_publication_and_hit_callbacks_record_the_caller_unit_binding() {
+    let workspace = Workspace::new();
+    let results = ResultStore::open(workspace.store()).unwrap();
+    let roots = workspace.open("yorimichi");
+    let unit = prepared("unit.alpha");
+    let output = workspace.0.join("out");
+    fs::create_dir_all(&output).unwrap();
+    fs::write(output.join("result.bin"), b"payload").unwrap();
+    let mut session = begin(&roots, RootKind::Main, "build", 1);
+
+    let transaction = results
+        .begin(
+            &unit,
+            provenance("build"),
+            process(1),
+            vec![],
+            BTreeSet::new(),
+        )
+        .unwrap();
+    let staged = transaction
+        .stage(
+            BTreeMap::from([(
+                ("data".to_string(), "result.bin".to_string()),
+                output.join("result.bin"),
+            )]),
+            |_| Ok(()),
+        )
+        .unwrap();
+    let published = staged
+        .publish(session.root_callback("caller.unit"))
+        .unwrap();
+    assert_eq!(published.result.key, unit.key());
+
+    let hit = results
+        .begin(
+            &unit,
+            provenance("hit"),
+            process(2),
+            vec![],
+            BTreeSet::new(),
+        )
+        .unwrap();
+    let reused = hit.retain_hit(session.root_callback("caller.hit")).unwrap();
+    assert_eq!(reused.result.key, unit.key());
+    assert_eq!(
+        reused.result.unit, "unit.alpha",
+        "the winner keeps its own diagnostic unit, which is never the journal binding"
+    );
+
+    let journal = fs::read_to_string(only_session(&workspace.store(), "yorimichi")).unwrap();
+    let lines: Vec<&str> = journal.lines().collect();
+    assert_eq!(lines.len(), 3, "one header and two appended records");
+    assert!(
+        lines[1].contains("\"unit\":\"caller.unit\""),
+        "{}",
+        lines[1]
+    );
+    assert!(lines[1].contains(unit.key()), "{}", lines[1]);
+    assert!(lines[2].contains("\"unit\":\"caller.hit\""), "{}", lines[2]);
+    assert!(lines[2].contains(unit.key()), "{}", lines[2]);
+    assert!(
+        !lines[1].contains("unit.alpha") && !lines[2].contains("unit.alpha"),
+        "the journal binding must come from the caller, never the winning envelope"
+    );
+
+    fs::remove_file(only_session(&workspace.store(), "yorimichi")).unwrap();
+    let transaction = results
+        .begin(
+            &unit,
+            provenance("broken"),
+            process(3),
+            vec![],
+            BTreeSet::new(),
+        )
+        .unwrap();
+    let lease_id = transaction.lease().id.clone();
+    let staged = transaction
+        .stage(
+            BTreeMap::from([(
+                ("data".to_string(), "result.bin".to_string()),
+                output.join("result.bin"),
+            )]),
+            |_| Ok(()),
+        )
+        .unwrap();
+    let error = staged
+        .publish(session.root_callback("caller.broken"))
+        .unwrap_err();
+    assert!(matches!(error, ResultError::Root(_)), "unexpected: {error}");
+    let records = results.leases().lock().unwrap().leases().unwrap();
+    let lease = records.iter().find(|record| record.id == lease_id).unwrap();
+    assert!(lease.result_keys.contains(unit.key()));
+    assert!(
+        !lease.rooted,
+        "a failed root callback must keep the publication claims"
+    );
+}
+
+#[test]
+fn a_dead_custodian_with_unconfirmed_cleanup_is_retained() {
+    let custodians = FakeCustodians {
+        registered: BTreeMap::from([(2, "corr-2".to_string())]),
+        unreadable: false,
+    };
+    let cleanup = FakeCleanup {
+        confirmed: BTreeSet::new(),
+        unreadable: false,
+    };
+    assert_eq!(
+        may_reclaim(&lease(1, &[2]), |_| Liveness::Dead, &custodians, &cleanup),
+        Reclaim::Retained(RetainReason::CleanupUnconfirmed("corr-2".into())),
+        "a dead custodian never proves its guard cleanup ran"
+    );
+}
+
+#[test]
+fn an_owner_custodian_with_unconfirmed_cleanup_is_retained() {
+    let custodians = FakeCustodians {
+        registered: BTreeMap::from([(1, "corr-owner".to_string())]),
+        unreadable: false,
+    };
+    let cleanup = FakeCleanup {
+        confirmed: BTreeSet::new(),
+        unreadable: false,
+    };
+    assert_eq!(
+        may_reclaim(&lease(1, &[2]), |_| Liveness::Dead, &custodians, &cleanup),
+        Reclaim::Retained(RetainReason::CleanupUnconfirmed("corr-owner".into())),
+        "the owner's custodian cleanup is checked too"
+    );
+}
+
+#[test]
+fn a_draining_child_retains_until_its_cleanup_is_confirmed() {
+    // The real scenario: controller and loop worker are dead, the registered custodian is dead,
+    // and its cleanup is unconfirmed because a child is still draining.
+    let custodians = FakeCustodians {
+        registered: BTreeMap::from([(3, "corr-custodian".to_string())]),
+        unreadable: false,
+    };
+    let mut cleanup = FakeCleanup {
+        confirmed: BTreeSet::new(),
+        unreadable: false,
+    };
+    let record = lease(1, &[2, 3]);
+    assert_eq!(
+        may_reclaim(&record, |_| Liveness::Dead, &custodians, &cleanup),
+        Reclaim::Retained(RetainReason::CleanupUnconfirmed("corr-custodian".into()))
+    );
+    cleanup.confirmed.insert("corr-custodian".into());
+    assert_eq!(
+        may_reclaim(&record, |_| Liveness::Dead, &custodians, &cleanup),
+        Reclaim::Reclaimable
+    );
+}
+
+#[test]
+fn a_dead_custodian_with_confirmed_cleanup_is_reclaimable() {
+    let custodians = FakeCustodians {
+        registered: BTreeMap::from([(2, "corr-2".to_string())]),
+        unreadable: false,
+    };
+    let cleanup = FakeCleanup {
+        confirmed: BTreeSet::from(["corr-2".to_string()]),
+        unreadable: false,
+    };
+    assert_eq!(
+        may_reclaim(
+            &lease(1, &[2, 3]),
+            |_| Liveness::Dead,
+            &custodians,
+            &cleanup
+        ),
+        Reclaim::Reclaimable
+    );
+}
+
+#[test]
+fn an_unreadable_custodian_or_cleanup_record_is_retained() {
+    let cleanup = FakeCleanup {
+        confirmed: BTreeSet::from(["corr-2".to_string()]),
+        unreadable: false,
+    };
+    let unreadable_registry = FakeCustodians {
+        registered: BTreeMap::new(),
+        unreadable: true,
+    };
+    assert!(matches!(
+        may_reclaim(
+            &lease(1, &[2]),
+            |_| Liveness::Dead,
+            &unreadable_registry,
+            &cleanup
+        ),
+        Reclaim::Retained(RetainReason::CustodianRecordUnreadable(_))
+    ));
+
+    let custodians = FakeCustodians {
+        registered: BTreeMap::from([(2, "corr-2".to_string())]),
+        unreadable: false,
+    };
+    let unreadable_cleanup = FakeCleanup {
+        confirmed: BTreeSet::new(),
+        unreadable: true,
+    };
+    assert!(matches!(
+        may_reclaim(
+            &lease(1, &[2]),
+            |_| Liveness::Dead,
+            &custodians,
+            &unreadable_cleanup
+        ),
+        Reclaim::Retained(RetainReason::CustodianRecordUnreadable(_))
+    ));
+}
+
+#[test]
+fn alive_or_unknown_identities_still_retain_the_lease() {
+    assert_eq!(
+        may_reclaim(
+            &lease(1, &[2]),
+            |identity| if identity.pid == 1 {
+                Liveness::Alive
+            } else {
+                Liveness::Dead
+            },
+            &no_custodians(),
+            &no_cleanup(),
+        ),
+        Reclaim::Retained(RetainReason::IdentityNotConfirmedDead)
+    );
+    assert_eq!(
+        may_reclaim(
+            &lease(1, &[2]),
+            |identity| if identity.pid == 2 {
+                Liveness::Unknown
+            } else {
+                Liveness::Dead
+            },
+            &no_custodians(),
+            &no_cleanup(),
+        ),
+        Reclaim::Retained(RetainReason::IdentityNotConfirmedDead)
+    );
+}
+
+#[test]
+fn missing_store_root_is_refused() {
+    let workspace = Workspace::new();
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Invalid(_)),
+        "a missing store root must be refused: {error}"
+    );
+    assert!(!workspace.store().exists());
+}
+
+#[test]
+fn retention_is_readable_under_the_callers_guard() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+
+    let guard = store.leases().lock().unwrap();
+    let view = store.retention_locked(&guard).unwrap();
+    assert!(view.keys.contains(&key(1)));
+    assert!(
+        guard.leases().unwrap().is_empty(),
+        "same guard, no second flock"
+    );
+}
+
+#[test]
+fn a_hit_release_is_visible_to_a_guarded_gc_read() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+
+    // A key that only the session journal retains yet must still be visible to a GC that holds
+    // the single metadata guard across its retention and lease reads.
+    let guard = store.leases().lock().unwrap();
+    let view = store.retention_locked(&guard).unwrap();
+    assert!(view.keys.contains(&key(1)));
+    assert!(guard.leases().unwrap().is_empty());
+    drop(guard);
+
+    session.commit(None).unwrap();
+    assert!(store.retention().unwrap().keys.contains(&key(1)));
+}
+
+#[test]
+fn missing_or_unreadable_metadata_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    let project = workspace.project_dir("yorimichi");
+
+    fs::set_permissions(&project, fs::Permissions::from_mode(0o000)).unwrap();
+    let view = store.retention().unwrap();
+    assert!(
+        !view.damaged.is_empty(),
+        "unreadable metadata must be damage"
+    );
+    fs::set_permissions(&project, fs::Permissions::from_mode(0o755)).unwrap();
+
+    fs::remove_dir_all(workspace.store().join("roots")).unwrap();
+    let view = store.retention().unwrap();
+    assert_eq!(view.damaged.len(), 1, "a missing roots tree is damage");
+}
+
+#[test]
+fn a_guard_from_another_store_is_refused() {
+    let first = Workspace::new();
+    let second = Workspace::new();
+    let alpha = first.open("yorimichi");
+    let beta = second.open("yorimichi");
+    let guard = alpha.leases().lock().unwrap();
+    assert!(matches!(
+        beta.retention_locked(&guard),
+        Err(RootError::Invalid(_))
+    ));
+    assert!(matches!(
+        beta.roots_locked(&guard),
+        Err(RootError::Invalid(_))
+    ));
+    assert!(alpha.retention_locked(&guard).is_ok());
+    assert!(alpha.roots_locked(&guard).is_ok());
+}
+
+#[test]
+fn reopening_a_project_with_missing_metadata_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    fs::remove_dir_all(workspace.project_dir("yorimichi").join("session")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "reopening must not recreate lost metadata: {error}"
+    );
+    assert!(!workspace.project_dir("yorimichi").join("session").exists());
+}
+
+#[test]
+fn retention_reports_a_missing_selected_project() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    fs::remove_dir_all(workspace.project_dir("yorimichi")).unwrap();
+
+    let view = store.retention().unwrap();
+    assert!(
+        !view.damaged.is_empty(),
+        "a vanished project must not look like empty retention"
+    );
+    assert!(view.keys.is_empty());
+}
+
+#[test]
+fn retention_reports_a_missing_unselected_project() {
+    let workspace = Workspace::new();
+    let alpha = workspace.open("alpha");
+    let beta = workspace.open("beta");
+    let mut session = begin(&beta, RootKind::Main, "beta", 1);
+    session.use_result("unit.beta", &key(2)).unwrap();
+    session.commit(None).unwrap();
+    fs::remove_dir_all(workspace.project_dir("beta")).unwrap();
+
+    let view = alpha.retention().unwrap();
+    assert!(
+        !view.damaged.is_empty(),
+        "another project's lost directory must not certify a clean store-wide view"
+    );
+}
+
+#[test]
+fn a_fresh_open_of_a_deleted_project_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    drop(store);
+    fs::remove_dir_all(workspace.project_dir("yorimichi")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "a deleted project must never look like a fresh one: {error}"
+    );
+    assert!(
+        !workspace.project_dir("yorimichi").exists(),
+        "a fresh open must not recreate a registered project"
+    );
+}
+
+#[test]
+fn a_fresh_open_after_roots_is_deleted_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    drop(store);
+    fs::remove_dir_all(workspace.store().join("roots")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "losing all of roots/ must be damage: {error}"
+    );
+    assert!(
+        !workspace.store().join("roots").exists(),
+        "a fresh open must not recreate roots/"
+    );
+}
+
+#[test]
+fn a_missing_registry_with_roots_present_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    drop(store);
+    fs::remove_file(workspace.store().join("meta").join("projects.json")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "roots/ without its registry must be damage: {error}"
+    );
+}
+
+#[test]
+fn a_first_open_registers_the_project() {
+    let workspace = Workspace::new();
+    workspace.open("yorimichi");
+    let registry =
+        fs::read_to_string(workspace.store().join("meta").join("projects.json")).unwrap();
+    assert!(registry.contains("yorimichi"), "{registry}");
+
+    // A second project in the same store is a genuine first use, and it keeps the first record.
+    let store = workspace.open("hidamari");
+    assert_eq!(store.project(), "hidamari");
+    let registry =
+        fs::read_to_string(workspace.store().join("meta").join("projects.json")).unwrap();
+    assert!(registry.contains("yorimichi"), "{registry}");
+    assert!(registry.contains("hidamari"), "{registry}");
+
+    RootStore::open(workspace.store(), "yorimichi").unwrap();
+}
+
+#[test]
+fn crash_temporary_file_is_swept_and_does_not_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    let leftover = workspace.project_dir("yorimichi").join("tmp/999-1.tmp");
+    fs::write(&leftover, b"half written root").unwrap();
+
+    let view = store.retention().unwrap();
+    assert!(view.damaged.is_empty(), "tmp leftovers are not damage");
+    assert!(store.roots().unwrap().is_empty());
+    session.commit(None).unwrap();
+    assert!(!leftover.exists(), "the lock holder sweeps stale temps");
+}
+
+#[test]
+fn an_empty_session_journal_is_damage_and_retains() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let path = workspace
+        .project_dir("yorimichi")
+        .join("session/crashed.jsonl");
+    fs::write(&path, b"").unwrap();
+
+    let view = store.retention().unwrap();
+    assert_eq!(view.damaged.len(), 1);
+    assert!(view.keys.is_empty());
+    assert!(store.sessions().is_err(), "damaged journals fail closed");
+}
+
+#[test]
+fn sessions_release_only_a_confirmed_dead_owner() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut first = begin(&store, RootKind::Main, "first", 77);
+    first.use_result("unit.a", &key(1)).unwrap();
+    let first_id = session_id(&only_session(&workspace.store(), "yorimichi"));
+    let sessions = store.sessions().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].owner, process(77));
+    assert_eq!(sessions[0].entries.len(), 1);
+
+    assert_eq!(
+        store
+            .release_dead_session(
+                &first_id,
+                |_| Liveness::Dead,
+                &no_custodians(),
+                &no_cleanup()
+            )
+            .unwrap(),
+        Reclaim::Reclaimable
+    );
+    assert!(session_files(&workspace.store(), "yorimichi").is_empty());
+
+    let mut second = begin(&store, RootKind::Main, "second", 78);
+    second.use_result("unit.a", &key(1)).unwrap();
+    let second_id = session_id(&only_session(&workspace.store(), "yorimichi"));
+    assert_eq!(
+        store
+            .release_dead_session(
+                &second_id,
+                |_| Liveness::Alive,
+                &no_custodians(),
+                &no_cleanup()
+            )
+            .unwrap(),
+        Reclaim::Retained(RetainReason::IdentityNotConfirmedDead)
+    );
+    assert!(only_session(&workspace.store(), "yorimichi").exists());
+
+    let custodians = FakeCustodians {
+        registered: BTreeMap::from([(78, "corr-78".to_string())]),
+        unreadable: false,
+    };
+    assert_eq!(
+        store
+            .release_dead_session(&second_id, |_| Liveness::Dead, &custodians, &no_cleanup())
+            .unwrap(),
+        Reclaim::Retained(RetainReason::CleanupUnconfirmed("corr-78".into()))
+    );
+    let confirmed = FakeCleanup {
+        confirmed: BTreeSet::from(["corr-78".to_string()]),
+        unreadable: false,
+    };
+    assert_eq!(
+        store
+            .release_dead_session(&second_id, |_| Liveness::Dead, &custodians, &confirmed)
+            .unwrap(),
+        Reclaim::Reclaimable
+    );
+    assert!(session_files(&workspace.store(), "yorimichi").is_empty());
+}
+
+#[test]
+fn a_failed_append_leaves_the_journal_unchanged() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    let journal = only_session(&workspace.store(), "yorimichi");
+    let before = fs::read(&journal).unwrap();
+    fs::set_permissions(&journal, fs::Permissions::from_mode(0o444)).unwrap();
+
+    assert!(session.use_result("unit.b", &key(2)).is_err());
+    assert_eq!(fs::read(&journal).unwrap(), before, "no torn tail is left");
+    fs::set_permissions(&journal, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(store.retention().unwrap().keys.len(), 1);
+}
+
+#[test]
+fn a_roster_requires_a_complete_validated_declaration() {
+    let declared = declaration(&["unit.a", "unit.b"]);
+    let partial = ValidatedDeclaration {
+        order: vec!["unit.a".into()],
+        files: vec![],
+    };
+    assert!(DeclaredRoster::from_validated(&declared, &partial).is_err());
+
+    let empty_declaration = declaration(&[]);
+    let empty = ValidatedDeclaration {
+        order: vec![],
+        files: vec![],
+    };
+    assert!(DeclaredRoster::from_validated(&empty_declaration, &empty).is_err());
+
+    let roster =
+        DeclaredRoster::from_validated(&declared, &validated(&["unit.a", "unit.b"])).unwrap();
+    assert!(roster.contains("unit.a") && roster.contains("unit.b"));
+    assert_eq!(roster.digest().len(), 64);
+}
