@@ -31,3 +31,39 @@ tests = ["atelier-build-v2::session_lifecycle/session_commands_never_delete_or_r
 [[scenarios]]
 id = "c5c.session.run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver"
 tests = ["atelier-build-v2::guard_adapter/run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver"]
+
+[[scenarios]]
+id = "c5c.session.a_cancel_sent_before_run_job_cancels_the_queued_job"
+tests = ["atelier-build-v2::guard_adapter/a_cancel_sent_before_run_job_cancels_the_queued_job"]
+
+[[scenarios]]
+id = "c5c.session.a_later_units_job_limit_counts_from_its_own_assignment"
+tests = ["atelier-build-v2::session_lifecycle/a_later_units_job_limit_counts_from_its_own_assignment"]
+
+[[scenarios]]
+id = "c5c.session.a_later_units_capacity_wait_stays_outside_its_job_limit"
+tests = ["atelier-build-v2::session_lifecycle/a_later_units_capacity_wait_stays_outside_its_job_limit"]
+
+[[scenarios]]
+id = "c5c.session.a_later_units_failed_registration_stops_its_run"
+tests = ["atelier-build-v2::session_lifecycle/a_later_units_failed_registration_stops_its_run"]
+
+[[scenarios]]
+id = "c5c.session.hello_before_registration_waits_for_the_registration"
+tests = ["atelier-build-v2::session_lifecycle/hello_before_registration_waits_for_the_registration"]
+
+[[scenarios]]
+id = "c5c.session.foreign_identities_and_pipe_loss_are_never_crash_evidence_for_a_unit"
+tests = ["atelier-build-v2::session_lifecycle/foreign_identities_and_pipe_loss_are_never_crash_evidence_for_a_unit"]
+
+[[scenarios]]
+id = "c5c.session.a_session_ended_before_admission_requeues_the_units_its_queue_limit_did_not_cover"
+tests = ["atelier-build-v2::session_lifecycle/a_session_ended_before_admission_requeues_the_units_its_queue_limit_did_not_cover"]
+
+[[scenarios]]
+id = "c5c.session.an_expired_units_deadline_never_bounds_a_later_settlement"
+tests = ["atelier-build-v2::session_lifecycle/an_expired_units_deadline_never_bounds_a_later_settlement"]
+
+[[scenarios]]
+id = "c5c.session.a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record"
+tests = ["atelier-build-v2::session_lifecycle/a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record"]

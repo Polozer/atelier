@@ -6,7 +6,8 @@
 //! (custody `Released` only from the guard's confirmed receipt, `Held` on anything less). Each
 //! *unit* is one job with its own C5a [`JobPolicy`]: its job limit starts when it is assigned to an
 //! admitted session, its overall deadline counts from its submission, and a crash retry joins a
-//! later session only after the session it ran on is confirmed clean.
+//! later session only after the session it ran on is confirmed clean. Once any session is held,
+//! no further session starts in this lifecycle (see [`SessionLifecycle`]).
 //!
 //! In this version a session serves at most one unit: per-unit settlement evidence, which a reused
 //! worker needs, comes later. Nothing here releases capacity, signals a process or deletes a result.
@@ -38,7 +39,8 @@ pub struct SessionConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SessionInput {
-    /// A unit joins the queue; `now` is its submission time.
+    /// A unit joins the queue; `now` is its submission time. After [`SessionInput::Close`], or
+    /// for an id already submitted, the unit is refused: [`SessionCommand::Refused`].
     Submit(UnitPlan),
     /// No more units will be submitted.
     Close,
@@ -67,8 +69,9 @@ pub enum SessionInput {
 
 /// @cc [owner:fontanierh,label:correctness] session-commands-keep-published
 /// Session commands MUST be limited to queueing, stopping and talking to a session's own worker,
-/// lease registration and handing settled unit records to the caller. No command MAY delete,
-/// replace or unpublish a published result. See tests/session_lifecycle.rs.
+/// lease registration, refusing a unit and handing settled unit records to the caller. No
+/// command MAY delete, replace or unpublish a published result. See tests/session_lifecycle.rs
+/// (`session_commands_never_delete_or_republish`, `a_unit_after_close_or_twice_is_refused`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionCommand {
     /// Queue a new guarded session (one admission).
@@ -87,6 +90,9 @@ pub enum SessionCommand {
     Stop { session: u32 },
     /// `unit` has its final outcome and every attempt of it is released or held.
     Settled { unit: UnitId },
+    /// `unit` was not accepted (submitted after close, or its id was already used). Nothing was
+    /// queued or started for it; [`UnitRecord::refused`] is its record.
+    Refused { unit: UnitId, reason: String },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -105,6 +111,26 @@ pub struct UnitRecord {
     pub outputs: Option<JobOutputs>,
     /// Why the lifecycle gave up when no failure kind describes it (for example a launch error).
     pub abort: Option<String>,
+    /// The unit was refused at submission: nothing was queued or started for it.
+    pub refused: bool,
+}
+
+impl UnitRecord {
+    /// The record of a unit refused at submission, so the caller never waits for it.
+    pub fn refused(unit: UnitId, reason: String) -> Self {
+        Self {
+            unit,
+            outcome: Outcome {
+                end: End::Failed(Stop::Cancelled),
+                attempts: 0,
+                cleanup: CleanupState::NotNeeded,
+            },
+            attempts: vec![],
+            outputs: None,
+            abort: Some(reason),
+            refused: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -120,9 +146,9 @@ struct SessionSlot {
     active: Option<usize>,
     /// A unit has been assigned (a session serves one unit in this version).
     used: bool,
-    /// The earliest overall deadline of a unit that gave up while waiting for this session: an
-    /// unneeded session's settlement never outlasts it.
-    cap: Option<MonoTime>,
+    /// The queue limit this session was submitted with: the latest overall deadline among the
+    /// units then waiting, or `None` to wait until admitted.
+    queue_until: Option<MonoTime>,
 }
 
 impl SessionSlot {
@@ -142,7 +168,7 @@ impl SessionSlot {
             settle_by: None,
             active: None,
             used: false,
-            cap: None,
+            queue_until: None,
         }
     }
 
@@ -185,7 +211,8 @@ struct UnitSlot {
     outcome: Option<Outcome>,
     outputs: Option<JobOutputs>,
     abort: Option<String>,
-    settled_sent: bool,
+    /// The record handed to the caller with [`SessionCommand::Settled`]; it never changes.
+    published: Option<UnitRecord>,
 }
 
 impl UnitSlot {
@@ -201,6 +228,10 @@ impl UnitSlot {
         self.outcome.is_some() && self.attempts.iter().all(|a| a.custody != Custody::Pending)
     }
 
+    fn current(&self) -> Option<UnitRecord> {
+        self.published.clone().or_else(|| self.record())
+    }
+
     fn record(&self) -> Option<UnitRecord> {
         Some(UnitRecord {
             unit: self.plan.id.clone(),
@@ -208,16 +239,30 @@ impl UnitSlot {
             attempts: self.attempts.clone(),
             outputs: self.outputs.clone(),
             abort: self.abort.clone(),
+            refused: false,
         })
     }
 }
 
+/// @cc [owner:fontanierh,label:safety] session-held-is-sticky
+/// Once any session's custody is held (an unconfirmed receipt, a missed settlement limit or a
+/// unit's unconfirmed cleanup), the lifecycle MUST start no further session and every waiting
+/// unit MUST give up. A later confirmed receipt MUST NOT reopen sessions or change a unit record
+/// already handed out with `Settled`; it is recorded only on that session's own record. Recovery
+/// is a fresh lifecycle started by the caller. See tests/session_lifecycle.rs
+/// (`a_held_session_starts_no_further_session`,
+/// `a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record`).
 #[derive(Clone, Debug)]
 pub struct SessionLifecycle {
     config: SessionConfig,
     sessions: Vec<SessionSlot>,
     units: Vec<UnitSlot>,
     closed: bool,
+    /// Why the first held session was held: the sticky gate against new sessions.
+    held: Option<String>,
+    /// The overall deadlines of units that gave up while waiting during the current input: an
+    /// unneeded session ended by that same input never settles later than them.
+    ending_cap: Option<MonoTime>,
 }
 
 fn reached(at: Option<MonoTime>, now: MonoTime) -> bool {
@@ -238,6 +283,8 @@ impl SessionLifecycle {
             sessions: vec![],
             units: vec![],
             closed: false,
+            held: None,
+            ending_cap: None,
         }
     }
 
@@ -253,11 +300,23 @@ impl SessionLifecycle {
             .map(|u| &u.policy)
     }
 
+    /// `unit`'s record once its outcome is known; after `Settled`, exactly the record handed out.
     pub fn unit(&self, unit: &str) -> Option<UnitRecord> {
         self.units
             .iter()
             .find(|u| u.plan.id == unit)
-            .and_then(UnitSlot::record)
+            .and_then(UnitSlot::current)
+    }
+
+    /// Every accepted unit's record so far, in submission order.
+    pub fn units(&self) -> Vec<UnitRecord> {
+        self.units.iter().filter_map(UnitSlot::current).collect()
+    }
+
+    /// The queue limit `session` was submitted with ([`SessionLifecycle::queue_deadline`] then).
+    pub fn session_queue_deadline(&self, session: u32) -> Option<MonoTime> {
+        self.session_index(session)
+            .and_then(|s| self.sessions[s].queue_until)
     }
 
     /// Every unit has its final outcome and every attempt of it and every session is released
@@ -321,7 +380,9 @@ impl SessionLifecycle {
     /// assigned to that session; worker claims, pipe loss and foreign identities MUST NOT. A
     /// unit's retry MUST wait for its policy's `RequestAdmission`, which follows the confirmed
     /// cleanup receipt of the session it ran on, and MUST start only in a later session after
-    /// that session's own admission. See tests/session_lifecycle.rs.
+    /// that session's own admission. See tests/session_lifecycle.rs
+    /// (`a_crash_retry_joins_a_later_session_only_after_confirmed_cleanup`,
+    /// `foreign_identities_and_pipe_loss_are_never_crash_evidence_for_a_unit`).
     pub fn on(
         &mut self,
         now: MonoTime,
@@ -330,16 +391,19 @@ impl SessionLifecycle {
         let mut out = vec![];
         match input {
             SessionInput::Submit(plan) => {
-                if self.closed {
-                    return Err(LifecycleError::Invariant(
-                        "a unit was submitted after close".into(),
-                    ));
-                }
-                if self.unit_index(&plan.id).is_some() {
-                    return Err(LifecycleError::Invariant(format!(
-                        "unit {} was submitted twice",
-                        plan.id
-                    )));
+                let refusal = if self.closed {
+                    Some("refused: the session was already closed")
+                } else if self.unit_index(&plan.id).is_some() {
+                    Some("refused: a unit with this id was already submitted")
+                } else {
+                    None
+                };
+                if let Some(reason) = refusal {
+                    out.push(SessionCommand::Refused {
+                        unit: plan.id,
+                        reason: reason.into(),
+                    });
+                    return Ok(out);
                 }
                 self.units.push(UnitSlot {
                     policy: JobPolicy::new(now, plan.limits),
@@ -353,7 +417,7 @@ impl SessionLifecycle {
                     outcome: None,
                     outputs: None,
                     abort: None,
-                    settled_sent: false,
+                    published: None,
                 });
             }
             SessionInput::Close => self.closed = true,
@@ -406,6 +470,11 @@ impl SessionLifecycle {
             }
             SessionInput::Worker { session, event } => {
                 if let Some(s) = self.session_index(session) {
+                    // A frame read after the session's receipt is dropped. By then the guard has
+                    // reaped the worker and its unit's policy is done or waiting for a later
+                    // session, so the frame could change nothing for this session (as in C5b,
+                    // where such a frame only reached a done policy); dropping it keeps it from
+                    // ever reaching a unit that has moved on.
                     if self.live() == Some(s) {
                         self.worker(now, s, event, &mut out)?;
                     }
@@ -415,11 +484,13 @@ impl SessionLifecycle {
                 self.launch(now, attempt, event, &mut out)?
             }
         }
-        self.pump(now, &mut out)?;
+        let pumped = self.pump(now, &mut out);
+        self.ending_cap = None;
+        pumped?;
         self.settle(now, &mut out);
         for unit in &mut self.units {
-            if !unit.settled_sent && unit.settled() {
-                unit.settled_sent = true;
+            if unit.published.is_none() && unit.settled() {
+                unit.published = unit.record();
                 out.push(SessionCommand::Settled {
                     unit: unit.plan.id.clone(),
                 });
@@ -467,7 +538,10 @@ impl SessionLifecycle {
                     slot.stop(out);
                 }
                 if slot.settle_by.is_none() {
-                    slot.settle_by = [now.checked_add(self.config.cleanup), slot.cap]
+                    // Bounded by the units that gave up on it during this same input, never by
+                    // an earlier unit's deadline (session-unit-time-limits).
+                    let cap = if slot.used { None } else { self.ending_cap };
+                    slot.settle_by = [now.checked_add(self.config.cleanup), cap]
                         .into_iter()
                         .flatten()
                         .min();
@@ -478,23 +552,55 @@ impl SessionLifecycle {
         if !self.units.iter().any(UnitSlot::waiting) {
             return Ok(());
         }
-        match self.sessions.last().map(|s| s.record.custody.clone()) {
-            // The previous session's receipt is still due: no second admission meanwhile.
-            Some(Custody::Pending) => Ok(()),
-            Some(Custody::Held(_)) => self.abort_waiting(
+        if self.held.is_some() {
+            return self.abort_waiting(
                 now,
                 "a previous session's cleanup is unconfirmed, so no new session may start",
                 out,
-            ),
-            None | Some(Custody::Released) => {
+            );
+        }
+        match self.sessions.last().map(|s| s.record.custody.clone()) {
+            // The previous session's receipt is still due: no second admission meanwhile.
+            Some(Custody::Pending) => Ok(()),
+            _ => {
                 let session = self.sessions.len() as u32 + 1;
-                self.sessions.push(SessionSlot::new(session));
+                let mut slot = SessionSlot::new(session);
+                slot.queue_until = self.queue_deadline();
+                self.sessions.push(slot);
                 out.push(SessionCommand::Submit { session });
                 Ok(())
             }
         }
     }
 
+    /// Record that session `s` is held: the sticky gate (session-held-is-sticky).
+    fn hold(&mut self, s: usize, reason: &str) {
+        self.held.get_or_insert(reason.into());
+        let slot = &mut self.sessions[s];
+        if slot.record.custody == Custody::Pending {
+            slot.record.custody = Custody::Held(reason.into());
+        }
+        let session = slot.record.attempt;
+        for unit in &mut self.units {
+            for attempt in &mut unit.attempts {
+                if attempt.session == session && attempt.custody == Custody::Pending {
+                    attempt.custody = Custody::Held(reason.into());
+                }
+            }
+        }
+    }
+
+    /// @cc [owner:fontanierh,label:correctness] session-unit-time-limits
+    /// A unit's job limit MUST start at its own assignment to an admitted session, never at its
+    /// submission, at its session's queueing or at another unit's admission; its overall deadline
+    /// MUST count from its submission and bound its queue wait, run, cleanup and retry. An ending
+    /// session's settlement MUST be bounded only by the deadlines of the units relying on it at
+    /// that moment, never by an earlier unit's past deadline. See tests/session_lifecycle.rs
+    /// (`a_later_units_job_limit_counts_from_its_own_assignment`,
+    /// `a_later_units_capacity_wait_stays_outside_its_job_limit`,
+    /// `units_that_expire_while_waiting_withdraw_the_request_within_their_deadline`,
+    /// `an_expired_units_deadline_never_bounds_a_later_settlement`).
+    ///
     /// Give waiting unit `index` to admitted session `s`: this is the unit's own admission, so its
     /// job limit starts now.
     fn assign(
@@ -537,6 +643,13 @@ impl SessionLifecycle {
         }
     }
 
+    /// @cc [owner:fontanierh,label:safety] session-register-before-run
+    /// A unit's `Run` MUST be sent only on its assigned session, after that session's pinned
+    /// worker was durably registered for this unit (`Registered { ok: true }`) and said hello, in
+    /// either order. A failed registration MUST end the unit without a `Run` and stop the session.
+    /// See tests/session_lifecycle.rs (`a_later_units_failed_registration_stops_its_run`,
+    /// `hello_before_registration_waits_for_the_registration`) and tests/guard_adapter.rs
+    /// (`run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver`).
     fn run_if_ready(&mut self, s: usize, out: &mut Vec<SessionCommand>) {
         let slot = &self.sessions[s];
         let Some(index) = slot.active else {
@@ -620,13 +733,9 @@ impl SessionLifecycle {
                 self.units[index].outcome = Some(outcome);
                 let Some(s) = assigned else {
                     // Finished while waiting: if nothing else needs the session it waited for,
-                    // `pump` ends it, and its settlement never outlasts this unit's deadline.
-                    if let Some(s) = self.live() {
-                        let slot = &mut self.sessions[s];
-                        if !slot.used {
-                            slot.cap = [slot.cap, deadline].into_iter().flatten().min();
-                        }
-                    }
+                    // `pump` ends it in this same input, and its settlement never outlasts this
+                    // unit's deadline.
+                    self.ending_cap = [self.ending_cap, deadline].into_iter().flatten().min();
                     return Ok(());
                 };
                 let ending = {
@@ -657,16 +766,10 @@ impl SessionLifecycle {
                     }
                 }
                 if unconfirmed {
-                    let reason =
-                        "the policy's cleanup limit or deadline passed without a confirmed receipt";
-                    if slot.record.custody == Custody::Pending {
-                        slot.record.custody = Custody::Held(reason.into());
-                    }
-                    if let Some(last) = self.units[index].attempts.last_mut() {
-                        if last.custody == Custody::Pending {
-                            last.custody = Custody::Held(reason.into());
-                        }
-                    }
+                    self.hold(
+                        s,
+                        "the policy's cleanup limit or deadline passed without a confirmed receipt",
+                    );
                 }
             }
         }
@@ -720,21 +823,43 @@ impl SessionLifecycle {
             let confirmed = cleanup == CleanupReceipt::Confirmed;
             let slot = &mut self.sessions[s];
             slot.finished = true;
+            // The session's own record shows the guard's latest receipt, as evidence. Unit
+            // attempts and the gate against new sessions stay held (session-held-is-sticky).
             slot.record.custody = custody.clone();
             let (exited, admitted, active) = (slot.exited, slot.record.admitted, slot.active);
+            let (stop_sent, queue_until) = (slot.stop_sent, slot.queue_until);
             for unit in &mut self.units {
                 for attempt in &mut unit.attempts {
-                    if attempt.session == session && attempt.custody != Custody::Released {
+                    if attempt.session == session && attempt.custody == Custody::Pending {
                         attempt.custody = custody.clone();
                     }
                 }
+            }
+            if let Custody::Held(reason) = custody {
+                self.held.get_or_insert(reason);
             }
             if !current {
                 return Ok(());
             }
             let Some(index) = active else {
-                if !admitted && !exited {
-                    self.abort_waiting(now, "the admission owner ended before admission", out)?;
+                if !admitted && !exited && !stop_sent {
+                    // Ended before admission without being asked to. A unit this session's
+                    // queue limit covered gives up; a later or longer one waits for a fresh
+                    // session, which `pump` queues once this one is released.
+                    for index in 0..self.units.len() {
+                        let unit = &self.units[index];
+                        let covered = match (queue_until, unit.overall_deadline) {
+                            (None, _) => true,
+                            (Some(limit), Some(deadline)) => deadline <= limit,
+                            (Some(_), None) => false,
+                        };
+                        if unit.waiting() && covered {
+                            self.units[index]
+                                .abort
+                                .get_or_insert("the admission owner ended before admission".into());
+                            self.decide(now, index, PolicyEvent::CancelRequested, out)?;
+                        }
+                    }
                 }
                 return Ok(());
             };
@@ -882,19 +1007,11 @@ impl SessionLifecycle {
     }
 
     fn settle(&mut self, now: MonoTime, out: &mut Vec<SessionCommand>) {
-        for slot in &mut self.sessions {
+        for s in 0..self.sessions.len() {
+            let slot = &mut self.sessions[s];
             if slot.record.custody == Custody::Pending && reached(slot.settle_by, now) {
-                let reason = "no confirmed cleanup receipt within the cleanup limit";
-                slot.record.custody = Custody::Held(reason.into());
                 slot.stop(out);
-                let session = slot.record.attempt;
-                for unit in &mut self.units {
-                    for attempt in &mut unit.attempts {
-                        if attempt.session == session && attempt.custody == Custody::Pending {
-                            attempt.custody = Custody::Held(reason.into());
-                        }
-                    }
-                }
+                self.hold(s, "no confirmed cleanup receipt within the cleanup limit");
             }
         }
     }

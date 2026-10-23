@@ -20,7 +20,7 @@ use crate::worker_session::{Event as WorkerEvent, Session, SessionError};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -136,7 +136,7 @@ fn commands(commands: Vec<SessionCommand>) -> Vec<Command> {
             SessionCommand::Run { session, .. } => Some(Command::StartJob { attempt: session }),
             SessionCommand::Shutdown { session } => Some(Command::Shutdown { attempt: session }),
             SessionCommand::Stop { session } => Some(Command::Stop { attempt: session }),
-            SessionCommand::Settled { .. } => None,
+            SessionCommand::Settled { .. } | SessionCommand::Refused { .. } => None,
         })
         .collect()
 }
@@ -285,7 +285,10 @@ pub struct SessionUnit {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionReport {
     pub sessions: Vec<AttemptRecord>,
+    /// Every accepted unit, in submission order.
     pub units: Vec<UnitRecord>,
+    /// Units refused at submission, in order; each was also handed to `published`.
+    pub refused: Vec<UnitRecord>,
 }
 
 enum Message {
@@ -421,41 +424,36 @@ pub fn run_job<L: WorkerLauncher>(
     inbox: JobInbox,
     register: &mut dyn FnMut(&ProcessIdentity) -> Result<(), String>,
 ) -> Result<Report, LifecycleError> {
-    let session = SessionSpec {
-        worker_version: spec.worker_version.clone(),
-        command: spec.command.clone(),
-        purpose: spec.purpose.clone(),
+    let shared = Shared {
+        worker_version: &spec.worker_version,
+        command: &spec.command,
+        purpose: &spec.purpose,
         memory_gib: spec.memory_gib,
         config: SessionConfig {
             cleanup: spec.limits.cleanup,
         },
         execution_limit: spec.limits.job,
-        report_root: spec.report_root.clone(),
-        custody: spec
-            .custody
-            .iter()
-            .map(File::try_clone)
-            .collect::<io::Result<_>>()
-            .map_err(|error| {
-                LifecycleError::Invariant(format!("cannot duplicate custody: {error}"))
-            })?,
+        report_root: &spec.report_root,
+        custody: &spec.custody,
     };
-    let _ = inbox.sender.send(Message::Submit(Box::new(SessionUnit {
+    // The unit and the close reach the lifecycle before anything already in the inbox, so a
+    // cancel sent before `run_job` cancels this job (C5b's queued cancel).
+    let unit = SessionUnit {
         plan: UnitPlan {
             id: JOB_UNIT.into(),
             limits: spec.limits,
         },
         job: spec.job.clone(),
-    })));
-    let _ = inbox.sender.send(Message::Close);
+    };
     let (published, _records) = mpsc::channel();
-    let report = run_session(
+    let report = drive(
         launcher,
         clock,
-        &session,
+        &shared,
         inbox,
         &mut |_, worker| register(worker),
         published,
+        Some(unit),
     )?;
     let unit = report
         .units
@@ -471,10 +469,12 @@ pub fn run_job<L: WorkerLauncher>(
 }
 
 /// @cc [owner:fontanierh,label:correctness] session-publication-off-lifecycle
-/// A settled unit's record MUST be handed off through `published` without waiting on its
-/// receiver, so publication never blocks the lifecycle's deadlines, cancellation or stops.
-/// See tests/guard_adapter.rs
-/// (`run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver`).
+/// A settled or refused unit's record MUST be handed off through `published` without waiting on
+/// its receiver, so publication never blocks the lifecycle's deadlines, cancellation or stops.
+/// This holds by type: `published` is an unbounded `std::sync::mpsc::Sender`, and a send to a
+/// dropped receiver is ignored. See tests/guard_adapter.rs
+/// (`run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver`, which also
+/// checks every record arrives in order and a dropped receiver never ends the session).
 ///
 /// Run a session of compatible units to a settled [`SessionReport`]: every unit released or held,
 /// after [`SessionHandle::close`]. `register` must durably add the session's worker identity to
@@ -487,27 +487,70 @@ pub fn run_session<L: WorkerLauncher>(
     register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
     published: Sender<UnitRecord>,
 ) -> Result<SessionReport, LifecycleError> {
+    let shared = Shared {
+        worker_version: &spec.worker_version,
+        command: &spec.command,
+        purpose: &spec.purpose,
+        memory_gib: spec.memory_gib,
+        config: spec.config,
+        execution_limit: spec.execution_limit,
+        report_root: &spec.report_root,
+        custody: &spec.custody,
+    };
+    drive(launcher, clock, &shared, inbox, register, published, None)
+}
+
+/// What [`run_job`] and [`run_session`] share, borrowed so a custody duplicate is made only per
+/// submitted session (a failure there is a launch failure, as in C5b).
+struct Shared<'a> {
+    worker_version: &'a str,
+    command: &'a WorkerCommand,
+    purpose: &'a str,
+    memory_gib: u32,
+    config: SessionConfig,
+    execution_limit: Duration,
+    report_root: &'a Path,
+    custody: &'a [File],
+}
+
+/// `only`: one unit submitted and closed before the inbox is read.
+fn drive<L: WorkerLauncher>(
+    launcher: &mut L,
+    clock: &dyn Clock,
+    spec: &Shared<'_>,
+    inbox: JobInbox,
+    register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
+    published: Sender<UnitRecord>,
+    only: Option<SessionUnit>,
+) -> Result<SessionReport, LifecycleError> {
     let mut lifecycle = SessionLifecycle::new(spec.config);
     let mut jobs: BTreeMap<UnitId, JobRequest> = BTreeMap::new();
     let mut live: BTreeMap<u32, Live<L::Attempt>> = BTreeMap::new();
     let mut pending: Vec<SessionInput> = vec![];
     let mut commands: Vec<SessionCommand> = vec![];
-    let mut closed = false;
+    let mut refused: Vec<UnitRecord> = vec![];
+    if let Some(unit) = only {
+        let now = clock.now();
+        jobs.insert(unit.plan.id.clone(), unit.job);
+        commands.extend(lifecycle.on(now, SessionInput::Submit(unit.plan))?);
+        commands.extend(lifecycle.on(now, SessionInput::Close)?);
+    }
     loop {
         for command in std::mem::take(&mut commands) {
             match command {
                 SessionCommand::Submit { session } => {
                     let request = (|| -> io::Result<AdmissionRequest> {
-                        let queue_limit = lifecycle.queue_deadline().map(|deadline| {
-                            // Slightly past the overall deadline, so the policy stops the
-                            // attempt first and the guard withdraws it through normal cancel.
-                            deadline
-                                .elapsed()
-                                .saturating_sub(clock.now().elapsed())
-                                .saturating_add(spec.config.cleanup)
-                        });
+                        let queue_limit =
+                            lifecycle.session_queue_deadline(session).map(|deadline| {
+                                // Slightly past the overall deadline, so the policy stops the
+                                // attempt first and the guard withdraws it through normal cancel.
+                                deadline
+                                    .elapsed()
+                                    .saturating_sub(clock.now().elapsed())
+                                    .saturating_add(spec.config.cleanup)
+                            });
                         Ok(AdmissionRequest {
-                            purpose: spec.purpose.clone(),
+                            purpose: spec.purpose.into(),
                             memory_gib: spec.memory_gib,
                             execution_limit: spec.execution_limit,
                             queue_limit,
@@ -520,7 +563,7 @@ pub fn run_session<L: WorkerLauncher>(
                         })
                     })();
                     let submitted = request.and_then(|request| {
-                        launcher.submit(session, &spec.command, request, {
+                        launcher.submit(session, spec.command, request, {
                             let sink = inbox.sender.clone();
                             let (events, relay) = mpsc::channel::<AttemptEvent>();
                             thread::spawn(move || {
@@ -543,7 +586,7 @@ pub fn run_session<L: WorkerLauncher>(
                                 session,
                                 Live {
                                     handle,
-                                    session: Session::new(spec.worker_version.clone()),
+                                    session: Session::new(spec.worker_version),
                                     writer,
                                 },
                             );
@@ -596,21 +639,24 @@ pub fn run_session<L: WorkerLauncher>(
                         let _ = entry.handle.stop();
                     }
                 }
+                // Unbounded channel: a slow or absent receiver never blocks here.
                 SessionCommand::Settled { unit } => {
                     if let Some(record) = lifecycle.unit(&unit) {
-                        // An unbounded channel: a slow or absent receiver never blocks here.
                         let _ = published.send(record);
                     }
                 }
+                SessionCommand::Refused { unit, reason } => {
+                    let record = UnitRecord::refused(unit, reason);
+                    let _ = published.send(record.clone());
+                    refused.push(record);
+                }
             }
         }
-        if closed && lifecycle.done() {
+        if lifecycle.done() {
             return Ok(SessionReport {
                 sessions: lifecycle.sessions(),
-                units: jobs
-                    .keys()
-                    .filter_map(|unit| lifecycle.unit(unit))
-                    .collect(),
+                units: lifecycle.units(),
+                refused,
             });
         }
         let input = match pending.pop() {
@@ -632,21 +678,23 @@ pub fn run_session<L: WorkerLauncher>(
                 };
                 match message {
                     None => SessionInput::Tick,
-                    Some(Message::Cancel) => {
-                        closed = true;
-                        SessionInput::CancelAll
-                    }
-                    Some(Message::Close) => {
-                        closed = true;
-                        SessionInput::Close
-                    }
+                    Some(Message::Cancel) => SessionInput::CancelAll,
+                    Some(Message::Close) => SessionInput::Close,
                     Some(Message::CancelUnit(unit)) => SessionInput::CancelUnit(unit),
                     Some(Message::Submit(unit)) => {
-                        if closed || jobs.contains_key(&unit.plan.id) {
-                            continue; // refused: the session is closed or the unit is known
+                        // Only an accepted unit's job is kept; the lifecycle refuses the rest.
+                        let SessionUnit { plan, job } = *unit;
+                        let id = plan.id.clone();
+                        let fresh = !jobs.contains_key(&id);
+                        let out = lifecycle.on(clock.now(), SessionInput::Submit(plan))?;
+                        let accepted = !out.iter().any(
+                            |c| matches!(c, SessionCommand::Refused { unit, .. } if *unit == id),
+                        );
+                        if fresh && accepted {
+                            jobs.insert(id, job);
                         }
-                        jobs.insert(unit.plan.id.clone(), unit.job);
-                        SessionInput::Submit(unit.plan)
+                        commands = out;
+                        continue;
                     }
                     Some(Message::WriteFailed { attempt, error }) => SessionInput::Worker {
                         session: attempt,

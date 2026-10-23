@@ -5,7 +5,7 @@ use atelier_build_v2::guard_adapter::{AttemptEvent, CleanupReceipt, ExitInfo, La
 use atelier_build_v2::leases::ProcessIdentity;
 use atelier_build_v2::protocol::JobOutputs;
 use atelier_build_v2::session_lifecycle::*;
-use atelier_build_v2::worker_lifecycle::{Custody, LifecycleError};
+use atelier_build_v2::worker_lifecycle::{Custody, WorkerFault};
 use atelier_build_v2::worker_session::{Event as WorkerEvent, JobFinished};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -370,15 +370,28 @@ fn units_that_expire_while_waiting_withdraw_the_request_within_their_deadline() 
 fn a_unit_after_close_or_twice_is_refused() {
     let mut sim = Sim::new();
     sim.at(0, plan("a", None));
-    assert!(matches!(
-        sim.lifecycle.on(t(1), plan("a", None)),
-        Err(LifecycleError::Invariant(_))
-    ));
+    assert_eq!(
+        sim.at(1, plan("a", None)),
+        vec![SessionCommand::Refused {
+            unit: "a".into(),
+            reason: "refused: a unit with this id was already submitted".into()
+        }]
+    );
     sim.at(2, SessionInput::Close);
-    assert!(matches!(
-        sim.lifecycle.on(t(3), plan("b", None)),
-        Err(LifecycleError::Invariant(_))
-    ));
+    assert_eq!(
+        sim.at(3, plan("b", None)),
+        vec![SessionCommand::Refused {
+            unit: "b".into(),
+            reason: "refused: the session was already closed".into()
+        }]
+    );
+    assert!(sim.lifecycle.unit("b").is_none(), "nothing queued for b");
+    assert_eq!(sim.submits(), vec![1]);
+    let record = UnitRecord::refused("b".into(), "refused: closed".into());
+    assert!(record.refused);
+    assert!(record.attempts.is_empty());
+    assert_eq!(record.outcome.attempts, 0);
+    assert_eq!(record.outcome.cleanup, CleanupState::NotNeeded);
 }
 
 #[test]
@@ -404,4 +417,317 @@ fn session_commands_never_delete_or_republish() {
         ));
     }
     assert!(!sim.log.contains(&SessionCommand::Stop { session: 1 }));
+}
+
+fn short(id: &str, job: u64, overall: Option<u64>) -> SessionInput {
+    SessionInput::Submit(UnitPlan {
+        id: id.into(),
+        limits: Limits {
+            job: Duration::from_millis(job),
+            cleanup: Duration::from_millis(CLEAN),
+            overall: overall.map(Duration::from_millis),
+        },
+    })
+}
+
+/// `a` runs and completes in session 1 (10..130 ms); session 2 is queued for `b`.
+fn first_unit_done(sim: &mut Sim) {
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    sim.worker(110, 1, WorkerEvent::Stopped);
+    sim.launch(120, 1, exited(101));
+    assert_eq!(
+        sim.launch(130, 1, confirmed()),
+        vec![
+            SessionCommand::Submit { session: 2 },
+            SessionCommand::Settled { unit: "a".into() }
+        ]
+    );
+}
+
+#[test]
+fn a_later_units_job_limit_counts_from_its_own_assignment() {
+    let mut sim = Sim::new();
+    sim.at(0, short("a", 1_000, None));
+    sim.at(0, short("b", 1_000, None));
+    sim.at(0, SessionInput::Close);
+    first_unit_done(&mut sim);
+    assert_eq!(
+        sim.at(1_000, SessionInput::Tick),
+        vec![],
+        "b's limit has not started: it is not assigned yet"
+    );
+    sim.start(5_000, 2, 202, "b");
+    assert_eq!(sim.at(5_999, SessionInput::Tick), vec![]);
+    assert_eq!(
+        sim.at(6_000, SessionInput::Tick),
+        vec![SessionCommand::Stop { session: 2 }],
+        "one job limit after b's own assignment"
+    );
+}
+
+#[test]
+fn a_later_units_capacity_wait_stays_outside_its_job_limit() {
+    let mut sim = Sim::new();
+    sim.at(0, short("a", 1_000, None));
+    sim.at(0, short("b", 1_000, None));
+    sim.at(0, SessionInput::Close);
+    first_unit_done(&mut sim);
+    sim.launch(200, 2, LaunchEvent::Queued);
+    assert_eq!(
+        sim.at(50_000, SessionInput::Tick),
+        vec![],
+        "waiting for capacity spends nothing"
+    );
+    sim.start(50_000, 2, 202, "b");
+    assert_eq!(sim.at(50_999, SessionInput::Tick), vec![]);
+    assert_eq!(
+        sim.at(51_000, SessionInput::Tick),
+        vec![SessionCommand::Stop { session: 2 }]
+    );
+}
+
+#[test]
+fn a_later_units_failed_registration_stops_its_run() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    first_unit_done(&mut sim);
+    sim.launch(200, 2, LaunchEvent::Admitted);
+    assert_eq!(
+        sim.launch(
+            200,
+            2,
+            LaunchEvent::ChildStarted {
+                worker: worker(202)
+            }
+        ),
+        vec![SessionCommand::Register {
+            session: 2,
+            unit: "b".into(),
+            worker: worker(202)
+        }]
+    );
+    assert_eq!(
+        sim.at(
+            210,
+            SessionInput::Registered {
+                session: 2,
+                unit: "b".into(),
+                ok: false
+            }
+        ),
+        vec![SessionCommand::Stop { session: 2 }]
+    );
+    sim.worker(
+        220,
+        2,
+        WorkerEvent::Ready {
+            worker_version: "w1".into(),
+        },
+    );
+    assert!(
+        !sim.log
+            .iter()
+            .any(|c| matches!(c, SessionCommand::Run { session: 2, .. })),
+        "b never runs"
+    );
+    sim.launch(230, 2, confirmed());
+    let b = sim.lifecycle.unit("b").unwrap();
+    assert_eq!(b.outcome.end, End::Failed(Stop::Cancelled));
+    assert!(b.abort.unwrap().contains("write lease"));
+}
+
+#[test]
+fn hello_before_registration_waits_for_the_registration() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", None));
+    sim.at(0, SessionInput::Close);
+    sim.launch(10, 1, LaunchEvent::Admitted);
+    sim.launch(
+        10,
+        1,
+        LaunchEvent::ChildStarted {
+            worker: worker(101),
+        },
+    );
+    assert_eq!(
+        sim.worker(
+            20,
+            1,
+            WorkerEvent::Ready {
+                worker_version: "w1".into()
+            }
+        ),
+        vec![],
+        "no Run before the lease names the worker"
+    );
+    assert_eq!(
+        sim.at(
+            30,
+            SessionInput::Registered {
+                session: 1,
+                unit: "a".into(),
+                ok: true
+            }
+        ),
+        vec![SessionCommand::Run {
+            session: 1,
+            unit: "a".into()
+        }]
+    );
+}
+
+#[test]
+fn foreign_identities_and_pipe_loss_are_never_crash_evidence_for_a_unit() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(
+        sim.at(
+            50,
+            SessionInput::Worker {
+                session: 1,
+                event: Err(WorkerFault::Disconnected("pipe closed".into())),
+            }
+        ),
+        vec![],
+        "pipe loss alone is no evidence"
+    );
+    assert_eq!(
+        sim.launch(
+            60,
+            1,
+            LaunchEvent::ChildExited {
+                worker: worker(999),
+                exit: ExitInfo::Signal(9),
+                stopped_by: None
+            }
+        ),
+        vec![SessionCommand::Stop { session: 1 }],
+        "a foreign identity is an inconsistent report"
+    );
+    assert_eq!(
+        sim.launch(70, 1, confirmed()),
+        vec![
+            SessionCommand::Submit { session: 2 },
+            SessionCommand::Settled { unit: "a".into() }
+        ]
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(a.outcome.end, End::Failed(Stop::Protocol));
+    assert_eq!(a.outcome.attempts, 1, "never retried");
+    sim.start(100, 2, 202, "b");
+}
+
+#[test]
+fn a_session_ended_before_admission_requeues_the_units_its_queue_limit_did_not_cover() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", Some(1_000)));
+    sim.at(10, plan("b", Some(600_000)));
+    sim.at(10, SessionInput::Close);
+    assert_eq!(sim.lifecycle.session_queue_deadline(1), Some(t(1_000)));
+    assert_eq!(
+        sim.at(1_000, SessionInput::Tick),
+        vec![SessionCommand::Settled { unit: "a".into() }],
+        "b still needs the session"
+    );
+    // The guard's queue window, sized for a, ends: b is not cancelled but gets a fresh session.
+    assert_eq!(
+        sim.launch(1_000 + CLEAN, 1, confirmed()),
+        vec![SessionCommand::Submit { session: 2 }]
+    );
+    assert!(sim.lifecycle.unit("b").is_none(), "b is still waiting");
+    assert_eq!(sim.lifecycle.session_queue_deadline(2), Some(t(600_010)));
+    sim.start(7_000, 2, 202, "b");
+    sim.worker(7_100, 2, completed("b"));
+    sim.launch(7_200, 2, exited(202));
+    sim.launch(7_300, 2, confirmed());
+    assert_eq!(sim.lifecycle.unit("b").unwrap().outcome.end, End::Completed);
+
+    // A unit the window did cover gives up when the admission owner ends early.
+    let mut sim = Sim::new();
+    sim.at(0, plan("c", Some(5_000)));
+    sim.at(0, SessionInput::Close);
+    assert_eq!(
+        sim.launch(100, 1, confirmed()),
+        vec![SessionCommand::Settled { unit: "c".into() }]
+    );
+    let c = sim.lifecycle.unit("c").unwrap();
+    assert_eq!(c.outcome.end, End::Failed(Stop::Cancelled));
+    assert!(c.abort.unwrap().contains("before admission"));
+    assert_eq!(sim.submits(), vec![1]);
+}
+
+#[test]
+fn an_expired_units_deadline_never_bounds_a_later_settlement() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", Some(1_000)));
+    sim.at(0, plan("b", None));
+    assert_eq!(
+        sim.at(1_000, SessionInput::Tick),
+        vec![SessionCommand::Settled { unit: "a".into() }]
+    );
+    assert_eq!(
+        sim.at(3_000, SessionInput::CancelUnit("b".into())),
+        vec![
+            SessionCommand::Stop { session: 1 },
+            SessionCommand::Settled { unit: "b".into() }
+        ]
+    );
+    assert_eq!(
+        sim.lifecycle.next_deadline(),
+        Some(t(3_000 + CLEAN)),
+        "bounded by the cleanup limit, not a's past deadline"
+    );
+    assert_eq!(sim.lifecycle.sessions()[0].custody, Custody::Pending);
+    assert_eq!(sim.at(3_001, plan("c", None)), vec![]);
+    assert_eq!(
+        sim.launch(3_100, 1, confirmed()),
+        vec![SessionCommand::Submit { session: 2 }],
+        "a later unit still gets a session"
+    );
+}
+
+#[test]
+fn a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.start(10, 1, 101, "a");
+    assert_eq!(
+        sim.worker(100, 1, completed("a")),
+        vec![SessionCommand::Shutdown { session: 1 }]
+    );
+    assert_eq!(
+        sim.at(100 + CLEAN, SessionInput::Tick),
+        vec![
+            SessionCommand::Stop { session: 1 },
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "no receipt within the limit: held"
+    );
+    let published = sim.lifecycle.unit("a").unwrap();
+    assert!(matches!(published.attempts[0].custody, Custody::Held(_)));
+    assert_eq!(
+        sim.launch(9_000, 1, confirmed()),
+        vec![SessionCommand::Settled { unit: "b".into() }],
+        "b gives up; no new session"
+    );
+    assert_eq!(
+        sim.lifecycle.sessions()[0].custody,
+        Custody::Released,
+        "the late receipt is kept as evidence on the session's own record"
+    );
+    assert_eq!(sim.lifecycle.unit("a").unwrap(), published, "unchanged");
+    let b = sim.lifecycle.unit("b").unwrap();
+    assert!(b.abort.unwrap().contains("unconfirmed"));
+    assert_eq!(
+        sim.at(9_100, plan("c", None)),
+        vec![SessionCommand::Settled { unit: "c".into() }]
+    );
+    assert_eq!(sim.submits(), vec![1]);
 }

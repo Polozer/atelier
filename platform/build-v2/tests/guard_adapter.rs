@@ -639,11 +639,8 @@ fn concurrent_handshakes_stay_within_bound() {
     }
 }
 
-#[test]
-fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
-    let space = Workspace::new();
-    let job_spec = spec(&space, "normal", 3_000);
-    let session = SessionSpec {
+fn session_spec(space: &Workspace, job_spec: &JobSpec) -> SessionSpec {
+    SessionSpec {
         worker_version: job_spec.worker_version.clone(),
         command: job_spec.command.clone(),
         purpose: job_spec.purpose.clone(),
@@ -654,20 +651,32 @@ fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
         execution_limit: Duration::from_secs(30),
         report_root: space.0.clone(),
         custody: vec![],
-    };
-    let (handle, inbox) = session_channel();
-    for id in ["a", "b"] {
-        let mut request = job();
-        request.job_id = id.into();
-        handle.submit(SessionUnit {
-            plan: atelier_build_v2::session_lifecycle::UnitPlan {
-                id: id.into(),
-                limits: job_spec.limits,
-            },
-            job: request,
-        });
     }
+}
+
+fn unit(id: &str, limits: Limits) -> SessionUnit {
+    let mut request = job();
+    request.job_id = id.into();
+    SessionUnit {
+        plan: atelier_build_v2::session_lifecycle::UnitPlan {
+            id: id.into(),
+            limits,
+        },
+        job: request,
+    }
+}
+
+#[test]
+fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let session = session_spec(&space, &job_spec);
+    let (handle, inbox) = session_channel();
+    handle.submit(unit("a", job_spec.limits));
+    handle.submit(unit("a", job_spec.limits)); // a duplicate id is refused, never dropped
+    handle.submit(unit("b", job_spec.limits));
     handle.close();
+    handle.submit(unit("c", job_spec.limits)); // after close: refused
     // Nobody reads the records until the session is over: publication never blocks it.
     let (published, records) = mpsc::channel();
     let mut registered = vec![];
@@ -685,11 +694,16 @@ fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
     .unwrap();
     let records: Vec<_> = records.try_iter().collect();
     assert_eq!(
-        records.iter().map(|r| r.unit.as_str()).collect::<Vec<_>>(),
-        vec!["a", "b"]
+        records
+            .iter()
+            .map(|r| (r.unit.as_str(), r.refused))
+            .collect::<Vec<_>>(),
+        vec![("a", true), ("c", true), ("a", false), ("b", false)],
+        "refusals are handed off at once, settled units as each settles"
     );
-    assert!(records.iter().all(|r| r.outcome.end == End::Completed));
-    assert_eq!(report.units, records);
+    assert!(records[2..].iter().all(|r| r.outcome.end == End::Completed));
+    assert_eq!(report.units, records[2..].to_vec());
+    assert_eq!(report.refused, records[..2].to_vec());
     assert!(
         report
             .sessions
@@ -705,4 +719,47 @@ fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
         vec!["a", "b"],
         "each unit's lease gets its worker before the unit runs"
     );
+
+    // A receiver that is gone never ends or blocks the session either.
+    let space = Workspace::new();
+    let session = session_spec(&space, &job_spec);
+    let (handle, inbox) = session_channel();
+    handle.submit(unit("a", job_spec.limits));
+    handle.close();
+    let (published, records) = mpsc::channel();
+    drop(records);
+    let report = run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        published,
+    )
+    .unwrap();
+    assert_eq!(report.units[0].outcome.end, End::Completed);
+}
+
+#[test]
+fn a_cancel_sent_before_run_job_cancels_the_queued_job() {
+    // Review of #646: the cancel is already in the inbox when run_job starts.
+    let space = Workspace::new();
+    let job = spec(&space, "normal", 3_000);
+    let (canceller, inbox) = job_channel();
+    canceller.cancel();
+    let report = run_job(
+        &mut launcher("queue_forever"),
+        &SystemClock::new(),
+        &job,
+        inbox,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(report.outcome.end, End::Failed(Stop::Cancelled));
+    assert_eq!(report.outcome.attempts, 0, "nothing was launched");
+    assert_eq!(report.attempts.len(), 1, "the queued request was withdrawn");
+    // The stop can reach the bridge before it handles signals; without a receipt the request
+    // is held, which is still settled and never relaunched.
+    assert_ne!(report.attempts[0].custody, Custody::Pending);
+    assert_eq!(report.attempts[0].worker, None);
 }
