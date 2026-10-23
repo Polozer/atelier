@@ -1,6 +1,8 @@
 //! T0 tests of the Unreal worker's controller side: context identity and validation, the scratch
 //! project and its hash receipt, the worker command line and the two evidence files. No Unreal.
+use atelier_build_v2::store::ObjectStore;
 use atelier_build_v2::unreal::*;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
@@ -66,6 +68,11 @@ fn produced(space: &Workspace) -> (PathBuf, PathBuf) {
     )
 }
 
+/// The persistent DDC folder of the store at `store/` for `build_id`.
+fn ddc(space: &Workspace, build_id: &str) -> UnrealDdc {
+    UnrealDdc::open(&ObjectStore::open(space.path("store")).unwrap(), build_id).unwrap()
+}
+
 fn context(space: &Workspace) -> UnrealContext {
     let (editor, plugin) = produced(space);
     UnrealContext {
@@ -88,6 +95,7 @@ fn context(space: &Workspace) -> UnrealContext {
             dir: plugin,
         }],
         settings: vec!["-ForceDPCVars=r.GenerateMeshDistanceFields=0".into()],
+        ddc: ddc(space, "5.8-build"),
     }
 }
 
@@ -123,9 +131,11 @@ fn the_profile_ignores_locations_and_follows_every_identity_field() {
     change(&|c| c.engine_plugins.push("Paper2D".into()));
     change(&|c| c.plugins[0].identity = "2".repeat(64));
     change(&|c| c.settings.push("-ini:Engine:[Core.Log]:Global=Log".into()));
+    let other_store = space.path("other-store/unreal-ddc/5.8-build");
+    change(&|c| c.ddc.dir = other_store.clone());
     let mut profiles: BTreeSet<String> = changes.iter().map(UnrealContext::profile).collect();
     profiles.insert(base.profile());
-    assert_eq!(profiles.len(), 7, "every identity field separates sessions");
+    assert_eq!(profiles.len(), 8, "every identity field separates sessions");
     assert!(base.profile().starts_with("unreal-"));
 }
 
@@ -162,6 +172,124 @@ fn contexts_refuse_what_a_session_cannot_load_honestly() {
         &|c| c.settings.push("-ini:Engine:[A]:B=has space".into()),
         "not a declared",
     );
+    refused(&|c| c.build_id = "5.8-other".into(), "DDC folder");
+    refused(
+        &|c| c.ddc.dir = c.ddc.dir.parent().unwrap().join("..").join("5.8-build"),
+        "DDC folder",
+    );
+}
+
+#[test]
+fn the_ddc_folder_persists_per_engine_and_its_flags_and_graph_are_session_identity() {
+    let space = Workspace::new();
+    let store = ObjectStore::open(space.path("store")).unwrap();
+    let first = UnrealDdc::open(&store, "5.8-build").unwrap();
+    assert_eq!(
+        first.dir,
+        store.root().join("unreal-ddc/5.8-build"),
+        "under the store root, keyed by the engine BuildId"
+    );
+    fs::write(first.dir.join("cached"), b"derived").unwrap();
+    let again = UnrealDdc::open(&store, "5.8-build").unwrap();
+    assert_eq!(again, first);
+    assert_eq!(
+        fs::read(again.dir.join("cached")).unwrap(),
+        b"derived",
+        "opening never empties it"
+    );
+    let other = UnrealDdc::open(&store, "5.8 other/build").unwrap();
+    assert_ne!(other.dir, first.dir, "another engine gets its own folder");
+    assert_eq!(other.dir.parent(), first.dir.parent());
+    assert_eq!(
+        first.graph_argument().unwrap(),
+        format!(
+            "-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path={}))",
+            first.dir.display()
+        )
+    );
+    let spaced = ObjectStore::open(space.path("with space")).unwrap();
+    assert!(
+        UnrealDdc::open(&spaced, "5.8-build").is_err(),
+        "not command-line text"
+    );
+
+    // The flags, the graph and the folder are hashed into the profile, so a change to any of them is
+    // a new session and never a reuse of an old one.
+    let context = context(&space);
+    let mut arguments: Vec<String> = DDC_FLAGS.iter().map(|flag| flag.to_string()).collect();
+    arguments.push(context.ddc.graph_argument().unwrap());
+    assert_eq!(context.identity()["ddc"], serde_json::json!(arguments));
+    let digest = |identity: &serde_json::Value| {
+        format!(
+            "unreal-{:x}",
+            Sha256::digest(identity.to_string().as_bytes())
+        )
+    };
+    assert_eq!(digest(&context.identity()), context.profile());
+    let mut without_flag = context.identity();
+    without_flag["ddc"].as_array_mut().unwrap().remove(0);
+    let mut other_graph = context.identity();
+    other_graph["ddc"][2] = "-DDC=(InstalledEnginePak,ZenLocal)".into();
+    for changed in [without_flag, other_graph] {
+        assert_ne!(digest(&changed), context.profile());
+    }
+}
+
+#[test]
+fn the_ddc_policy_allows_only_the_v2_folder_and_the_engine_pak() {
+    let policy = DdcPolicy {
+        dir: "/store/unreal-ddc/5.8".into(),
+        engine_pak: "/engine/Engine/DerivedDataCache/Compressed.ddp".into(),
+    };
+    let node = |kind: &str, path: &str| DdcNode {
+        kind: kind.into(),
+        path: path.into(),
+    };
+    let graph = |nodes: Vec<DdcNode>| DdcGraph {
+        graph: "inline".into(),
+        nodes,
+    };
+    let v2 = node("File System", "/store/unreal-ddc/5.8");
+    let pak = node("Pak File", "/engine/Engine/DerivedDataCache/Compressed.ddp");
+    assert_eq!(policy.problem(&graph(vec![pak.clone(), v2.clone()])), None);
+    assert_eq!(
+        policy.problem(&graph(vec![v2.clone(), node("Memory", "")])),
+        None
+    );
+    for (bad, why) in [
+        (vec![pak.clone()], "no cache node"),
+        (vec![v2.clone(), node("Zen", "")], "Zen"),
+        (
+            vec![v2.clone(), node("File System", "/shared/DerivedDataCache")],
+            "outside",
+        ),
+        (
+            vec![
+                v2.clone(),
+                node("File System", "/store/unreal-ddc/5.8-other"),
+            ],
+            "outside",
+        ),
+        (
+            vec![v2.clone(), node("File System", "relative/unreal-ddc/5.8")],
+            "outside",
+        ),
+        (
+            vec![
+                v2.clone(),
+                node("Pak File", "/project/DerivedDataCache/DDC.ddp"),
+            ],
+            "outside",
+        ),
+        (vec![v2.clone(), node("Http", "https://cache")], "outside"),
+        (
+            vec![v2.clone(), node("", "/store/unreal-ddc/5.8")],
+            "outside",
+        ),
+    ] {
+        let problem = policy.problem(&graph(bad)).expect(why);
+        assert!(problem.contains(why), "{why}: {problem}");
+    }
 }
 
 #[test]
@@ -219,6 +347,11 @@ fn the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_
     ];
     expected.extend(UNREAL_WORKER_FLAGS.iter().map(|flag| flag.to_string()));
     expected.push(format!("-UserDir={}", scratch.user_dir().display()));
+    expected.extend(["-nowrite".to_string(), "-NoZenAutoLaunch".to_string()]);
+    expected.push(format!(
+        "-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path={}))",
+        context.ddc.dir.display()
+    ));
     expected.push("-ForceDPCVars=r.GenerateMeshDistanceFields=0".into());
     assert_eq!(command.args, expected);
     assert_eq!(
@@ -236,6 +369,7 @@ fn the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_
     );
     let mut other = context.clone();
     other.build_id = "5.8-other".into();
+    other.ddc = ddc(&space, "5.8-other");
     let error = job_loop_command(&other, &scratch, &script).unwrap_err();
     assert!(error.to_string().contains("another context"), "{error}");
 }
@@ -244,6 +378,10 @@ fn the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_
 fn a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity() {
     let space = Workspace::new();
     let context = context(&space);
+    let pak = space.write(
+        "Epic Games/UE/Engine/DerivedDataCache/Compressed.ddp",
+        b"engine pak",
+    );
     let session = space.path("session");
     fs::create_dir(&session).unwrap();
     let scratch = match ScratchProject::prepare(&session, &context) {
@@ -307,6 +445,26 @@ fn a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_id
     assert!(fs::write(&library, b"rebuilt").is_err());
     assert!(fs::write(root.join("Binaries/Mac/UnrealEditor-New.dylib"), b"new").is_err());
     scratch.verify().unwrap();
+    assert_eq!(
+        scratch.expected().ddc,
+        DdcPolicy {
+            dir: context.ddc.dir.to_str().unwrap().into(),
+            engine_pak: pak.to_str().unwrap().into(),
+        }
+    );
+    assert!(
+        !context.ddc.dir.starts_with(&session),
+        "the DDC is never session scratch"
+    );
+
+    // The graph check cannot see a writable pak node; a write to the installed pak is caught.
+    fs::write(&pak, b"engine pak, rewritten").unwrap();
+    let error = scratch.verify().unwrap_err();
+    assert!(error.to_string().contains("engine pak changed"), "{error}");
+    fs::write(&pak, b"engine pak").unwrap();
+    fs::remove_file(&pak).unwrap();
+    assert!(scratch.verify().is_err(), "a removed pak is a change too");
+    fs::write(&pak, b"engine pak").unwrap();
 
     // A changed source after the clone is caught.
     fs::write(
@@ -358,20 +516,40 @@ fn context_and_import_evidence_are_required_well_formed_and_exact() {
     );
     let mut loaded = scratch.expected().clone();
     loaded.modules.insert("UndeclaredModule".into());
-    let write = |loaded: &LoadedContext| {
+    let v2 = DdcNode {
+        kind: "File System".into(),
+        path: context.ddc.dir.to_str().unwrap().into(),
+    };
+    let write = |loaded: &LoadedContext, nodes: Vec<DdcNode>| {
         let value = ContextReport {
             version: EVIDENCE_VERSION,
             loaded: loaded.clone(),
+            ddc_graph: DdcGraph {
+                graph: "inline".into(),
+                nodes,
+            },
         };
         fs::write(&report, serde_json::to_vec(&value).unwrap()).unwrap();
     };
-    write(&loaded);
+    write(&loaded, vec![v2.clone()]);
     let error = scratch.verify_context_report().unwrap_err();
     assert!(
         error.to_string().contains("different native context"),
         "{error}"
     );
-    write(scratch.expected());
+    // The recorded effective graph is checked again, whatever the command line said.
+    let shared = DdcNode {
+        kind: "File System".into(),
+        path: space
+            .path("shared/DerivedDataCache")
+            .to_str()
+            .unwrap()
+            .into(),
+    };
+    write(scratch.expected(), vec![v2.clone(), shared]);
+    let error = scratch.verify_context_report().unwrap_err();
+    assert!(error.to_string().contains("cache graph"), "{error}");
+    write(scratch.expected(), vec![v2.clone()]);
     assert_eq!(
         scratch.verify_context_report().unwrap().loaded,
         *scratch.expected()
@@ -510,10 +688,20 @@ def run(context):
 
     /// A prepared session on the stand-in editor.
     fn editor(space: &Workspace, context: &UnrealContext) -> Editor {
+        editor_with(space, context, |_| {})
+    }
+
+    /// A prepared session whose command line `edit` changes first.
+    fn editor_with(
+        space: &Workspace,
+        context: &UnrealContext,
+        edit: impl FnOnce(&mut Vec<String>),
+    ) -> Editor {
         let session = space.path("session");
         fs::create_dir_all(&session).unwrap();
         let scratch = ScratchProject::prepare(&session, context).unwrap();
-        let command = job_loop_command(context, &scratch, &worker_script()).unwrap();
+        let mut command = job_loop_command(context, &scratch, &worker_script()).unwrap();
+        edit(&mut command.args);
         let (process, pipes) = DirectChild.start(&command).unwrap();
         let channel = Channel::new(
             Session::new(UNREAL_JOB_LOOP_VERSION),
@@ -767,6 +955,54 @@ def run(context):
                 editor.process.wait().unwrap().success(),
                 "{name}: a clean exit"
             );
+        }
+    }
+
+    #[test]
+    fn a_cache_graph_with_zen_or_a_folder_outside_the_v2_ddc_never_says_hello() {
+        // Whatever the command line asks for, the worker reads the editor's effective graph.
+        fn elsewhere(space: &Workspace) -> String {
+            space.path("elsewhere-ddc").to_str().unwrap().to_string()
+        }
+        let edits: [(&str, Box<dyn Fn(&Workspace, &mut Vec<String>)>); 3] = [
+            (
+                "outside the v2 DDC folder",
+                Box::new(|space, args| {
+                    let graph = args.iter_mut().find(|a| a.starts_with("-DDC=")).unwrap();
+                    *graph = format!(
+                        "-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path={}))",
+                        elsewhere(space)
+                    );
+                }),
+            ),
+            (
+                "a Zen node",
+                Box::new(|_, args| {
+                    let graph = args.iter_mut().find(|a| a.starts_with("-DDC=")).unwrap();
+                    graph.insert_str(graph.len() - 1, ",ZenLocal=(Type=Zen)");
+                }),
+            ),
+            (
+                "a Zen node",
+                // No graph argument: the editor's installed default graph (Zen, then a shared folder).
+                Box::new(|_, args| args.retain(|a| !a.starts_with("-DDC="))),
+            ),
+        ];
+        for (why, edit) in edits {
+            let space = Workspace::new();
+            fake_engine(&space, "5.8-build");
+            let context = context(&space);
+            let mut refused = editor_with(&space, &context, |args| edit(&space, args));
+            assert!(refused.channel.handshake().is_err(), "{why}");
+            assert!(!refused.process.wait().unwrap().success(), "{why}");
+            let error = refused.scratch.verify_context_report().unwrap_err();
+            assert!(error.to_string().contains("cache graph"), "{why}: {error}");
+            assert!(error.to_string().contains(why), "{why}: {error}");
+            let report: ContextReport = serde_json::from_slice(
+                &fs::read(refused.scratch.session().join(CONTEXT_REPORT)).unwrap(),
+            )
+            .unwrap();
+            assert!(!report.ddc_graph.nodes.is_empty(), "the graph is recorded");
         }
     }
 

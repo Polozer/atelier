@@ -14,6 +14,8 @@ class ATELIERBUILDWORKER_API UAtelierBuildWorkerLibrary : public UBlueprintFunct
 public:
     /** {build_id, modules: [project module], plugins: {name: base dir}, libraries: [loaded module file], rhi}. */
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString NativeContext();
+    /** {graph, nodes: [{kind, path, local, status}]}: every cache store of the effective DDC graph, from its stats tree (full paths). */
+    UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString DdcGraph();
     /** Start recording every package save (UPackage::PackageSavedWithContextEvent). */
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static void BeginSaveRecording();
     /** Stop recording; [{package, filename}] saved since BeginSaveRecording, in order. */

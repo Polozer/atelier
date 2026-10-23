@@ -46,6 +46,19 @@ id = "c3.unreal.context_mismatch_and_rebuild_refused"
 tests = ["atelier-build-v2::unreal/editor_session::a_different_native_context_or_a_module_rebuild_never_says_hello"]
 platforms = ["darwin"]
 
+[[scenarios]]
+id = "c3.unreal.ddc_folder_and_session_identity"
+tests = ["atelier-build-v2::unreal/the_ddc_folder_persists_per_engine_and_its_flags_and_graph_are_session_identity"]
+
+[[scenarios]]
+id = "c3.unreal.ddc_policy"
+tests = ["atelier-build-v2::unreal/the_ddc_policy_allows_only_the_v2_folder_and_the_engine_pak"]
+
+[[scenarios]]
+id = "c3.unreal.bad_cache_graph_refused"
+tests = ["atelier-build-v2::unreal/editor_session::a_cache_graph_with_zen_or_a_folder_outside_the_v2_ddc_never_says_hello"]
+platforms = ["darwin"]
+
 [[pending]]
 id = "t2.unreal-worker-purity"
 task = "C3"

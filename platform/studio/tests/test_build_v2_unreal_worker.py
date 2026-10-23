@@ -151,3 +151,18 @@ def test_the_worker_plugin_source_is_outside_every_folder_a_game_or_v1_enumerate
     # Its compiled binaries are build products of a scratch or micro compile, never committed.
     ignored = (plugin.parent / '.gitignore').read_text().split()
     assert '*/Binaries/' in ignored and '*/Intermediate/' in ignored
+
+
+def test_the_cache_graph_may_hold_only_the_v2_folder_the_engine_pak_and_memory():
+    policy = {'dir': '/store/unreal-ddc/5.8', 'engine_pak': '/engine/Engine/DerivedDataCache/Compressed.ddp'}
+    v2 = {'kind': 'File System', 'path': '/store/unreal-ddc/5.8'}
+    pak = {'kind': 'Pak File', 'path': '/engine/Engine/DerivedDataCache/Compressed.ddp'}
+    assert unreal_worker.ddc_problem(policy, [pak, v2]) is None
+    assert unreal_worker.ddc_problem(policy, [v2, {'kind': 'Memory', 'path': ''}]) is None
+    assert 'no cache node' in unreal_worker.ddc_problem(policy, [pak])
+    for bad in ({'kind': 'Zen', 'path': ''}, {'kind': 'File System', 'path': '/shared/DerivedDataCache'},
+                {'kind': 'File System', 'path': '/store/unreal-ddc/5.8-other'},
+                {'kind': 'File System', 'path': 'relative/unreal-ddc/5.8'},
+                {'kind': 'Pak File', 'path': '/project/DerivedDataCache/DDC.ddp'},
+                {'kind': 'Http', 'path': 'https://cache'}, {'kind': '', 'path': '/store/unreal-ddc/5.8'}):
+        assert 'outside the v2 DDC folder' in unreal_worker.ddc_problem(policy, [v2, bad]), bad

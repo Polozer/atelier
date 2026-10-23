@@ -215,18 +215,20 @@ plugin's descriptor and `Binaries` MAY be brought in, as APFS clones (never link
 match the declared identities, recorded in a hash receipt and made read-only, so an editor that
 tries to rebuild a module fails closed instead of writing. The receipt MUST be checked again after
 the session (file list, modes, clone and source bytes). The command line MUST be the declared
-editor, the scratch project, the worker script, fixed flags, a session `-UserDir` and the declared
-settings only, with `-nocrashreports`. Unreal is NOT sandboxed. Each of these engine-wide writes,
-measured in T2, is an explicit proof gap (named, not prevented, and not covered by any test):
-(1) `~/Library/Application Support/Epic/UnrealEngine/5.8/Saved/Config/MacEditor/EditorSettings.ini`
-(T2: stopped by `-nowrite`); (2) the tool preset JSON under `UnrealEngine/Editor` (T2: written even
-with `-nowrite`); (3) the build tool's `UnrealBuildTool/Trace.uba` when the editor's startup platform
-check runs (T2: skipped with `UE_SKIP_UBT_SDK_SETUP=1`); (4) the Zen install files (`Common/Zen/Install`),
-Zen data and the `zen service status` utility, which still runs under `-NoZenAutoLaunch`; (5) crash
-reports (`5.8/Saved/Crashes` and crashpad caches) for anything `-nocrashreports` does not cover; and
-(6) the shared filesystem DDC (`Common/DerivedDataCache`) whenever the session has no v2-owned DDC
-graph (T2: the editor falls back to it when Zen is off). The T2 write scan compares file times under
-`~/Library`, so it cannot attribute a write there to one agent when other agents run at the same time.
+editor, the scratch project, the worker script, fixed flags, a session `-UserDir`, the DDC flags and
+graph (`build-v2-unreal-ddc`) and the declared settings only, with `-nocrashreports`. Unreal is NOT
+sandboxed. Each of these engine-wide writes, measured in T2, is an explicit proof gap (named, not
+prevented, and not covered by any test): (1) `~/Library/Application Support/Epic/UnrealEngine/5.8/
+Saved/Config/MacEditor/EditorSettings.ini` (T2: stopped by `-nowrite`, which the command line
+passes); (2) the tool preset JSON under `UnrealEngine/Editor` (T2: written even with `-nowrite`);
+(3) the build tool's `UnrealBuildTool/Trace.uba` when the editor's startup platform check runs (T2:
+skipped with `UE_SKIP_UBT_SDK_SETUP=1`, which the command line does not set); (4) the Zen install
+files (`Common/Zen/Install`), Zen data and the `zen service status` utility (T2: none with the v2
+graph; `-NoZenAutoLaunch` alone still runs the utility); (5) crash reports (`5.8/Saved/Crashes` and
+crashpad caches) for anything `-nocrashreports` does not cover; and (6) the shared filesystem DDC
+(`Common/DerivedDataCache`), which a session refused for its cache graph may already have written
+during startup. The T2 write scan compares file times under `~/Library`, so it cannot attribute a
+write there to one agent when other agents run at the same time.
 See
 tests/unreal.rs (`a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity`,
 `a_tree_identity_names_paths_and_bytes_and_refuses_links`,
@@ -238,6 +240,36 @@ by any game descriptor, and is cloned only into scratch and micro projects; its 
 build products, never committed, and their content identity enters `UnrealContext`. See
 platform/studio/tests/test_build_v2_unreal_worker.py
 (`test_the_worker_plugin_source_is_outside_every_folder_a_game_or_v1_enumerates`).
+
+@cc [owner:fontanierh,label:safety] build-v2-unreal-ddc
+Every Unreal session MUST cache derived data only in the persistent, v2-owned folder
+`<store root>/unreal-ddc/<engine BuildId>`, never in job or session scratch and never emptied per
+job. Its command line MUST pass `-nowrite -NoZenAutoLaunch` and the inline graph
+`-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path=<that folder>))`, and those flags, the graph
+and the folder MUST be in the session profile, so a change to any of them is a new session and never
+a reuse of an old one. The DDC is rebuildable acceleration only: no reuse, key or receipt decision
+MAY read it, and store GC MAY drop it whole. Before `hello` the worker MUST read the editor's
+effective cache graph from the editor (never from the command line), record it in
+`unreal-context.json`, and MUST NOT say `hello` (a setup failure, never a silent fallback) when any
+node is a Zen, shared, remote or unknown store, a file-system node outside that folder or a pak other
+than the installed engine pak, or when no node is inside that folder. There is no read-only parent
+cache. The controller MUST check the recorded graph again before the first `Run`. The installed
+engine pak MUST stay read-only: the graph does not show whether a pak was opened for writing, so the
+session receipt MUST record the pak's size and modification time and `verify` MUST refuse any
+change. Named gaps: the engine-pak check compares only size and modification time, so it is not a
+content hash, does not prove the pak was read-only and misses a write that restores both; the T2
+probe timings came from tiny inputs (64x64 textures, 16x16 meshes) and
+are not representative of real assets, which are measured after C3; the plugin's graph reader is
+proven against the real editor only by the pending T2 session; sessions of one engine share the
+folder, relying on Unreal's multi-process file-system store (assumed, not proven here). See
+tests/unreal.rs (`the_ddc_folder_persists_per_engine_and_its_flags_and_graph_are_session_identity`,
+`the_ddc_policy_allows_only_the_v2_folder_and_the_engine_pak`,
+`the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_settings`,
+`context_and_import_evidence_are_required_well_formed_and_exact`,
+`a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity`,
+`a_cache_graph_with_zen_or_a_folder_outside_the_v2_ddc_never_says_hello`) and
+platform/studio/tests/test_build_v2_unreal_worker.py
+(`test_the_cache_graph_may_hold_only_the_v2_folder_the_engine_pak_and_memory`).
 
 @cc [owner:fontanierh,label:correctness] build-v2-unreal-job-isolation
 One editor MUST run one job at a time, starting each with an empty `/Game` and empty `output/`.

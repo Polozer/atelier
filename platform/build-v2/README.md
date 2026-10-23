@@ -734,6 +734,24 @@ and the declared `-ini:`/`-ForceDPCVars=` settings. `identity()` drops every loc
 `profile()` (`unreal-<sha256>`) is the scheduler's `Compatibility.profile`. The profile only groups
 sessions: semantic ini, CVars and module bytes still enter each unit's key.
 
+**DDC.** `UnrealDdc::open(store, build_id)` gives the context its derived-data cache folder,
+`<store root>/unreal-ddc/<engine BuildId>`. The v2 store owns it. It outlives jobs and sessions, and
+nothing cleans it per job. It is rebuildable acceleration only: no reuse, key or receipt decision
+reads it, and store GC may drop it whole. Every session passes `-nowrite -NoZenAutoLaunch` and
+`-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path=<folder>))`. Those flags, the graph and the
+folder are in the profile, so changing any of them gives a new session. Before `hello` the worker
+reads the editor's effective cache graph from the plugin and records it in `unreal-context.json`.
+It refuses the session if the graph holds anything else:
+- a Zen, shared, remote or unknown store;
+- a file-system node outside the folder;
+- a pak other than the installed engine pak.
+
+It also refuses if no node is inside the folder. The controller checks the recorded graph again.
+The graph cannot show a pak opened for writing, so the receipt stamps the installed engine pak and
+`verify()` refuses any change to its size or modification time. That stamp is not a content hash and
+does not prove the pak stayed read-only (a named gap). The T2 probe timings came from tiny inputs and are not
+representative; real assets are measured after C3.
+
 `ScratchProject::prepare(session, ctx)` builds `<session>/project/Atelier.uproject` with empty
 `Content`, `Config`, `Saved` and `Intermediate`, and a session `user/` folder. It APFS-clones only the
 editor binaries and each plugin's descriptor and `Binaries`, checks them against the declared
@@ -743,7 +761,8 @@ receipt after the session. Off macOS, `prepare` refuses with "requires macOS".
 
 `job_loop_command` runs `UnrealEditor-Cmd` on the scratch project with
 `-run=pythonscript -script=platform/studio/atelier/build_v2/unreal_worker.py`, fixed unattended
-flags, `-NullRHI`, `-nocrashreports`, `-UserDir=<session>/user` and the declared settings. The launcher appends the
+flags, `-NullRHI`, `-nocrashreports`, `-UserDir=<session>/user`, the DDC flags and graph, and the
+declared settings. The launcher appends the
 protocol descriptors. The worker writes `<session>/unreal-context.json` (what the editor loaded)
 before `hello`, and the controller reads it with `verify_context_report()` before the first `Run`.
 Each job then:
@@ -762,6 +781,7 @@ The editor-only plugin lives at `unreal/AtelierBuildWorker`, outside every folde
 enumerates. It is cloned only into scratch and micro projects, and its compiled binaries are never
 committed. Its library is the editor surface the worker uses:
 - native context;
+- the effective DDC graph;
 - save recording;
 - ensure counting;
 - dirty and loaded packages;
@@ -774,5 +794,9 @@ T0 runs this end to end against `tests/fixtures/fake_unreal.py`, a stand-in edit
 command line and plugin surface. Real-editor behaviour (descriptor inheritance, `-UserDir`, shader
 workers, registry forgetting and engine-wide writes) is T2 evidence. Unreal is not sandboxed.
 The engine-wide writes the T2 probes measured are named proof gaps in `build-v2-unreal-scratch-project`:
-EditorSettings.ini, the tool preset JSON, `Trace.uba`, Zen files and its status utility, crash reports,
-and the shared filesystem DDC when a session has no v2-owned DDC graph.
+- EditorSettings.ini (stopped by `-nowrite`);
+- the tool preset JSON;
+- `Trace.uba`;
+- Zen files and its status utility;
+- crash reports;
+- the shared filesystem DDC, which a session refused for its graph may already have written at startup.

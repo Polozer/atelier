@@ -11,10 +11,13 @@
 //! - [`ScratchProject`], a per-session project outside the checkout whose binaries are read-only
 //!   APFS clones recorded in a hash receipt, so no mutable `Binaries`, `Content`, `Intermediate` or
 //!   `Saved` folder is ever shared;
+//! - [`UnrealDdc`], the persistent v2-owned DDC folder every session's editor caches into, and the
+//!   [`DdcPolicy`] its effective cache graph must satisfy before `hello`;
 //! - [`job_loop_command`], the worker's command line;
 //! - the two evidence files the worker writes beside protocol version 1, which carries neither:
 //!   the session's [`ContextReport`] (written before `hello`) and each job's [`ImportEvidence`].
 use crate::launch::WorkerCommand;
+use crate::store::ObjectStore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,6 +56,14 @@ pub const UNREAL_WORKER_FLAGS: [&str; 7] = [
     // Library; the worker counts it and fails the job instead.
     "-nocrashreports",
 ];
+/// The editor's derived-data settings, after `-UserDir`: no config saves to the per-user engine
+/// folder, no Zen auto-launch, and then the graph argument ([`UnrealDdc::graph_argument`]). They
+/// are part of the session identity ([`UnrealContext::identity`]).
+pub const DDC_FLAGS: [&str; 2] = ["-nowrite", "-NoZenAutoLaunch"];
+/// The persistent DDC folder's parent under the v2 store root, one child per engine BuildId.
+pub const DDC_FOLDER: &str = "unreal-ddc";
+/// The installed engine's read-only DDC pak (the engine's own `InstalledEnginePak` node).
+pub const ENGINE_PAK: &str = "Engine/DerivedDataCache/Compressed.ddp";
 /// The only declared settings a context passes through: ini overrides and forced CVars. They are
 /// semantic, so the units' A3 keys must bind them too; the profile only groups sessions.
 const SETTING_PREFIXES: [&str; 2] = ["-ini:", "-ForceDPCVars="];
@@ -101,6 +112,109 @@ pub struct UnrealContext {
     pub plugins: Vec<Plugin>,
     /// Declared `-ini:` and `-ForceDPCVars=` arguments, passed verbatim and in order.
     pub settings: Vec<String>,
+    /// The persistent v2-owned DDC folder for this engine ([`UnrealDdc::open`]).
+    pub ddc: UnrealDdc,
+}
+
+/// The persistent, v2-owned Unreal derived-data cache: `<store root>/unreal-ddc/<engine BuildId>`.
+/// It outlives jobs and sessions and is never cleaned per job. It is rebuildable acceleration
+/// only: no reuse, key or receipt decision ever reads it, and store GC may drop it whole.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnrealDdc {
+    pub dir: PathBuf,
+}
+
+/// What the editor's effective cache graph may hold, checked by the worker before `hello` and by
+/// [`ScratchProject::verify_context_report`]: file-system nodes only inside the v2 DDC folder, the
+/// installed engine pak only at its own path, path-less memory nodes, and nothing else (no Zen, no
+/// shared or remote node, no fallback). At least one node must be inside the v2 DDC folder.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DdcPolicy {
+    pub dir: String,
+    pub engine_pak: String,
+}
+
+/// One cache store of the editor's effective graph, as its stats report it: the store type (e.g.
+/// `File System`, `Pak File`, `Zen`) and its full path.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DdcNode {
+    pub kind: String,
+    pub path: String,
+}
+
+/// The editor's effective cache graph, recorded in `unreal-context.json`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DdcGraph {
+    pub graph: String,
+    pub nodes: Vec<DdcNode>,
+}
+
+fn ddc_key(build_id: &str) -> String {
+    let readable = build_id.len() <= 64
+        && !build_id.starts_with('.')
+        && build_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_' || b == b'-');
+    if readable {
+        build_id.to_string()
+    } else {
+        format!("{:x}", Sha256::digest(build_id.as_bytes()))
+    }
+}
+
+impl UnrealDdc {
+    /// The DDC folder for `build_id` under the store root, created if missing and never emptied.
+    pub fn open(store: &ObjectStore, build_id: &str) -> io::Result<Self> {
+        let dir = store.root().join(DDC_FOLDER).join(ddc_key(build_id));
+        fs::create_dir_all(&dir)?;
+        let ddc = Self {
+            dir: dir.canonicalize()?,
+        };
+        ddc.graph_argument()?;
+        Ok(ddc)
+    }
+
+    /// `-DDC=` with an inline graph: the installed engine's read-only pak, then this folder.
+    pub fn graph_argument(&self) -> io::Result<String> {
+        let dir = argument(&self.dir, "the DDC folder")?;
+        if dir.contains(['(', ')', ',', '=']) {
+            return Err(invalid(format!(
+                "the DDC folder is not a graph value: {dir}"
+            )));
+        }
+        Ok(format!(
+            "-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path={dir}))"
+        ))
+    }
+}
+
+impl DdcPolicy {
+    /// Why `graph` is not allowed, or None.
+    pub fn problem(&self, graph: &DdcGraph) -> Option<String> {
+        let dir = Path::new(&self.dir);
+        let mut local = false;
+        for node in &graph.nodes {
+            let inside =
+                Path::new(&node.path).is_absolute() && Path::new(&node.path).starts_with(dir);
+            let allowed = match node.kind.as_str() {
+                "File System" => inside,
+                "Pak File" => node.path == self.engine_pak,
+                "Memory" => node.path.is_empty(),
+                _ => false,
+            };
+            if !allowed {
+                return Some(format!(
+                    "a {} node at {:?} is outside the v2 DDC folder",
+                    node.kind, node.path
+                ));
+            }
+            local |= node.kind == "File System";
+        }
+        (!local).then(|| "no cache node is inside the v2 DDC folder".to_string())
+    }
 }
 
 fn invalid(message: impl Into<String>) -> io::Error {
@@ -198,6 +312,15 @@ impl UnrealContext {
         {
             return Err(invalid(format!("the {WORKER_PLUGIN} plugin is required")));
         }
+        if self.ddc.dir.file_name().and_then(|name| name.to_str()) != Some(&ddc_key(&self.build_id))
+            || self.ddc.dir.parent().and_then(Path::file_name) != Some(DDC_FOLDER.as_ref())
+            || !self.ddc.dir.is_absolute()
+        {
+            return Err(invalid(
+                "the DDC folder is not this engine's folder under the store's unreal-ddc",
+            ));
+        }
+        self.ddc.graph_argument()?;
         for setting in &self.settings {
             let allowed = SETTING_PREFIXES.iter().any(|p| setting.starts_with(p));
             if !allowed
@@ -213,7 +336,8 @@ impl UnrealContext {
         Ok(())
     }
 
-    /// The identity fields, without locations.
+    /// The identity fields, without binary locations. The DDC folder is in it: it is the state the
+    /// editor reads, not where a binary was restored.
     pub fn identity(&self) -> serde_json::Value {
         let mut engine_plugins = self.engine_plugins.clone();
         engine_plugins.sort();
@@ -231,7 +355,17 @@ impl UnrealContext {
             "plugins": plugins,
             "rhi": "null",
             "settings": self.settings,
+            // The cache the editor reads and writes, and how: a different flag, graph or folder
+            // is a different session, never a reuse of an old one.
+            "ddc": self.ddc_arguments().unwrap_or_default(),
         })
+    }
+
+    /// [`DDC_FLAGS`] then the graph argument, as the command line passes them.
+    pub fn ddc_arguments(&self) -> io::Result<Vec<String>> {
+        let mut args: Vec<String> = DDC_FLAGS.iter().map(|flag| flag.to_string()).collect();
+        args.push(self.ddc.graph_argument()?);
+        Ok(args)
     }
 
     /// Scheduling compatibility only (A9 groups by it; the session refuses a mismatch). It is not
@@ -244,6 +378,12 @@ impl UnrealContext {
     pub fn editor_cmd(&self) -> PathBuf {
         self.engine_root.join(EDITOR_CMD)
     }
+}
+
+/// The installed engine pak's full path, through any link in the engine root.
+fn engine_pak(context: &UnrealContext) -> PathBuf {
+    let pak = context.engine_root.join(ENGINE_PAK);
+    pak.canonicalize().unwrap_or(pak)
 }
 
 fn sha256_file(path: &Path) -> io::Result<String> {
@@ -380,6 +520,24 @@ pub struct ClonedFile {
 pub struct ScratchReceipt {
     pub profile: String,
     pub files: BTreeMap<String, ClonedFile>,
+    /// The installed engine pak's size and modification time when the session was prepared (None
+    /// when there is none). The graph check cannot see whether the editor opened it for writing;
+    /// [`ScratchProject::verify`] catches a write afterwards.
+    pub engine_pak: Option<(u64, u128)>,
+}
+
+fn pak_stamp(path: &Path) -> io::Result<Option<(u64, u128)>> {
+    match fs::metadata(path) {
+        Ok(metadata) => {
+            let modified = metadata
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| damaged("the engine pak predates 1970"))?;
+            Ok(Some((metadata.len(), modified.as_nanos())))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// What the worker must find loaded, and later reports it found ([`ContextReport`]).
@@ -394,6 +552,8 @@ pub struct LoadedContext {
     /// sha256 of every loaded project or plugin library, by its path relative to the project.
     pub libraries: BTreeMap<String, String>,
     pub rhi: String,
+    /// The policy the editor's effective cache graph was checked against.
+    pub ddc: DdcPolicy,
 }
 
 /// The session evidence file (`unreal-context.json`): what the worker actually loaded, written
@@ -403,6 +563,8 @@ pub struct LoadedContext {
 pub struct ContextReport {
     pub version: u32,
     pub loaded: LoadedContext,
+    /// The editor's effective cache graph, read from the editor (never from the command line).
+    pub ddc_graph: DdcGraph,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -447,6 +609,7 @@ impl ScratchProject {
         let mut receipt = ScratchReceipt {
             profile: context.profile(),
             files: BTreeMap::new(),
+            engine_pak: pak_stamp(&engine_pak(context))?,
         };
         for folder in [
             "Content",
@@ -538,6 +701,10 @@ impl ScratchProject {
                 .map(|(path, file)| (path.clone(), file.sha256.clone()))
                 .collect(),
             rhi: "null".into(),
+            ddc: DdcPolicy {
+                dir: utf8(&context.ddc.dir)?,
+                engine_pak: utf8(&engine_pak(context))?,
+            },
         };
         fs::write(
             root.join(PROJECT_FILE),
@@ -592,7 +759,8 @@ impl ScratchProject {
     }
 
     /// Every clone and its source still hold the receipt's bytes, the clones are still read-only,
-    /// and the cloned trees hold nothing the receipt doesn't list.
+    /// the cloned trees hold nothing the receipt doesn't list, and the installed engine pak is
+    /// unchanged.
     pub fn verify(&self) -> io::Result<()> {
         let mut seen = BTreeSet::new();
         for top in ["Binaries", "Plugins"] {
@@ -621,6 +789,11 @@ impl ScratchProject {
                 )));
             }
         }
+        if pak_stamp(Path::new(&self.expected.ddc.engine_pak))? != self.receipt.engine_pak {
+            return Err(damaged(
+                "the installed engine pak changed during the session",
+            ));
+        }
         Ok(())
     }
 
@@ -638,6 +811,11 @@ impl ScratchProject {
         if report.loaded != self.expected {
             return Err(damaged(format!(
                 "the worker loaded a different native context than the session declared"
+            )));
+        }
+        if let Some(problem) = self.expected.ddc.problem(&report.ddc_graph) {
+            return Err(damaged(format!(
+                "the editor's cache graph is not the v2 graph: {problem}"
             )));
         }
         Ok(report)
@@ -741,6 +919,7 @@ pub fn job_loop_command(
         "-UserDir={}",
         argument(&scratch.user_dir(), "the user folder")?
     ));
+    args.extend(context.ddc_arguments()?);
     args.extend(context.settings.iter().cloned());
     Ok(WorkerCommand {
         program: context.editor_cmd(),

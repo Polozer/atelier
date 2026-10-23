@@ -2,11 +2,14 @@
 
 #include "AssetCompilingManager.h"
 #include "AssetRegistry/IAssetRegistry.h"
+#include "DerivedDataCacheInterface.h"
+#include "DerivedDataCacheUsageStats.h"
 #include "Editor.h"
 #include "Editor/Transactor.h"
 #include "Engine/Selection.h"
 #include "InterchangeManager.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/CoreMisc.h"
 #include "UObject/ReferenceChainSearch.h"
 #include "UObject/UObjectHash.h"
 #include "Dom/JsonObject.h"
@@ -182,6 +185,33 @@ FString UAtelierBuildWorkerLibrary::PackageImports(const FString& PackageName)
         Items.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueString>(Name), MakeShared<FJsonValueString>(TEXT("package"))}));
     }
     return Write(MakeShared<FJsonValueArray>(Items));
+}
+
+FString UAtelierBuildWorkerLibrary::DdcGraph()
+{
+    FDerivedDataCacheInterface& Cache = GetDerivedDataCacheRef();
+    const TSharedRef<FJsonObject> Graph = MakeShared<FJsonObject>();
+    Graph->SetStringField(TEXT("graph"), Cache.GetGraphName());
+    TArray<TSharedPtr<FJsonValue>> Nodes;
+    PRAGMA_DISABLE_DEPRECATION_WARNINGS
+    const TSharedRef<FDerivedDataCacheStatsNode> Stats = Cache.GatherUsageStats();
+    PRAGMA_ENABLE_DEPRECATION_WARNINGS
+    Stats->ForEachDescendant([&Nodes](TSharedRef<const FDerivedDataCacheStatsNode> Node)
+        {
+            // The hierarchy and async wrappers carry neither a type nor a path; every store does.
+            if (Node->GetCacheType().IsEmpty() && Node->GetCacheName().IsEmpty())
+            {
+                return;
+            }
+            const TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+            Entry->SetStringField(TEXT("kind"), Node->GetCacheType());
+            Entry->SetStringField(TEXT("path"), Node->GetCacheName().IsEmpty() ? FString() : FPaths::ConvertRelativePathToFull(Node->GetCacheName()));
+            Entry->SetBoolField(TEXT("local"), Node->IsLocal());
+            Entry->SetStringField(TEXT("status"), Node->GetCacheStatusText());
+            Nodes.Add(MakeShared<FJsonValueObject>(Entry));
+        });
+    Graph->SetArrayField(TEXT("nodes"), Nodes);
+    return Write(MakeShared<FJsonValueObject>(Graph));
 }
 
 FString UAtelierBuildWorkerLibrary::SettingsSnapshot()

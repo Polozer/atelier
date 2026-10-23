@@ -6,6 +6,6 @@ public class AtelierBuildWorker : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
-        PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry", "InterchangeEngine", "Json", "Projects", "RHI", "UnrealEd" });
+        PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry", "DerivedDataCache", "InterchangeEngine", "Json", "Projects", "RHI", "UnrealEd" });
     }
 }

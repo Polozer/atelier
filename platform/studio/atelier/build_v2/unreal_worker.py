@@ -4,7 +4,8 @@ Started by the controller (`platform/build-v2/src/unreal.rs`) as
 
     UnrealEditor-Cmd <scratch>/Atelier.uproject -run=pythonscript -script=unreal_worker.py \\
         -unattended -nop4 -nosplash -stdout -AllowStdOutLogVerbosity -NullRHI -nocrashreports \\
-        -UserDir=<session>/user \\
+        -UserDir=<session>/user -nowrite -NoZenAutoLaunch \\
+        -DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path=<store>/unreal-ddc/<BuildId>)) \\
         [declared -ini:/-ForceDPCVars=] --request-fd N --response-fd M
 
 It speaks protocol version 1 (`protocol.py`) on the two inherited pipes, made close-on-exec at once
@@ -26,8 +27,12 @@ so no helper process the editor starts inherits them. Stdout and stderr are the 
 A job whose reset fails still gets its terminal reply; the worker then exits instead of serving
 another job, so the controller ends the session (a clean exit after a terminal reply is never crash
 evidence for that job). Before `hello` the worker writes the session evidence file
-`unreal-context.json` (what it actually loaded) and refuses to start if that differs from
-`Atelier/expected-context.json`. Each job's import tables go to `evidence/imports.json` beside, never
+`unreal-context.json` (what it actually loaded, and the editor's effective cache graph read from the
+editor, never from the command line) and refuses to start if the context differs from
+`Atelier/expected-context.json` or the graph breaks its DDC policy: file-system nodes only inside the
+persistent v2 DDC folder, the installed engine pak only at its own path, path-less memory nodes, and
+nothing else (no Zen, shared or remote node, no fallback), with at least one node in the v2 folder.
+The DDC is acceleration only; nothing here reads it as evidence. Each job's import tables go to `evidence/imports.json` beside, never
 inside, `output/`.
 
 The editor surface is `Editor`: the `unreal` module plus the editor-only `AtelierBuildWorker`
@@ -69,7 +74,27 @@ class JobRefused(Exception):
 
 
 class StartRefused(Exception):
-    """The editor's native context is not the declared one: no `hello`."""
+    """The editor's native context or cache graph is not the declared one: no `hello`."""
+
+
+def ddc_problem(policy, nodes):
+    """Why the effective cache graph `nodes` ([{kind, path}], full paths) breaks `policy`, or None."""
+    folder = Path(policy['dir'])
+    local = False
+    for node in nodes:
+        path = node['path']
+        if node['kind'] == 'File System':
+            allowed = bool(path) and Path(path).is_absolute() and Path(path).is_relative_to(folder)
+            local = local or allowed
+        elif node['kind'] == 'Pak File':
+            allowed = path == policy['engine_pak']
+        elif node['kind'] == 'Memory':
+            allowed = not path
+        else:
+            allowed = False
+        if not allowed:
+            return f'a {node["kind"]} node at {path!r} is outside the v2 DDC folder'
+    return None if local else 'no cache node is inside the v2 DDC folder'
 
 
 def log(message):
@@ -164,6 +189,13 @@ class Editor:
     def native_context(self):
         """{build_id, modules, plugins: {name: folder}, libraries: [path], rhi} from the plugin."""
         return json.loads(self.library.native_context())
+
+    def ddc_graph(self):
+        """{graph, nodes: [{kind, path}]}: the editor's effective cache stores, from the plugin."""
+        graph = json.loads(self.library.ddc_graph())
+        nodes = [{'kind': node['kind'], 'path': str(Path(node['path']).resolve()) if node['path'] else ''}
+                 for node in graph['nodes']]
+        return {'graph': graph['graph'], 'nodes': nodes}
 
     def begin_job(self):
         self.library.begin_ensure_count()
@@ -268,10 +300,15 @@ class Worker:
                 libraries[str(path)] = sha256(path)  # neither project nor engine: always a mismatch
         loaded = {'worker_version': WORKER_VERSION, 'profile': expected['profile'], 'build_id': native['build_id'],
                   'modules': sorted(native['modules']), 'plugins': sorted(plugins), 'libraries': libraries,
-                  'rhi': native['rhi']}
-        write_atomic(self.project.parent / CONTEXT_REPORT, {'version': EVIDENCE_VERSION, 'loaded': loaded})
+                  'rhi': native['rhi'], 'ddc': expected['ddc']}
+        graph = self.editor.ddc_graph()
+        write_atomic(self.project.parent / CONTEXT_REPORT,
+                     {'version': EVIDENCE_VERSION, 'loaded': loaded, 'ddc_graph': graph})
         if loaded != {**expected, 'modules': sorted(expected['modules']), 'plugins': sorted(expected['plugins'])}:
             raise StartRefused('the editor loaded a different native context than the session declared')
+        problem = ddc_problem(expected['ddc'], graph['nodes'])
+        if problem:
+            raise StartRefused(f"the editor's cache graph is not the v2 graph: {problem}")
         if any(self.content.iterdir()) or self.editor.registry_game_assets():
             raise StartRefused('/Game is not empty at startup')
 

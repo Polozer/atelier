@@ -8,7 +8,9 @@ module, which fails on the read-only clone, as the real editor would), then inst
 
 The fake `unreal` module models only what the worker uses: a package table (loaded, dirty, pinned),
 saved-package recording, the asset registry's view of `/Game`, console variables with their set-by
-source, failed ensures, and `find_object`. As in the editor, `SystemLibrary.collect_garbage` only
+source, failed ensures, `find_object`, and the effective cache graph built from `-DDC=` (the
+engine's pak plus inline file-system nodes; without `-DDC=` it reports the installed default
+graph, Zen plus a shared folder, as the editor's fallback would). As in the editor, `SystemLibrary.collect_garbage` only
 schedules a collection (a commandlet script never reaches the next tick); only the plugin's
 `collect_garbage_now` collects. Its test-only `AtelierFake` class lets fixture ops create, save, load,
 pin and dirty packages, set or register a CVar, fail an ensure, write a stray file and make an
@@ -37,13 +39,43 @@ if len(argv) < flags_end + 1 or argv[1] != '-run=pythonscript' or not argv[2].st
     fail(f'unexpected command line {argv}')
 if argv[3:flags_end] != FLAGS or not argv[flags_end].startswith('-UserDir='):
     fail(f'unexpected flags {argv[3:flags_end + 1]}')
-settings = []
+settings, ddc = [], {'flags': [], 'graph': None}
 for token in argv[flags_end + 1:]:
     if token == '--request-fd':
         break
-    if not token.startswith(('-ini:', '-ForceDPCVars=')):
+    if token in ('-nowrite', '-NoZenAutoLaunch'):
+        ddc['flags'].append(token)
+    elif token.startswith('-DDC='):
+        ddc['graph'] = token[len('-DDC='):]
+    elif token.startswith(('-ini:', '-ForceDPCVars=')):
+        settings.append(token)
+    else:
         fail(f'undeclared argument {token}')
-    settings.append(token)
+
+
+def cache_nodes(graph):
+    """The stores an inline `-DDC=(...)` graph builds: named engine nodes and `Name=(Type=...,...)` entries."""
+    if graph is None:
+        return [{'kind': 'Pak File', 'path': str(ENGINE / 'Engine/DerivedDataCache/Compressed.ddp')},
+                {'kind': 'Zen', 'path': ''}, {'kind': 'File System', 'path': str(ENGINE.parent / 'shared-ddc')}]
+    entries, depth, current = [], 0, ''
+    for char in graph.strip()[1:-1]:
+        depth += {'(': 1, ')': -1}.get(char, 0)
+        if char == ',' and depth == 0:
+            entries.append(current)
+            current = ''
+        else:
+            current += char
+    entries.append(current)
+    nodes = []
+    for entry in entries:
+        if entry == 'InstalledEnginePak':
+            nodes.append({'kind': 'Pak File', 'path': str(ENGINE / 'Engine/DerivedDataCache/Compressed.ddp')})
+            continue
+        params = dict(item.split('=', 1) for item in entry.split('=(', 1)[1].rstrip(')').split(','))
+        kind = {'FileSystem': 'File System', 'Zen': 'Zen', 'ReadPak': 'Pak File'}[params['Type']]
+        nodes.append({'kind': kind, 'path': params.get('Path', params.get('Filename', ''))})
+    return nodes
 uproject, script = Path(argv[0]), argv[2][len('-script='):]
 project = uproject.parent
 descriptor = json.loads(uproject.read_text())
@@ -169,6 +201,11 @@ class AtelierBuildWorkerLibrary:
         return json.dumps({'build_id': build_id, 'modules': [m['Name'] for m in descriptor['Modules']],
                            'plugins': {name: str(folder) for name, folder in plugins.items()},
                            'libraries': libraries, 'rhi': 'null'})
+
+    @staticmethod
+    def ddc_graph():
+        return json.dumps({'graph': ddc['graph'] or 'InstalledDerivedDataBackendGraph',
+                           'nodes': cache_nodes(ddc['graph'])})
 
     @staticmethod
     def begin_save_recording():
