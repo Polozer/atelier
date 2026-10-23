@@ -51,6 +51,10 @@ pub struct SessionConfig {
     /// arrive within `bound` of the unit's terminal reply or cancel. Keep `bound` well under the
     /// units' cleanup limits. `None`: every session serves exactly one unit.
     pub quiescence: Option<Duration>,
+    /// The sessions hold checkout custody, so each guard's custody monitor reports its identity
+    /// ([`LaunchEvent::Monitor`]) and that identity must be registered for a unit before its
+    /// `Run` (session-custodian-registered-before-run). The driver sets it from the custody set.
+    pub custodian: bool,
 }
 
 impl SessionConfig {
@@ -61,6 +65,7 @@ impl SessionConfig {
             lifetime,
             idle: DEFAULT_IDLE,
             quiescence: None,
+            custodian: false,
         }
     }
 }
@@ -95,6 +100,13 @@ pub enum SessionInput {
         unit: UnitId,
         reason: String,
     },
+    /// The session's custody monitor was durably added to the unit's write lease (or not), with
+    /// its correlation record persisted first.
+    MonitorRegistered {
+        session: u32,
+        unit: UnitId,
+        ok: bool,
+    },
     /// Quiescence evidence for `session`: a validated tree sample, taken after the session's
     /// latest terminal reply, that shows only the session's pinned worker (and the shared
     /// services the guard excludes). The driver validates the sample and its ordering.
@@ -112,7 +124,7 @@ pub enum SessionInput {
 
 /// @cc [owner:fontanierh,label:correctness] session-commands-keep-published
 /// Session commands MUST be limited to queueing, stopping and talking to a session's own worker,
-/// lease registration, cancelling a unit's job on its worker, refusing a unit and handing settled
+/// lease registration (worker and custody monitor), cancelling a unit's job on its worker, refusing a unit and handing settled
 /// unit records to the caller. No
 /// command MAY delete, replace or unpublish a published result. See tests/session_lifecycle.rs
 /// (`session_commands_never_delete_or_republish`, `a_unit_after_close_or_twice_is_refused`).
@@ -125,6 +137,26 @@ pub enum SessionCommand {
         session: u32,
         unit: UnitId,
         worker: ProcessIdentity,
+    },
+    /// @cc [owner:fontanierh,label:safety] session-custodian-registered-before-run
+    /// In a session holding checkout custody, a unit's `Run` MUST additionally wait for its
+    /// session's custody monitor identity, reported once by the guard after the pinned worker, to
+    /// be durably registered for this unit (`MonitorRegistered { ok: true }`). A missing identity
+    /// MUST leave the unit without a `Run` until its own limits end it; a failed registration MUST
+    /// end it without a `Run` and stop the session; a second, different identity, or one reported
+    /// before the worker or without custody, MUST be a guard fault. Monitor exit alone is never
+    /// cleanup evidence. See tests/session_lifecycle.rs
+    /// (`a_custodian_session_runs_only_after_its_monitor_is_registered`,
+    /// `a_missing_changed_or_unregistered_monitor_never_runs_the_unit`) and tests/guard_adapter.rs
+    /// (`the_custody_monitor_is_durably_registered_before_the_first_run`,
+    /// `a_missing_changed_or_unregistered_monitor_prevents_the_run`).
+    ///
+    /// Persist the session's cleanup correlation, then add its custody monitor to `unit`'s write
+    /// lease, so the lease stays live while that guard's cleanup is unconfirmed.
+    RegisterMonitor {
+        session: u32,
+        unit: UnitId,
+        monitor: ProcessIdentity,
     },
     /// Send `unit`'s job (`run`) on the session.
     Run { session: u32, unit: UnitId },
@@ -252,6 +284,8 @@ struct SessionSlot {
     /// The queue limit this session was submitted with: the latest overall deadline among the
     /// units then waiting, or `None` to wait until admitted.
     queue_until: Option<MonoTime>,
+    /// The guard's custody monitor, once reported (custodian sessions only).
+    monitor: Option<ProcessIdentity>,
 }
 
 impl SessionSlot {
@@ -274,6 +308,7 @@ impl SessionSlot {
             admitted_at: None,
             idle_by: None,
             queue_until: None,
+            monitor: None,
         }
     }
 
@@ -311,6 +346,8 @@ struct UnitSlot {
     /// The session this unit is assigned to, from assignment until it is requeued for a retry.
     session: Option<u32>,
     registered: bool,
+    /// The session's custody monitor is registered for this attempt (custodian sessions).
+    monitor_registered: bool,
     job_sent: bool,
     terminal_seen: bool,
     cancel_sent: bool,
@@ -533,6 +570,7 @@ impl SessionLifecycle {
                     attempts: vec![],
                     session: None,
                     registered: false,
+                    monitor_registered: false,
                     job_sent: false,
                     terminal_seen: false,
                     cancel_sent: false,
@@ -586,6 +624,24 @@ impl SessionLifecycle {
             } => {
                 let failure = format!("the attempt's job request could not be prepared: {reason}");
                 self.registered(now, session, &unit, Some(failure), &mut out)?;
+            }
+            SessionInput::MonitorRegistered { session, unit, ok } => {
+                let (Some(s), Some(index)) = (self.session_index(session), self.unit_index(&unit))
+                else {
+                    return Ok(out);
+                };
+                if self.live() == Some(s) && self.units[index].session == Some(session) {
+                    if ok {
+                        self.units[index].monitor_registered = true;
+                        self.run_if_ready(s, &mut out);
+                    } else {
+                        self.units[index].abort.get_or_insert(
+                            "the guard's custody monitor could not be added to the write lease"
+                                .into(),
+                        );
+                        self.decide(now, index, PolicyEvent::CancelRequested, &mut out)?;
+                    }
+                }
             }
             SessionInput::Worker { session, event } => {
                 if let Some(s) = self.session_index(session) {
@@ -896,9 +952,10 @@ impl SessionLifecycle {
     /// terminal reply (quiescence-sample-evidence). Assumptions and gaps: a sample proves only what
     /// the guard's tree receipt discovered after excluding shared services, which is not a universal
     /// proof that no descendant escaped discovery; ordering a sample after the terminal reply uses
-    /// wall clocks within a bounded skew, which is not causal ordering under a clock adjustment; and
-    /// reuse MUST NOT be activated before the guard monitor's identity is durably registered before
-    /// `Run` (Q3, C5c slice 5). See tests/session_lifecycle.rs
+    /// wall clocks within a bounded skew, which is not causal ordering under a clock adjustment. A
+    /// reused session MUST hold checkout custody, so every `Run` also waits for its guard's custody
+    /// monitor to be durably registered (session-custodian-registered-before-run); `run_session`
+    /// refuses reuse without custody. See tests/session_lifecycle.rs
     /// (`a_reused_session_runs_the_next_unit_only_after_quiescence_evidence`,
     /// `without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_unit`,
     /// `cancelling_a_running_unit_cancels_only_its_job_when_others_wait`,
@@ -987,6 +1044,7 @@ impl SessionLifecycle {
                 let unit = &mut self.units[index];
                 unit.session = Some(session);
                 unit.registered = false;
+                unit.monitor_registered = false;
                 unit.job_sent = false;
                 unit.terminal_seen = false;
                 unit.cancel_sent = false;
@@ -1005,6 +1063,13 @@ impl SessionLifecycle {
                         session,
                         unit: self.units[index].plan.id.clone(),
                         worker,
+                    });
+                }
+                if let Some(monitor) = slot.monitor.clone() {
+                    out.push(SessionCommand::RegisterMonitor {
+                        session,
+                        unit: self.units[index].plan.id.clone(),
+                        monitor,
                     });
                 }
                 Ok(())
@@ -1030,6 +1095,7 @@ impl SessionLifecycle {
         let unit = &mut self.units[index];
         if slot.ready
             && unit.registered
+            && (!self.config.custodian || unit.monitor_registered)
             && !unit.job_sent
             && matches!(unit.policy.phase(), Phase::Running { .. })
         {
@@ -1353,6 +1419,30 @@ impl SessionLifecycle {
                 match (event, slot.active) {
                     (Some(event), Some(index)) => self.decide(now, index, event, out),
                     _ => Ok(()),
+                }
+            }
+            LaunchEvent::Monitor { monitor, .. } => {
+                let slot = &self.sessions[s];
+                if !self.config.custodian || !slot.record.admitted || slot.record.worker.is_none() {
+                    return self.fault(now, s, out);
+                }
+                match slot.monitor.clone() {
+                    Some(pinned) if pinned == monitor => Ok(()),
+                    Some(_) => self.fault(now, s, out),
+                    None => {
+                        self.sessions[s].monitor = Some(monitor.clone());
+                        if let Some(index) = self.sessions[s].active {
+                            let unit = &self.units[index];
+                            if unit.outcome.is_none() && !unit.monitor_registered {
+                                out.push(SessionCommand::RegisterMonitor {
+                                    session,
+                                    unit: unit.plan.id.clone(),
+                                    monitor,
+                                });
+                            }
+                        }
+                        Ok(())
+                    }
                 }
             }
             LaunchEvent::Fault(_) => self.fault(now, s, out),

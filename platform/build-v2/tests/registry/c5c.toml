@@ -163,3 +163,31 @@ tests = ["atelier-build-v2::guard_adapter/an_exit_report_without_the_stream_end_
 [[scenarios]]
 id = "c5c.session.a_resident_session_refuses_a_key_without_the_no_fork_sandbox"
 tests = ["atelier-build-v2::guard_adapter/a_resident_session_refuses_a_key_without_the_no_fork_sandbox"]
+
+[[scenarios]]
+id = "c5c.session.a_custodian_session_runs_only_after_its_monitor_is_registered"
+tests = ["atelier-build-v2::session_lifecycle/a_custodian_session_runs_only_after_its_monitor_is_registered"]
+
+[[scenarios]]
+id = "c5c.session.a_missing_changed_or_unregistered_monitor_never_runs_the_unit"
+tests = ["atelier-build-v2::session_lifecycle/a_missing_changed_or_unregistered_monitor_never_runs_the_unit"]
+
+[[scenarios]]
+id = "c5c.session.the_custody_monitor_is_durably_registered_before_the_first_run"
+tests = ["atelier-build-v2::guard_adapter/the_custody_monitor_is_durably_registered_before_the_first_run"]
+
+[[scenarios]]
+id = "c5c.session.a_missing_changed_or_unregistered_monitor_prevents_the_run"
+tests = ["atelier-build-v2::guard_adapter/a_missing_changed_or_unregistered_monitor_prevents_the_run"]
+
+[[scenarios]]
+id = "c5c.session.cleanup_is_confirmed_only_by_this_invocations_durable_record"
+tests = ["atelier-build-v2::guard_adapter/cleanup_is_confirmed_only_by_this_invocations_durable_record"]
+
+[[scenarios]]
+id = "c5c.session.a_controller_lost_after_registering_the_monitor_never_runs_and_leaves_its_correlation"
+tests = ["atelier-build-v2::guard_adapter/a_controller_lost_after_registering_the_monitor_never_runs_and_leaves_its_correlation"]
+
+[[scenarios]]
+id = "c5c.session.a_resident_session_without_custody_is_refused"
+tests = ["atelier-build-v2::guard_adapter/a_resident_session_without_custody_is_refused"]

@@ -159,6 +159,12 @@ pub enum LaunchEvent {
     },
     /// A running tree receipt of the pinned worker; never cleanup or crash evidence by itself.
     TreeSample(TreeSample),
+    /// With checkout custody: the guard's custody monitor's own pinned identity, with the guard
+    /// invocation whose cleanup receipt it belongs to. Published once, after `ChildStarted`.
+    Monitor {
+        monitor: ProcessIdentity,
+        invocation: String,
+    },
     /// The admission owner broke its event contract. Never cleanup or crash evidence.
     Fault(String),
 }
@@ -221,6 +227,15 @@ pub enum BridgeEvent {
         time: f64,
         processes: Vec<(u32, String)>,
     },
+    Monitor {
+        pid: u32,
+        started: String,
+        boot: String,
+        invocation: String,
+    },
+    Fault {
+        reason: String,
+    },
     Finished {
         cleanup: String,
         reason: Option<String>,
@@ -264,6 +279,28 @@ pub fn decode_event(line: &str, receipts: &std::path::Path) -> LaunchEvent {
         BridgeEvent::TreeSample { time, processes } => {
             Ok(LaunchEvent::TreeSample(TreeSample { time, processes }))
         }
+        BridgeEvent::Monitor {
+            pid,
+            started,
+            boot,
+            invocation,
+        } => {
+            let invocation_ok = invocation.len() == 32
+                && invocation
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+            identity(pid, started, boot).and_then(|monitor| {
+                if invocation_ok {
+                    Ok(LaunchEvent::Monitor {
+                        monitor,
+                        invocation,
+                    })
+                } else {
+                    Err("a monitor identity without its guard invocation".into())
+                }
+            })
+        }
+        BridgeEvent::Fault { reason } => Err(format!("the bridge reported a fault: {reason}")),
         BridgeEvent::Finished { cleanup, reason } => match cleanup.as_str() {
             "confirmed" => Ok(LaunchEvent::Finished {
                 cleanup: CleanupReceipt::Confirmed,

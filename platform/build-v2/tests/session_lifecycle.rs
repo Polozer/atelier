@@ -74,6 +74,7 @@ fn completed(job: &str) -> WorkerEvent {
 
 struct Sim {
     lifecycle: SessionLifecycle,
+    config: SessionConfig,
     log: Vec<SessionCommand>,
 }
 
@@ -84,6 +85,7 @@ impl Sim {
             lifetime: Duration::from_millis(100 * JOB),
             idle: Duration::from_millis(IDLE),
             quiescence: None,
+            custodian: false,
         })
     }
 
@@ -94,12 +96,28 @@ impl Sim {
             lifetime: Duration::from_millis(lifetime),
             idle: Duration::from_millis(IDLE),
             quiescence: Some(Duration::from_millis(QUIET)),
+            custodian: false,
         })
+    }
+
+    /// Sessions holding checkout custody: each unit's Run also waits for the monitor.
+    fn custodian(mut self) -> Self {
+        let config = SessionConfig {
+            custodian: true,
+            ..self.config()
+        };
+        self.lifecycle = SessionLifecycle::new(config);
+        self
+    }
+
+    fn config(&self) -> SessionConfig {
+        self.config
     }
 
     fn with(config: SessionConfig) -> Self {
         Self {
             lifecycle: SessionLifecycle::new(config),
+            config,
             log: vec![],
         }
     }
@@ -1320,4 +1338,228 @@ fn a_crash_in_a_reused_session_retries_in_a_later_session_and_requeues_the_rest(
     assert_eq!(b.attempts[0].custody, Custody::Released);
     assert_eq!(sim.lifecycle.unit("c").unwrap().attempts[0].session, 2);
     assert_eq!(sim.submits(), vec![1, 2]);
+}
+
+fn monitor(pid: u32) -> ProcessIdentity {
+    ProcessIdentity {
+        pid,
+        boot: "boot-1".into(),
+        started: format!("monitor-{pid}"),
+    }
+}
+
+fn monitored(pid: u32) -> LaunchEvent {
+    LaunchEvent::Monitor {
+        monitor: monitor(pid),
+        invocation: "a".repeat(32),
+    }
+}
+
+fn register_monitor(session: u32, unit: &str, pid: u32) -> SessionCommand {
+    SessionCommand::RegisterMonitor {
+        session,
+        unit: unit.into(),
+        monitor: monitor(pid),
+    }
+}
+
+fn monitor_registered(session: u32, unit: &str, ok: bool) -> SessionInput {
+    SessionInput::MonitorRegistered {
+        session,
+        unit: unit.into(),
+        ok,
+    }
+}
+
+fn ready() -> WorkerEvent {
+    WorkerEvent::Ready {
+        worker_version: "w1".into(),
+    }
+}
+
+fn runs(sim: &Sim) -> usize {
+    sim.log
+        .iter()
+        .filter(|c| matches!(c, SessionCommand::Run { .. }))
+        .count()
+}
+
+#[test]
+fn a_custodian_session_runs_only_after_its_monitor_is_registered() {
+    let mut sim = Sim::new().custodian();
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.launch(10, 1, LaunchEvent::Admitted);
+    assert_eq!(
+        sim.launch(
+            10,
+            1,
+            LaunchEvent::ChildStarted {
+                worker: worker(101)
+            }
+        ),
+        vec![register(1, "a", 101)]
+    );
+    assert_eq!(sim.registered(20, 1, "a"), vec![]);
+    assert_eq!(
+        sim.worker(30, 1, ready()),
+        vec![],
+        "no Run before the custody monitor is registered"
+    );
+    assert_eq!(
+        sim.launch(40, 1, monitored(900)),
+        vec![register_monitor(1, "a", 900)]
+    );
+    assert_eq!(
+        sim.at(50, monitor_registered(1, "a", true)),
+        vec![SessionCommand::Run {
+            session: 1,
+            unit: "a".into()
+        }]
+    );
+    assert_eq!(
+        sim.launch(60, 1, monitored(900)),
+        vec![],
+        "the same identity again changes nothing"
+    );
+    sim.worker(100, 1, completed("a"));
+    sim.worker(110, 1, WorkerEvent::Stopped);
+    sim.launch(120, 1, exited(101));
+    sim.launch(130, 1, confirmed());
+    // The next session's monitor, registered before its worker this time: the Run still waits
+    // for both registrations and hello.
+    sim.launch(200, 2, LaunchEvent::Admitted);
+    sim.launch(
+        200,
+        2,
+        LaunchEvent::ChildStarted {
+            worker: worker(202),
+        },
+    );
+    assert_eq!(
+        sim.launch(210, 2, monitored(902)),
+        vec![register_monitor(2, "b", 902)]
+    );
+    assert_eq!(sim.at(220, monitor_registered(2, "b", true)), vec![]);
+    assert_eq!(sim.worker(230, 2, ready()), vec![]);
+    assert_eq!(
+        sim.registered(240, 2, "b"),
+        vec![SessionCommand::Run {
+            session: 2,
+            unit: "b".into()
+        }]
+    );
+
+    // A reused session registers its known monitor for each later unit at assignment.
+    let mut sim = Sim::resident(100 * JOB).custodian();
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.launch(10, 1, LaunchEvent::Admitted);
+    sim.launch(
+        10,
+        1,
+        LaunchEvent::ChildStarted {
+            worker: worker(101),
+        },
+    );
+    sim.registered(10, 1, "a");
+    sim.launch(10, 1, monitored(900));
+    sim.at(10, monitor_registered(1, "a", true));
+    assert_eq!(runs(&sim), 0, "hello is still missing");
+    sim.worker(20, 1, ready());
+    sim.worker(100, 1, completed("a"));
+    assert_eq!(
+        sim.quiet(160, 1),
+        vec![
+            register(1, "b", 101),
+            register_monitor(1, "b", 900),
+            SessionCommand::Settled { unit: "a".into() }
+        ]
+    );
+    assert_eq!(sim.registered(170, 1, "b"), vec![]);
+    assert_eq!(
+        sim.at(180, monitor_registered(1, "b", true)),
+        vec![SessionCommand::Run {
+            session: 1,
+            unit: "b".into()
+        }]
+    );
+}
+
+/// A custodian session at hello with a's worker registered, before any monitor.
+fn waiting_for_monitor() -> Sim {
+    let mut sim = Sim::new().custodian();
+    sim.at(0, plan("a", None));
+    sim.at(0, SessionInput::Close);
+    sim.launch(10, 1, LaunchEvent::Admitted);
+    sim.launch(
+        10,
+        1,
+        LaunchEvent::ChildStarted {
+            worker: worker(101),
+        },
+    );
+    sim.registered(20, 1, "a");
+    sim.worker(30, 1, ready());
+    sim
+}
+
+#[test]
+fn a_missing_changed_or_unregistered_monitor_never_runs_the_unit() {
+    // The registration fails: no Run, and the session stops.
+    let mut sim = waiting_for_monitor();
+    sim.launch(40, 1, monitored(900));
+    assert_eq!(
+        sim.at(50, monitor_registered(1, "a", false)),
+        vec![SessionCommand::Stop { session: 1 }]
+    );
+    sim.launch(60, 1, exited(101));
+    sim.launch(70, 1, confirmed());
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(a.outcome.end, End::Failed(Stop::Cancelled));
+    assert!(a.abort.unwrap().contains("custody monitor"));
+    assert_eq!(runs(&sim), 0);
+
+    // A second, different identity is a guard fault.
+    let mut sim = waiting_for_monitor();
+    sim.launch(40, 1, monitored(900));
+    assert_eq!(
+        sim.launch(45, 1, monitored(901)),
+        vec![SessionCommand::Stop { session: 1 }]
+    );
+    sim.at(50, monitor_registered(1, "a", true));
+    assert_eq!(runs(&sim), 0, "nothing runs on a broken identity");
+
+    // An identity reported before the pinned worker, or without custody, is a guard fault too.
+    let mut sim = Sim::new().custodian();
+    sim.at(0, plan("a", None));
+    sim.launch(10, 1, LaunchEvent::Admitted);
+    assert_eq!(
+        sim.launch(20, 1, monitored(900)),
+        vec![SessionCommand::Stop { session: 1 }]
+    );
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", None));
+    sim.launch(10, 1, LaunchEvent::Admitted);
+    sim.launch(
+        10,
+        1,
+        LaunchEvent::ChildStarted {
+            worker: worker(101),
+        },
+    );
+    assert_eq!(
+        sim.launch(20, 1, monitored(900)),
+        vec![SessionCommand::Stop { session: 1 }]
+    );
+
+    // No identity at all: the unit never runs, and its job limit ends it.
+    let mut sim = waiting_for_monitor();
+    assert_eq!(
+        sim.at(10 + JOB, SessionInput::Tick),
+        vec![SessionCommand::Stop { session: 1 }]
+    );
+    assert_eq!(runs(&sim), 0);
 }

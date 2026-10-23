@@ -186,12 +186,31 @@ fn bridge_events_decode_strictly() {
             stopped_by: None,
         }
     );
+    assert_eq!(
+        decode_event(
+            r#"{"event":"monitor","pid":8,"started":"80","boot":"b","invocation":"0123456789abcdef0123456789abcdef"}"#,
+            receipts
+        ),
+        LaunchEvent::Monitor {
+            monitor: ProcessIdentity {
+                pid: 8,
+                boot: "b".into(),
+                started: "80".into()
+            },
+            invocation: "0123456789abcdef0123456789abcdef".into(),
+        }
+    );
     for bad in [
         "not json",
         r#"{"event":"queued","extra":1}"#,
         r#"{"event":"child_started","pid":0,"started":"s","boot":"b"}"#,
         r#"{"event":"child_started","pid":7,"started":"","boot":"b"}"#,
         r#"{"event":"finished","cleanup":"probably","reason":null}"#,
+        r#"{"event":"monitor","pid":0,"started":"s","boot":"b","invocation":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#,
+        r#"{"event":"monitor","pid":7,"started":"s","boot":"b","invocation":"short"}"#,
+        r#"{"event":"monitor","pid":7,"started":"s","boot":"b","invocation":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#,
+        r#"{"event":"monitor","pid":7,"started":"s","boot":"b"}"#,
+        r#"{"event":"fault","reason":"the published custody monitor identity changed or went missing"}"#,
     ] {
         assert!(
             matches!(decode_event(bad, receipts), LaunchEvent::Fault(_)),
@@ -219,6 +238,8 @@ fn bridge_alone_receives_its_descriptors_and_the_worker_only_the_protocol_pipe()
     assert_eq!(next(&events), LaunchEvent::Queued);
     assert_eq!(next(&events), LaunchEvent::Admitted);
     assert!(matches!(next(&events), LaunchEvent::ChildStarted { .. }));
+    // With custody the bridge also reports its custody monitor.
+    assert!(matches!(next(&events), LaunchEvent::Monitor { .. }));
     let (mut response, request) = attempt.take_pipes().unwrap();
     let hello = read_frame::<_, Response>(&mut response).unwrap();
     assert!(matches!(hello, Some(Response::Hello { .. })));
@@ -1034,7 +1055,15 @@ fn resident_spec(space: &Workspace, job_spec: &JobSpec, quiet_ms: u64) -> Sessio
         lifetime: Duration::from_secs(30),
         idle: Duration::from_secs(2),
         quiescence: Some(Duration::from_millis(quiet_ms)),
+        custodian: false, // the driver sets it from the custody set
     };
+    // Reuse needs checkout custody, so that each Run waits for the custody monitor's registration.
+    let lock = lock_with(&space.path("checkout.lock"), libc::LOCK_EX);
+    session
+        .key
+        .custody
+        .insert(CustodyIdentity::of(&lock, LockScope::Exclusive).unwrap());
+    session.custody = vec![lock];
     session
 }
 
@@ -1051,8 +1080,8 @@ fn run_resident(bridge: &str, quiet_ms: u64) -> (SessionReport, Vec<(String, Pro
     let job_spec = spec(&space, "normal", 3_000);
     let session = resident_spec(&space, &job_spec, quiet_ms);
     let (handle, inbox) = session_channel();
-    handle.submit(unit_with("a", "a", resident_limits(), key(&job_spec)));
-    handle.submit(unit_with("b", "b", resident_limits(), key(&job_spec)));
+    handle.submit(unit_with("a", "a", resident_limits(), session.key.clone()));
+    handle.submit(unit_with("b", "b", resident_limits(), session.key.clone()));
     handle.close();
     let (published, _records) = mpsc::channel();
     let mut registered = vec![];
@@ -1068,6 +1097,13 @@ fn run_resident(bridge: &str, quiet_ms: u64) -> (SessionReport, Vec<(String, Pro
         published,
     )
     .unwrap();
+    // Only the workers' registrations; each unit also registers the session's custody monitor.
+    registered.retain(|(_, identity)| {
+        report
+            .sessions
+            .iter()
+            .any(|s| s.worker.as_ref() == Some(identity))
+    });
     (report, registered)
 }
 
@@ -1124,8 +1160,8 @@ fn a_crash_retry_runs_a_freshly_prepared_request_in_a_later_session() {
     let job_spec = spec(&space, "crash_once", 3_000);
     let session = resident_spec(&space, &job_spec, 2_000);
     let (handle, inbox) = session_channel();
-    handle.submit(unit_with("a", "a", resident_limits(), key(&job_spec)));
-    handle.submit(unit_with("b", "b", resident_limits(), key(&job_spec)));
+    handle.submit(unit_with("a", "a", resident_limits(), session.key.clone()));
+    handle.submit(unit_with("b", "b", resident_limits(), session.key.clone()));
     handle.close();
     let (published, _records) = mpsc::channel();
     let mut calls = vec![];
@@ -1349,4 +1385,202 @@ fn a_resident_session_refuses_a_key_without_the_no_fork_sandbox() {
         report.refused[0].refused,
         Some(atelier_build_v2::session_lifecycle::Refusal::IncompatibleKey)
     );
+}
+
+/// One job holding a real checkout lock as custody, through `bridge`; `fail` makes that call of
+/// `register` (1 for the first) fail. Returns the report, every registered identity with whether
+/// its correlation was already on disk and whether the worker had received a run, and the space.
+#[allow(clippy::type_complexity)]
+fn custody_job(
+    bridge: &str,
+    job_ms: u64,
+    fail: Option<usize>,
+) -> (
+    Report,
+    Vec<(ProcessIdentity, Option<CleanupCorrelation>, bool)>,
+    Workspace,
+) {
+    let space = Workspace::new();
+    let mut job_spec = spec(&space, "normal", 3_000);
+    job_spec.limits.job = Duration::from_millis(job_ms);
+    job_spec.custody = vec![lock_with(&space.path("checkout.lock"), libc::LOCK_EX)];
+    let (_canceller, inbox) = job_channel();
+    let mut seen = vec![];
+    let report = run_job(
+        &mut launcher(bridge),
+        &SystemClock::new(),
+        &job_spec,
+        inbox,
+        &mut |identity| {
+            seen.push((
+                identity.clone(),
+                CleanupCorrelation::find(&space.0, identity),
+                space.path("jobs.log").exists(),
+            ));
+            if fail == Some(seen.len()) {
+                Err("scripted add_worker failure".into())
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+    (report, seen, space)
+}
+
+#[test]
+fn the_custody_monitor_is_durably_registered_before_the_first_run() {
+    let (report, seen, space) = custody_job("normal", 30_000, None);
+    assert_eq!(report.outcome.end, End::Completed);
+    let worker = report.attempts[0].worker.clone().unwrap();
+    assert_eq!(seen.len(), 2, "the worker, then the custody monitor");
+    assert_eq!(seen[0].0, worker);
+    let (monitor, correlation, ran) = &seen[1];
+    assert_ne!(*monitor, worker);
+    assert!(
+        !ran && !seen[0].2,
+        "no Run before both registrations returned"
+    );
+    let correlation = correlation
+        .clone()
+        .expect("the correlation was on disk before the monitor's registration");
+    assert_eq!(correlation.monitor, *monitor);
+    assert_eq!(correlation.receipts, space.path("attempt-1"));
+    assert_eq!(runs(&space).len(), 1);
+    assert_eq!(report.attempts[0].custody, Custody::Released);
+    assert!(
+        cleanup_confirmed(&correlation),
+        "the guard's durable record confirms this invocation's cleanup"
+    );
+}
+
+#[test]
+fn a_missing_changed_or_unregistered_monitor_prevents_the_run() {
+    let (report, seen, space) = custody_job("normal", 30_000, Some(2));
+    assert_eq!(seen.len(), 2);
+    assert_eq!(report.outcome.end, End::Failed(Stop::Cancelled));
+    assert!(report.abort.unwrap().contains("custody monitor"));
+    assert!(runs(&space).is_empty(), "a failed registration never runs");
+
+    let (report, seen, space) = custody_job("no_monitor", 1_500, None);
+    assert_eq!(seen.len(), 1, "only the worker: no monitor was reported");
+    assert_eq!(report.outcome.end, End::Failed(Stop::JobLimit));
+    assert!(runs(&space).is_empty(), "a missing identity never runs");
+
+    let (report, _, space) = custody_job("monitor_changed", 30_000, None);
+    assert_eq!(report.outcome.end, End::Failed(Stop::Protocol));
+    assert!(runs(&space).is_empty(), "a changed identity never runs");
+}
+
+#[test]
+fn cleanup_is_confirmed_only_by_this_invocations_durable_record() {
+    let space = Workspace::new();
+    let correlation = CleanupCorrelation {
+        schema: 1,
+        monitor: ProcessIdentity {
+            pid: 77,
+            boot: "boot-1".into(),
+            started: "7700".into(),
+        },
+        invocation: "a".repeat(32),
+        receipts: space.0.clone(),
+    };
+    let record = |change: &dyn Fn(&mut Value)| {
+        let mut value = serde_json::json!({
+            "schema": 1, "invocation": "a".repeat(32), "boot": "boot-1", "child": [5, 50],
+            "monitor": [77, 7700], "confirmed": true, "reason": null,
+        });
+        change(&mut value);
+        fs::write(space.path("cleanup.json"), value.to_string()).unwrap();
+        cleanup_confirmed(&correlation)
+    };
+    assert!(
+        !cleanup_confirmed(&correlation),
+        "no record: unknown, so retained"
+    );
+    assert!(record(&|_| {}));
+    for change in [
+        &(|v: &mut Value| v["confirmed"] = false.into()) as &dyn Fn(&mut Value),
+        &|v| v["invocation"] = "b".repeat(32).into(),
+        &|v| v["boot"] = "boot-2".into(),
+        &|v| v["monitor"] = serde_json::json!([77, 7701]),
+        &|v| v["monitor"] = serde_json::json!([78, 7700]),
+        &|v| v["monitor"] = Value::Null,
+        &|v| v["schema"] = 2.into(),
+        &|v| v["extra"] = 1.into(),
+        &|v| *v = Value::String("confirmed".into()),
+    ] {
+        assert!(!record(change));
+    }
+    fs::write(space.path("cleanup.json"), "{not json").unwrap();
+    assert!(!cleanup_confirmed(&correlation));
+}
+
+#[test]
+fn a_controller_lost_after_registering_the_monitor_never_runs_and_leaves_its_correlation() {
+    let space = Workspace::new();
+    let mut job_spec = spec(&space, "normal", 3_000);
+    job_spec.custody = vec![lock_with(&space.path("checkout.lock"), libc::LOCK_EX)];
+    let (_canceller, inbox) = job_channel();
+    let mut seen = vec![];
+    // The controller dies right after add_worker returned for the monitor, before any Run.
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_job(
+            &mut launcher("normal"),
+            &SystemClock::new(),
+            &job_spec,
+            inbox,
+            &mut |identity| {
+                seen.push(identity.clone());
+                if seen.len() == 2 {
+                    panic!("the controller dies after registering the custody monitor");
+                }
+                Ok(())
+            },
+        )
+    }));
+    assert!(crashed.is_err());
+    let monitor = seen[1].clone();
+    let correlation =
+        CleanupCorrelation::find(&space.0, &monitor).expect("the correlation survives the crash");
+    if !space.path("attempt-1/cleanup.json").exists() {
+        assert!(
+            !cleanup_confirmed(&correlation),
+            "until the guard's own record exists, nothing is confirmed"
+        );
+    }
+    // The bridge sees its liveness pipe close, stops its run and records its cleanup decision.
+    let deadline = std::time::Instant::now() + BOUND;
+    while !space.path("attempt-1/cleanup.json").exists() && std::time::Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(space.path("attempt-1/liveness-eof").exists());
+    assert!(cleanup_confirmed(&correlation));
+    assert!(runs(&space).is_empty(), "the job never ran");
+}
+
+#[test]
+fn a_resident_session_without_custody_is_refused() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let mut session = resident_spec(&space, &job_spec, 2_000);
+    session.custody.clear();
+    session.key.custody.clear();
+    let (handle, inbox) = session_channel();
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let error = run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        published,
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("needs checkout custody"),
+        "{error:?}"
+    );
+    assert!(!space.path("attempt-1").exists());
 }

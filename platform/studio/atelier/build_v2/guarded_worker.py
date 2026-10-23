@@ -11,8 +11,13 @@ no broker, lock, reservation or reaper. It only:
   own duplicates until owned cleanup is verified; the worker never receives them;
 - reports what the guard observed as JSON lines on the events descriptor: queued, admitted
   (`on_slot`), child_started (`on_poll`, with the guard's pinned identity), tree_sample (`on_poll`,
-  each fresh running tree receipt of that identity; see `tree_sample`), child_exited and
-  finished (`confirmed` only on fresh, matching, empty receipts; see `cleanup`);
+  each fresh running tree receipt of that identity; see `tree_sample`), with custody also
+  monitor (`on_poll`, the custody monitor's own pinned identity, once; see `monitor_identity`)
+  and fault (a published monitor identity changed or went missing), child_exited and finished
+  (`confirmed` only on fresh, matching, empty receipts; see `cleanup`);
+- with custody, durably writes `cleanup.json` (this invocation's cleanup decision and the monitor
+  identity it belongs to) before reporting finished, as the correlation evidence a lease reader
+  needs (see `write_cleanup_record`);
 - stops its own run through the guard's normal TERM/HUP unwind when asked, or when the
   controller's liveness pipe closes.
 
@@ -123,6 +128,57 @@ def tree_sample(tree, child, since, now, last):
     return dict(time=tree['time'], processes=rows)
 
 
+def _identity(value):
+    """A usable [pid, start] pair: two positive ints, never bools; otherwise None."""
+    if type(value) is list and len(value) == 2 and all(type(part) is int and part > 0 for part in value):
+        return list(value)
+    return None
+
+
+def monitor_identity(tree, child, controller, since, now):
+    """@cc [owner:fontanierh,label:safety] guarded-worker-monitor-identity
+    With custody, the bridge MUST publish the custody monitor's identity only from a fresh running
+    aggregate tree receipt of its own pinned child whose controller is this bridge, and only when
+    the receipt's top-level `monitor` is two positive integers naming neither the child nor this
+    bridge. It MUST publish it once, with this attempt's invocation and boot. Once published, a
+    receipt with a missing, malformed or different identity, or an unreadable receipt, MUST be
+    reported as a fault, never replaced or skipped, and that run's cleanup MUST NOT be confirmed.
+    See tests/test_build_v2_guarded_worker.py.
+    """
+    if child is None or not isinstance(tree, dict) or tree.get('state') != 'running':
+        return None
+    if type(tree.get('owner')) is not int or type(tree.get('owner_started')) is not int:
+        return None
+    if (tree['owner'], tree['owner_started']) != tuple(child) or not _fresh(tree, since, now):
+        return None
+    if tree.get('controller') != list(controller):
+        return None
+    monitor = _identity(tree.get('monitor'))
+    if monitor is None or monitor[0] in (child[0], controller[0]):
+        return None
+    return monitor
+
+
+def monitor_kept(tree, published):
+    """Whether a receipt read after publication still names exactly the published monitor."""
+    return isinstance(tree, dict) and _identity(tree.get('monitor')) == published
+
+
+def write_cleanup_record(report, record):
+    """Atomically replace `cleanup.json` in `report`, synced to disk with its directory."""
+    temporary = report / 'cleanup.json.tmp'
+    with temporary.open('w') as stream:
+        stream.write(json.dumps(record) + '\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, report / 'cleanup.json')
+    folder = os.open(report, os.O_RDONLY)
+    try:
+        os.fsync(folder)
+    finally:
+        os.close(folder)
+
+
 def _same_files(recorded, expected):
     try:
         return type(recorded) is list and sorted(map(list, recorded)) == expected
@@ -130,7 +186,8 @@ def _same_files(recorded, expected):
         return False
 
 
-def cleanup(error, child, process, tree, *, admitted, since, now, invocation, timings, custody):
+def cleanup(error, child, process, tree, *, admitted, since, now, invocation, timings, custody,
+            monitor=None, monitor_fault=False):
     """(confirmed, reason). Only affirmative, mutually consistent evidence confirms.
 
     `admitted` says whether the guard ever reported a slot; the guard spawns only after that, so a
@@ -138,7 +195,10 @@ def cleanup(error, child, process, tree, *, admitted, since, now, invocation, ti
     receipt older than it is stale, and `now` bounds it from the future (with a small clock skew);
     a non-finite time is malformed. `invocation` is the id this bridge gave the guarded run.
     `custody` is None without custody, else the sorted [device, inode] pairs of the bridge's own
-    custody descriptors. Everything else, including a malformed receipt, is unconfirmed.
+    custody descriptors. With custody, `monitor` is the identity this bridge published (None if
+    it published none) and `monitor_fault` says a later receipt broke it: the terminal receipt
+    must carry a usable monitor identity, equal to the published one. Everything else, including
+    a malformed receipt, is unconfirmed.
     """
     if error is not None and not isinstance(error, SystemExit):
         return False, 'guarded run failed: ' + _describe(error)
@@ -186,8 +246,14 @@ def cleanup(error, child, process, tree, *, admitted, since, now, invocation, ti
             return False, 'late crash reporters are unresolved'
     record = tree.get('custody')
     if custody is None:
-        if 'custody' in tree:
+        if 'custody' in tree or 'monitor' in tree:
             return False, 'custody evidence for a run without custody'
+    elif monitor_fault:
+        return False, 'the published monitor identity changed or went missing'
+    elif _identity(tree.get('monitor')) is None:
+        return False, 'the custody tree receipt has no monitor identity'
+    elif monitor is not None and tree['monitor'] != monitor:
+        return False, 'the terminal tree receipt names another monitor'
     elif not (isinstance(record, dict) and record.get('held') is False
               and record.get('released') == 'cleanup_complete' and _same_files(record.get('lock_files'), custody)):
         return False, 'no custody release evidence for these lock files'
@@ -229,7 +295,9 @@ def main(argv=None, run=None):
     command = [spec['program'], *spec['args'], '--request-fd', str(args.request_fd),
                '--response-fd', str(args.response_fd)]
     boot = boot_id()
-    state = dict(admitted=False, child=None, cancelled=False, finished=False, sample=None)
+    state = dict(admitted=False, child=None, cancelled=False, finished=False, sample=None, monitor=None,
+                 monitor_fault=False)
+    controller = (os.getpid(), process_start(os.getpid()))
 
     def stop(number, frame):
         raise SystemExit(128 + number)
@@ -259,8 +327,17 @@ def main(argv=None, run=None):
             except Exception:
                 return  # exited already; the tree receipt pins it below
             emit('child_started', pid=pid, started=str(state['child'][1]), boot=boot)
-        sample = tree_sample(_read(args.report / 'memory-health-tree.json'), state['child'], since, time.time(),
-                             state['sample'])
+        tree = _read(args.report / 'memory-health-tree.json')
+        if custody is not None and not state['monitor_fault']:
+            if state['monitor'] is None:
+                monitor = monitor_identity(tree, state['child'], controller, since, time.time())
+                if monitor is not None:
+                    state['monitor'] = monitor
+                    emit('monitor', pid=monitor[0], started=str(monitor[1]), boot=boot, invocation=invocation)
+            elif not monitor_kept(tree, state['monitor']):
+                state['monitor_fault'] = True
+                emit('fault', reason='the published custody monitor identity changed or went missing')
+        sample = tree_sample(tree, state['child'], since, time.time(), state['sample'])
         if sample is not None:
             state['sample'] = sample['time']
             emit('tree_sample', **sample)
@@ -296,7 +373,14 @@ def main(argv=None, run=None):
              stopped_by=classify(error, process, tree, state['cancelled']))
     confirmed, reason = cleanup(error, child, process, tree, admitted=state['admitted'], since=since, now=now,
                                 invocation=invocation, timings=_read(args.report / 'execution-timings.json'),
-                                custody=custody)
+                                custody=custody, monitor=state['monitor'], monitor_fault=state['monitor_fault'])
+    if custody is not None:
+        try:
+            write_cleanup_record(args.report, dict(
+                schema=1, invocation=invocation, boot=boot, child=None if child is None else list(child),
+                monitor=state['monitor'], confirmed=confirmed, reason=reason))
+        except Exception as caught:  # without durable evidence nothing is confirmed
+            confirmed, reason = False, 'the cleanup record is not durable: ' + _describe(caught)
     state['finished'] = True
     emit('finished', cleanup='confirmed' if confirmed else 'unconfirmed', reason=reason)
     # The monitor holds its own custody duplicates; closing ours never ends exclusion early.

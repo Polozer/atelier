@@ -19,8 +19,9 @@ use crate::session_lifecycle::{
     UnitRecord,
 };
 use crate::worker_session::{Event as WorkerEvent, Session, SessionError};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -141,6 +142,8 @@ fn commands(commands: Vec<SessionCommand>) -> Vec<Command> {
             // Never emitted for one unit: a single-unit lifecycle has no quiescence evidence, so
             // a cancel always stops the attempt.
             SessionCommand::Cancel { .. } => None,
+            // Never emitted here: this pure lifecycle has no custody (`SessionConfig::single`).
+            SessionCommand::RegisterMonitor { .. } => None,
             SessionCommand::Settled { .. } | SessionCommand::Refused { .. } => None,
         })
         .collect()
@@ -297,9 +300,11 @@ impl CustodyIdentity {
 /// start at all unless its custody descriptors are exactly its key's custody set by device and
 /// inode, each proven held in its declared scope by an independent non-blocking probe, and MUST
 /// refuse to start a session reused on quiescence evidence unless its key declares the no-fork
-/// job sandbox. Custody is identified by lock file and scope, never by descriptor number. See
+/// job sandbox and it holds checkout custody (so a custody monitor is registered before every
+/// `Run`). Custody is identified by lock file and scope, never by descriptor number. See
 /// tests/guard_adapter.rs (`run_session_refuses_a_unit_with_another_key_or_a_used_job_id`,
 /// `a_resident_session_refuses_a_key_without_the_no_fork_sandbox`,
+/// `a_resident_session_without_custody_is_refused`,
 /// `run_session_refuses_custody_that_is_not_its_keys_custody_set`,
 /// `run_session_refuses_custody_not_held_in_its_declared_scope`).
 ///
@@ -422,6 +427,116 @@ fn custody_matches(files: &[File], key: &BTreeSet<CustodyIdentity>) -> Result<()
     Ok(())
 }
 
+/// The record a session persists, in its attempt folder, before its custody monitor is
+/// registered on any lease: which guard invocation's cleanup decides whether that monitor's
+/// lease entries may be treated as gone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CleanupCorrelation {
+    pub schema: u32,
+    /// The custody monitor registered through `add_worker`.
+    pub monitor: ProcessIdentity,
+    /// The guard invocation the monitor reported with.
+    pub invocation: String,
+    /// The attempt folder holding the guard's receipts and the bridge's `cleanup.json`.
+    pub receipts: PathBuf,
+}
+
+/// The correlation record's file name in an attempt folder.
+pub const CORRELATION_FILE: &str = "custodian.json";
+/// The bridge's durable cleanup decision in an attempt folder.
+pub const CLEANUP_FILE: &str = "cleanup.json";
+const RECORD_LIMIT: u64 = 64 * 1024;
+
+fn read_bounded(path: &Path) -> io::Result<Vec<u8>> {
+    let mut bytes = vec![];
+    File::open(path)?
+        .take(RECORD_LIMIT + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > RECORD_LIMIT {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "record too large",
+        ));
+    }
+    Ok(bytes)
+}
+
+impl CleanupCorrelation {
+    /// The correlation record in attempt folder `receipts`.
+    pub fn read(receipts: &Path) -> io::Result<Self> {
+        let bytes = read_bounded(&receipts.join(CORRELATION_FILE))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    }
+
+    /// The record naming `monitor` among the `attempt-N` folders under `report_root`, if any.
+    pub fn find(report_root: &Path, monitor: &ProcessIdentity) -> Option<Self> {
+        fs::read_dir(report_root)
+            .ok()?
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("attempt-"))
+            .filter_map(|entry| Self::read(&entry.path()).ok())
+            .find(|record| record.monitor == *monitor)
+    }
+}
+
+/// The bridge's `cleanup.json`, as written by `atelier.build_v2.guarded_worker`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CleanupRecord {
+    schema: u32,
+    invocation: String,
+    boot: String,
+    monitor: Option<(u32, u64)>,
+    confirmed: bool,
+    #[allow(dead_code)]
+    child: Option<(u32, u64)>,
+    #[allow(dead_code)]
+    reason: Option<String>,
+}
+
+/// @cc [owner:fontanierh,label:safety] session-custodian-correlation
+/// Before a session's custody monitor is added to any lease, the driver MUST durably persist its
+/// [`CleanupCorrelation`] (monitor identity, guard invocation, attempt folder); a failure to
+/// persist it MUST fail that registration. `cleanup_confirmed` MUST be true only for the bridge's
+/// durable cleanup record of the same invocation, boot and monitor that confirms cleanup; a
+/// missing, unreadable, malformed, unconfirmed or mismatched record MUST be false, so a reader
+/// keeps a dead monitor's lease entries as unknown. Monitor exit alone is never evidence. See
+/// tests/guard_adapter.rs (`the_custody_monitor_is_durably_registered_before_the_first_run`,
+/// `cleanup_is_confirmed_only_by_this_invocations_durable_record`,
+/// `a_controller_lost_after_registering_the_monitor_never_runs_and_leaves_its_correlation`).
+pub fn cleanup_confirmed(correlation: &CleanupCorrelation) -> bool {
+    let Ok(bytes) = read_bounded(&correlation.receipts.join(CLEANUP_FILE)) else {
+        return false;
+    };
+    let Ok(record) = serde_json::from_slice::<CleanupRecord>(&bytes) else {
+        return false;
+    };
+    let monitor = &correlation.monitor;
+    let same_monitor = record
+        .monitor
+        .is_some_and(|(pid, started)| pid == monitor.pid && monitor.started == started.to_string());
+    correlation.schema == 1
+        && record.schema == 1
+        && record.invocation == correlation.invocation
+        && record.boot == monitor.boot
+        && same_monitor
+        && record.confirmed
+}
+
+fn correlate(report_dir: &Path, monitor: &ProcessIdentity, invocation: &str) -> io::Result<()> {
+    crate::leases::replace_json(
+        &report_dir.join(CORRELATION_FILE),
+        &CleanupCorrelation {
+            schema: 1,
+            monitor: monitor.clone(),
+            invocation: invocation.into(),
+            receipts: report_dir.to_path_buf(),
+        },
+    )
+}
+
 /// Everything [`run_session`] needs for one session of compatible units.
 pub struct SessionSpec {
     pub key: SessionKey,
@@ -517,6 +632,10 @@ struct Live<A> {
     held: Vec<AttemptEvent>,
     /// When a held exit report is applied even if the stream has not ended.
     drain_by: Option<MonoTime>,
+    /// The guard's custody monitor and the invocation it reported with.
+    monitor: Option<(ProcessIdentity, String)>,
+    /// The session's cleanup correlation record is on disk.
+    correlated: bool,
 }
 
 /// How long the guard's exit report may wait for the worker's response stream to end. The bridge
@@ -541,9 +660,16 @@ impl<A> Live<A> {
     }
 
     fn launch_input(&mut self, event: AttemptEvent) -> SessionInput {
-        if matches!(event.event, LaunchEvent::Finished { .. }) {
+        match &event.event {
             // The admission owner is done; drop its pipes and handle.
-            self.writer = None;
+            LaunchEvent::Finished { .. } => self.writer = None,
+            LaunchEvent::Monitor {
+                monitor,
+                invocation,
+            } if self.monitor.is_none() => {
+                self.monitor = Some((monitor.clone(), invocation.clone()));
+            }
+            _ => {}
         }
         SessionInput::Launch(event)
     }
@@ -656,7 +782,10 @@ pub fn run_job_prepared<L: WorkerLauncher>(
         command: &spec.command,
         purpose: &spec.purpose,
         memory_gib: spec.memory_gib,
-        config: SessionConfig::single(spec.limits.cleanup, spec.limits.job),
+        config: SessionConfig {
+            custodian: !spec.custody.is_empty(),
+            ..SessionConfig::single(spec.limits.cleanup, spec.limits.job)
+        },
         report_root: &spec.report_root,
         custody: &spec.custody,
         key: None,
@@ -776,13 +905,23 @@ fn run_session_with<L: WorkerLauncher>(
             "a session reused on quiescence evidence needs the no-fork job sandbox".into(),
         ));
     }
+    if spec.config.quiescence.is_some() && spec.custody.is_empty() {
+        // Reuse needs a registered custody monitor before every Run (Q3), and only a session
+        // holding checkout custody has one.
+        return Err(LifecycleError::Invariant(
+            "a session reused on quiescence evidence needs checkout custody".into(),
+        ));
+    }
     custody_matches(&spec.custody, &spec.key.custody)?;
     let shared = Shared {
         worker_version: &spec.key.worker_version,
         command: &spec.key.command,
         purpose: &spec.purpose,
         memory_gib: spec.key.memory_gib,
-        config: spec.config,
+        config: SessionConfig {
+            custodian: !spec.custody.is_empty(),
+            ..spec.config
+        },
         report_root: &spec.report_root,
         custody: &spec.custody,
         key: Some(&spec.key),
@@ -899,6 +1038,8 @@ fn drive<L: WorkerLauncher>(
                                     terminal_at: None,
                                     held: vec![],
                                     drain_by: None,
+                                    monitor: None,
+                                    correlated: false,
                                 },
                             );
                         }
@@ -951,6 +1092,26 @@ fn drive<L: WorkerLauncher>(
                         }
                     };
                     pending.push(input);
+                }
+                SessionCommand::RegisterMonitor {
+                    session,
+                    unit,
+                    monitor,
+                } => {
+                    // The correlation first, durably, then the lease (session-custodian-correlation).
+                    let report_dir = spec.report_root.join(format!("attempt-{session}"));
+                    let ok = live.get_mut(&session).is_some_and(|entry| {
+                        let correlated = match &entry.monitor {
+                            Some((reported, invocation)) if *reported == monitor => {
+                                entry.correlated
+                                    || correlate(&report_dir, &monitor, invocation).is_ok()
+                            }
+                            _ => false,
+                        };
+                        entry.correlated |= correlated;
+                        correlated
+                    }) && register(&unit, &monitor).is_ok();
+                    pending.push(SessionInput::MonitorRegistered { session, unit, ok });
                 }
                 SessionCommand::Run { session, unit } => {
                     let Some(entry) = live.get_mut(&session) else {

@@ -12,7 +12,10 @@ spec_closed (closes its spec descriptor unread, so the launcher's spec write fai
 it then waits to be stopped and reports nothing), samples (normal, plus a tree sample of only the
 worker every 50 ms), busy_samples (samples that also list an unclassified process), early_exit
 (reports the worker's exit as soon as it starts, before any reply is read: the order in which the
-controller can see a real exit report and the worker's last replies).
+controller can see a real exit report and the worker's last replies). With custody descriptors it
+also reports a stand-in custody monitor identity (itself) after child_started and writes
+cleanup.json before finished, as the real bridge does; no_monitor reports none, monitor_changed
+reports a second, different one.
 """
 import argparse
 import json
@@ -23,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 stopping = threading.Event()
 
@@ -101,6 +105,12 @@ def main():
     os.close(args.response_fd)
     identity = dict(pid=child.pid, started=f'fake-{child.pid}-{time.monotonic_ns()}', boot='fake-boot')
     emit('child_started', **identity)
+    invocation = uuid.uuid4().hex
+    monitor = [os.getpid(), 10**9 + os.getpid()]
+    if args.custody_fd and args.scenario != 'no_monitor':
+        emit('monitor', pid=monitor[0], started=str(monitor[1]), boot='fake-boot', invocation=invocation)
+        if args.scenario == 'monitor_changed':
+            emit('monitor', pid=monitor[0], started=str(monitor[1] + 1), boot='fake-boot', invocation=invocation)
     if args.scenario == 'early_exit':
         emit('child_exited', returncode=0, stopped_by=None, **identity)
     stopped_by = None
@@ -122,10 +132,17 @@ def main():
         identity['pid'] += 100000
     if args.scenario != 'early_exit':
         emit('child_exited', returncode=code if stopped_by is None else None, stopped_by=stopped_by, **identity)
-    if args.scenario == 'unconfirmed':
-        emit('finished', cleanup='unconfirmed', reason='scripted uncertain cleanup')
-    else:
+    confirmed = args.scenario != 'unconfirmed'
+    if args.custody_fd:
+        record = dict(schema=1, invocation=invocation, boot='fake-boot', child=[child.pid, 1],
+                      monitor=None if args.scenario == 'no_monitor' else monitor, confirmed=confirmed,
+                      reason=None if confirmed else 'scripted uncertain cleanup')
+        (args.report / 'cleanup.json.tmp').write_text(json.dumps(record))
+        os.replace(args.report / 'cleanup.json.tmp', args.report / 'cleanup.json')
+    if confirmed:
         emit('finished', cleanup='confirmed', reason=None)
+    else:
+        emit('finished', cleanup='unconfirmed', reason='scripted uncertain cleanup')
     return 0
 
 
