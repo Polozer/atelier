@@ -144,7 +144,8 @@ impl PythonWorkerBundle {
         let command = WorkerCommand::python_job_loop(
             interpreter.to_path_buf(),
             directory.join("python_worker.py"),
-        );
+        )
+        .map_err(|error| error.to_string())?;
         Ok(crate::guard_adapter::WorkerCommand {
             program: command.program,
             args: command.args.into_iter().map(Into::into).collect(),
