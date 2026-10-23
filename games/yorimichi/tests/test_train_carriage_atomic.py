@@ -148,3 +148,19 @@ def test_source_writer_restores_original_on_success_and_failure(monkeypatch):
                               expected=dict(expected, exporter='0' * 64)):
             pytest.fail('unbound addon accepted')
     assert exporter.__write_file is original
+
+
+def test_actual_atlas_fixture_requires_unchanged_constructor_prefix_and_helpers(tmp_path):
+    control = load('carriage_immutable_prefix_test', GAME / 'tools/train_carriage_source_control.py')
+    original = tmp_path / 'original.py'; current = tmp_path / 'current.py'
+    original.write_text('def helper():\n    return 7\ndef build(coach, images):\n    data = helper()\n    files = {}\n    return data\n')
+    current.write_text('def helper():\n    return 7\ndef runtime_placements(coach):\n    return {}\n'
+        'def build(coach, images, *, source_sink=None):\n    data = helper()\n'
+        '    if source_sink is not None:\n        return source_sink(data)\n    files = {}\n    return data\n')
+    control.same_original_constructor_prefix(original, current)
+    text = current.read_text(); current.write_text(text.replace('data = helper()', 'data = 99'))
+    with pytest.raises(ValueError, match='constructor source changed'):
+        control.same_original_constructor_prefix(original, current)
+    current.write_text(text.replace('return 7', 'return 8'))
+    with pytest.raises(ValueError, match='helper source changed'):
+        control.same_original_constructor_prefix(original, current)

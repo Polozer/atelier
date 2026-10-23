@@ -1,9 +1,11 @@
 """Processless immutable original/current three-carriage source and actual service-byte control."""
 import argparse
+import ast
 import hashlib
 import importlib
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -27,6 +29,24 @@ def namespace(folder, output):
     return importlib.import_module('train.build')
 
 
+def same_original_constructor_prefix(original, current):
+    old, new = (ast.parse(path.read_text()) for path in (original, current))
+    def prefix(tree):
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'build')
+        rows = []
+        for node in function.body:
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'files' for target in node.targets): break
+            if isinstance(node, ast.If) and any(isinstance(part, ast.Name) and part.id == 'source_sink' for part in ast.walk(node.test)): break
+            rows.append(node)
+        return ast.dump(ast.Module(body=rows, type_ignores=[]), include_attributes=False)
+    if prefix(old) != prefix(new): raise ValueError('Original pre-atlas/pre-boundary constructor source changed')
+    def support(tree):
+        return ast.dump(ast.Module(body=[node for node in tree.body if not
+            (isinstance(node, ast.FunctionDef) and node.name in ('build', 'runtime_placements'))], type_ignores=[]),
+            include_attributes=False)
+    if support(old) != support(new): raise ValueError('Original carriage material/geometry helper source changed')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--authority', type=Path, required=True); parser.add_argument('--output', type=Path, required=True)
@@ -35,11 +55,15 @@ def main():
     for path, row in authority['files'].items():
         if digest(Path(path)) != row['sha256']: raise ValueError('Frozen carriage source/input/tool changed')
     root = args.output.parent; frozen = authority['frozen']
+    same_original_constructor_prefix(Path(frozen['games/yorimichi/world/train/build.py']), GAME / 'world/train/build.py')
+    for leaf in ('parts.py', 'fittings.py', 'layout.py', 'textures.py'):
+        if Path(frozen['games/yorimichi/world/train/' + leaf]).read_bytes() != (GAME / 'world/train' / leaf).read_bytes():
+            raise ValueError('Original atlas producer/query source changed: ' + leaf)
     old = namespace(Path(frozen['games/yorimichi/world/train/build.py']).parent, root / 'original')
     old.FU.stage(old.OUT / 'furniture'); images = old.make_textures()
     spec = importlib.util.spec_from_file_location('immutable_carriage_subset', frozen['games/yorimichi/tools/gltf_subset.py'])
     subset = importlib.util.module_from_spec(spec); spec.loader.exec_module(subset)
-    controls = {}; infos = {}; placements = {}; atlases = {}; originals = {}
+    controls = {}; infos = {}; placements = {}; atlases = {}; originals = {}; queries = {}
     for coach in old.L.vehicles():
         if coach.name not in COACHES: continue
         print('IMMUTABLE CARRIAGE CONSTRUCTOR START', coach.name, flush=True)
@@ -64,17 +88,39 @@ def main():
                     part, blob = subset.keep(doc, binary, only={index[node]})
                     target = out / (key + '.glb'); subset.write(target, part, blob); controls[key] = target
         atlas = old.TEX / ('T_BT_' + mesh.removeprefix('SM_BT_') + 'Interior.png')
-        if atlas.exists(): atlases[coach.name] = digest(atlas)
+        if atlas.exists():
+            atlases[coach.name] = digest(atlas)
+            queries[coach.name] = dict(path=str(atlas), sha256=digest(atlas),
+                tiles=json.loads(atlas.with_suffix('.json').read_text())['tiles'], layout=old.L.as_dict(coach))
         print('IMMUTABLE CARRIAGE CONSTRUCTOR COMPLETE', coach.name, info['triangles'], flush=True)
+    atomic_json(root / 'atlas-inputs.json', dict(schema=1, origin='fresh actual immutable original render',
+        atlas_gate_transplanted=False, queries=queries))
     current = namespace(GAME / 'world/train', root / 'current')
     source = importlib.import_module('train.carriage_source')
     planner = importlib.import_module('train.plan_carriage'); exporter = importlib.import_module('train.export_carriage')
     current.FU.stage(current.OUT / 'furniture'); images = current.make_textures(); rows = []
+    def atlas_query(coach, path, furniture_dir, hide):
+        # Explicit shared actual query fixture only. Production PT.atlas and its
+        # complete key/cache/renderer remain untouched; no sidecar is copied.
+        if coach.name not in queries:
+            if current.PT.window_tiles(coach)[0]: raise ValueError('Missing actual original atlas query')
+            return []
+        value = queries[coach.name]; original = Path(value['path'])
+        if current.L.as_dict(coach) != value['layout'] or digest(original) != value['sha256']:
+            raise ValueError('Shared actual atlas source/query changed')
+        shutil.copyfile(original, path)
+        if digest(path) != value['sha256'] or digest(original) != value['sha256']:
+            raise ValueError('Shared atlas source changed during independent copy')
+        return value['tiles']
+    production_atlas = current.PT.atlas
     for coach in current.L.vehicles():
         if coach.name not in COACHES: continue
         print('SELECTED CARRIAGE SOURCE START', coach.name, flush=True)
         folder = root / 'source-data' / coach.name
-        info = current.build(coach, dict(images), source_sink=source.source_sink(current, folder, addon=authority['addon']))
+        current.PT.atlas = atlas_query
+        try:
+            info = current.build(coach, dict(images), source_sink=source.source_sink(current, folder, addon=authority['addon']))
+        finally: current.PT.atlas = production_atlas
         if info != {key: infos[coach.name][key] for key in info}: raise ValueError('Original carriage constructor/check census differs')
         if json.loads((folder / 'placements.json').read_text()) != placements[coach.name]:
             raise ValueError('Original carriage doors/seat/collision/placement/query data differs')
@@ -95,7 +141,8 @@ def main():
     for path, row in authority['files'].items():
         if digest(Path(path)) != row['sha256']: raise ValueError('Frozen carriage source/input/tool changed during comparison')
     atomic_json(args.output, dict(schema=1, complete=True, original=authority['original'], source_head=authority['current_head'],
-        authority_sha256=digest(args.authority), coverage='immutable_source_actual_atlas_and_service_glb_bytes_only',
+        authority_sha256=digest(args.authority), coverage='immutable_source_and_service_glb_bytes_given_shared_actual_atlas_query_only',
+        atlas_inputs_sha256=digest(root / 'atlas-inputs.json'), current_production_atlas_render_exercised=False,
         original_combined=originals, current_members=len(rows), maximum_triangles=max(row['triangles'] for row in rows), rows=rows))
     print('CARRIAGE SOURCE AND ACTUAL SERVICE BYTES COMPLETE', len(rows), flush=True)
 
