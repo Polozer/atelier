@@ -34,7 +34,7 @@ def _validate_json_structure(value):
 
 
 def canonical_json_bytes(value):
-    """Encode a top-level dict or list into canonical UTF-8 JSON matching Rust canonical_bytes."""
+    """Encode a top-level dict or list into deterministic UTF-8 JSON (sorted keys, compact separators, allow_nan=False, refusing scalar top levels); Rust output validation is semantic."""
     if not isinstance(value, (dict, list, tuple)):
         raise ValueError('py_data top-level JSON value must be an object or array')
     _validate_json_structure(value)
