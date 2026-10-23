@@ -441,13 +441,28 @@ fn channel_turns_framing_faults_into_session_failures() {
     let mut wrong_version = ready_frame.clone();
     let future = br#"{"version":2,"message":{"type":"started","job_id":"job-1"}}"#;
     wrong_version.extend(header_and(future, future.len() as u32));
-    // protocol.rs decodes a positional `failure` record; the channel must refuse it.
+    // A positional `failure` record is a malformed frame.
     let mut positional = frames(&[hello(VERSION), started("job-1")]);
     let record =
         br#"{"version":1,"message":{"type":"failed","job_id":"job-1","failure":["job","m"]}}"#;
     positional.extend(header_and(record, record.len() as u32));
+    // So are a positional envelope and a duplicated field.
+    let mut positional_envelope = vec![];
+    let array = br#"[1,{"type":"hello","worker_version":"fake-worker-1"}]"#;
+    positional_envelope.extend(header_and(array, array.len() as u32));
+    let mut duplicate = ready_frame.clone();
+    let twice = br#"{"version":1,"message":{"type":"started","job_id":"other","job_id":"job-1"}}"#;
+    duplicate.extend(header_and(twice, twice.len() as u32));
+    let mut hidden = Channel::new(
+        Session::new(VERSION),
+        Cursor::new(positional_envelope),
+        io::sink(),
+    );
+    assert!(matches!(hidden.handshake(), Err(SessionError::Protocol(_))));
+    assert_eq!(hidden.session().state(), &State::Broken);
     // (bytes, whether the worker broke the protocol rather than losing the pipe)
     let cases = [
+        (duplicate, true),
         (positional, true),
         (ready_frame.clone(), false),
         (truncated_header, false),
@@ -549,8 +564,12 @@ fn unframeable_requests_are_not_sent_and_write_failures_break_the_session() {
 }
 
 fn vector_bytes(vector: &Value) -> Vec<u8> {
+    chunk_bytes(&vector["chunks"])
+}
+
+fn chunk_bytes(chunks: &Value) -> Vec<u8> {
     let mut bytes = vec![];
-    for chunk in vector["chunks"].as_array().unwrap() {
+    for chunk in chunks.as_array().unwrap() {
         if let Some(hex) = chunk.get("hex") {
             let hex = hex.as_str().unwrap();
             for index in (0..hex.len()).step_by(2) {
@@ -566,15 +585,6 @@ fn vector_bytes(vector: &Value) -> Vec<u8> {
 fn check_vector<T: DeserializeOwned + Serialize + PartialEq + Debug>(vector: &Value) {
     let name = vector["name"].as_str().unwrap();
     let bytes = vector_bytes(vector);
-    if vector.get("rust_accepts").and_then(Value::as_bool) == Some(true) {
-        // Known protocol.rs leniency (positional structs) that Python refuses. Once protocol.rs
-        // refuses it too, this fails: drop the flag so the vector joins the agreed set.
-        assert!(
-            matches!(read_frame::<_, T>(&mut Cursor::new(&bytes)), Ok(Some(_))),
-            "{name}: protocol.rs now refuses this frame; remove rust_accepts"
-        );
-        return;
-    }
     let expected: Vec<T> = vector["messages"]
         .as_array()
         .unwrap()
@@ -619,12 +629,19 @@ fn check_vector<T: DeserializeOwned + Serialize + PartialEq + Debug>(vector: &Va
                 }
             }
         }
+        let mut encoded = vec![];
+        for message in &decoded {
+            write_frame(&mut encoded, message).unwrap();
+        }
         if canonical {
-            let mut encoded = vec![];
-            for message in &decoded {
-                write_frame(&mut encoded, message).unwrap();
-            }
             assert_eq!(encoded, bytes, "{name}: Rust encoding differs");
+        }
+        if let Some(reencoded) = vector.get("reencoded") {
+            assert_eq!(
+                encoded,
+                chunk_bytes(reencoded),
+                "{name}: Rust re-encoding differs"
+            );
         }
     }
 }
@@ -818,7 +835,7 @@ fn python_worker_round_trip_over_dedicated_pipes() {
 fn python_worker_faults_break_the_session_over_dedicated_pipes() {
     let cases = [
         ("wrong_version", "worker version", Some(0)),
-        ("unknown_field_hello", "malformed response", Some(0)),
+        ("unknown_field_hello", "malformed frame", Some(0)),
         ("oversize_hello", "malformed frame", Some(0)),
         ("wrong_job_id", "unexpected started", Some(0)),
         ("terminal_before_started", "before started", Some(0)),

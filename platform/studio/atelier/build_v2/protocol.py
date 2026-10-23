@@ -233,6 +233,8 @@ def _float(text):
 
 
 def _int(text):
+    if text == '-0':
+        return -0.0  # serde_json keeps the sign of `-0` by decoding it as a float
     value = int(text)
     if not _INT_MIN <= value <= _INT_MAX:
         _fail('json', 'integer outside the 64-bit range')

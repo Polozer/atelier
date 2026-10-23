@@ -18,9 +18,9 @@ _vectors = json.loads((_crate / 'tests/vectors/protocol_v1.json').read_text(enco
 _errors = {'invalid': InvalidMessage, 'truncated': TruncatedFrame}
 
 
-def vector_bytes(vector):
+def vector_bytes(vector, field='chunks'):
     return b''.join(bytes.fromhex(chunk['hex']) if 'hex' in chunk else chunk['text'].encode('utf-8')
-                    for chunk in vector['chunks'])
+                    for chunk in vector[field])
 
 
 class Trickle(io.RawIOBase):
@@ -51,8 +51,11 @@ def test_shared_vectors_decode_and_encode_like_rust(vector):
         else:
             with pytest.raises(_errors[vector['error']]):
                 protocol.read_frame(stream, vector['kind'])
+    encoded = b''.join(protocol.encode_frame(vector['kind'], message) for message in decoded)
     if vector['canonical']:
-        assert b''.join(protocol.encode_frame(vector['kind'], message) for message in decoded) == data
+        assert encoded == data
+    if 'reencoded' in vector:
+        assert encoded == vector_bytes(vector, 'reencoded')
 
 
 def test_every_partial_frame_is_truncated_and_only_eof_between_frames_is_clean():

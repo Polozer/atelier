@@ -84,6 +84,11 @@ add('floats_use_rust_shortest_text', 'request',
     frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"f":[' + FLOATS + ']}'))),
     [{'type': 'run', 'job': {**small_expected([{'path': 'o.json', 'required': True}])['job'], 'params': {'f': FLOAT_VALUES}}}],
     canonical=True)
+# Not canonical: serde_json decodes the integer token `-0` as the float -0.0 and writes `-0.0`.
+add('negative_zero_integer_token_is_float', 'request',
+    frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"x":-0}'))),
+    [{'type': 'run', 'job': {**small_expected([{'path': 'o.json', 'required': True}])['job'], 'params': {'x': -0.0}}}])
+vectors[-1]['reencoded'] = frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"x":-0.0}')))
 # Too deep to embed as an expected value here; the canonical byte comparison checks its content.
 add('nesting_depth_127_is_accepted', 'request', frame(small_run(job=deep_job(deep_ok))), canonical=True, opaque=1)
 
@@ -120,14 +125,31 @@ for name, text in [
     ('nesting_depth_128', small_run(job=deep_job(deep_bad))),
 ]:
     add(name, 'request', frame(text), error='invalid')
-# Known protocol.rs leniency: serde-derived structs also accept a positional array. Python refuses
-# these; Rust currently accepts them (reported for A0, which owns protocol.rs). The Rust test checks
-# the flag so that fixing protocol.rs forces these into the agreed set.
-add('positional_envelope', 'request', frame('[1,{"type":"shutdown"}]'), error='invalid')
-vectors[-1]['rust_accepts'] = True
-add('positional_failure', 'response',
-    frame('{"version":1,"message":{"type":"failed","job_id":"j","failure":["job","m"]}}'), error='invalid')
-vectors[-1]['rust_accepts'] = True
+# Positional (array) forms of the envelope, the message and every typed record, and duplicate keys
+# anywhere, fail in both languages; serde alone would accept them.
+INPUT = '{"name":"a","path":"a","identity":{"state":"absent"}}'
+for name, kind, text in [
+    ('positional_envelope', 'request', '[1,{"type":"shutdown"}]'),
+    ('positional_message', 'request', '{"version":1,"message":["cancel","job-1"]}'),
+    ('positional_job', 'request', '{"version":1,"message":{"type":"run","job":["j","u",{"kind":"k","version":"1"},'
+                                  '"/jobs/j","s.py",["s.py"],[],{},[]]}}'),
+    ('positional_op', 'request', small_run(job=SMALL_JOB.replace('{"kind":"k","version":"1"}', '["k","1"]'))),
+    ('positional_input', 'request', small_run(job=SMALL_JOB.replace('"inputs":[]', '"inputs":[["a","a",{"state":"absent"}]]'))),
+    ('positional_identity', 'request', small_run(job=SMALL_JOB.replace('"inputs":[]', '"inputs":[' + INPUT.replace('{"state":"absent"}', '["absent"]') + ']'))),
+    ('positional_output', 'request', small_run('["o.json",null,true]')),
+    ('duplicate_param_key', 'request', small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"a":1,"a":2}'))),
+    ('duplicate_identity_state', 'request', small_run(job=SMALL_JOB.replace('"inputs":[]', '"inputs":[' + INPUT.replace('{"state":"absent"}', '{"state":"absent","state":"absent"}') + ']'))),
+    ('positional_failure', 'response', '{"version":1,"message":{"type":"failed","job_id":"j","failure":["job","m"]}}'),
+    ('positional_completed_outputs', 'response', '{"version":1,"message":{"type":"completed","job_id":"j","outputs":[["a"]]}}'),
+    ('positional_hello', 'response', '[1,{"type":"hello","worker_version":"fake-worker-1"}]'),
+    ('duplicate_started_job_id', 'response', '{"version":1,"message":{"type":"started","job_id":"other","job_id":"j"}}'),
+]:
+    add(name, kind, frame(text), error='invalid')
+# Arrays stay legitimate inside params, at any depth and of any element type.
+add('arrays_inside_params_are_data', 'request',
+    frame(small_run(job=SMALL_JOB.replace('"params":{}', '"params":{"m":[["k","1"],[{"a":[]}],[]]}'))),
+    [{'type': 'run', 'job': {**small_expected([{'path': 'o.json', 'required': True}])['job'],
+                             'params': {'m': [['k', '1'], [{'a': []}], []]}}}], canonical=True)
 add('invalid_utf8', 'request', raw(b'{"version":1,"message":{"type":"cancel","job_id":"\xff"}}'), error='invalid')
 add('zero_length', 'request', [{'hex': '00000000'}], error='invalid')
 add('length_one_over_maximum', 'request', [head(MAX + 1)], error='invalid')
@@ -168,7 +190,7 @@ document = {
              'A vector concatenates its chunks (hex bytes or UTF-8 text). Reading frames of the given kind yields '
              'messages in order (opaque_messages more are only checked canonically, being too deep to embed); then the next read is a clean end (error null) or fails with the named error '
              '(invalid: Rust InvalidData, truncated: UnexpectedEof). Canonical vectors are also the exact bytes '
-             'that both encoders write for those messages. rust_accepts marks a known Rust leniency that Python refuses. Regenerate with generate_protocol_v1.py.',
+             'that both encoders write for those messages. reencoded, when present, is the exact text both encoders write for a non-canonical input. Regenerate with generate_protocol_v1.py.',
     'vectors': vectors,
 }
 json.dump(document, sys.stdout, ensure_ascii=False, indent=1)
