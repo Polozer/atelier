@@ -362,6 +362,14 @@ def test_repository_fragments_load_with_the_tiered_schema():
         'c2a.python.failures_yield_no_outputs',
         'c2a.python.sandboxed_semantic_independence',
         'c2a.python.sandbox_refuses_undeclared_access',
+        'd1.py_data.op_definition_restricts_classes_to_data_and_requires_explicit_slots',
+        'd1.py_data.clean_rebuild_byte_equality_across_workspaces_and_locators',
+        'd1.py_data.identical_selection_cutoff_and_relevant_edit_isolation',
+        'd1.py_data.optional_absent_versus_present_and_reference_only_identity',
+        'd1.py_data.executable_and_data_member_modes_roundtrip',
+        'd1.py_data.validator_and_staging_refuse_missing_extra_links_and_malformed_domain_data',
+        'd1.py_data.undeclared_reads_and_missing_required_inputs_fail_without_partial_publish',
+        'd1.py_data.seed_determinism_and_job_alone_versus_sequential_worker_purity',
     }
 
 
