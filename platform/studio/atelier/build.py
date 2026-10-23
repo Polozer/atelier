@@ -311,7 +311,8 @@ class UnrealScript:
 
     def _argv(self, ctx, project, script):
         command = [str(ctx.unreal_cmd), str(project), '-run=pythonscript', f'-script={script}',
-                   '-unattended', '-nop4', '-nosplash', '-stdout', '-AllowStdOutLogVerbosity']   # unreal.log lines reach stdout
+                   '-unattended', '-nop4', '-nosplash', '-stdout', '-AllowStdOutLogVerbosity',   # unreal.log lines reach stdout
+                   '-ini:Engine:[ConsoleVariables]:MessageLog.DisablePopup=1']
         return command + (['-NullRHI'] if self.null_rhi else []) + list(self.args)
 
 
