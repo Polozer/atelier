@@ -30,7 +30,9 @@
 //! - Crash and retry are NOT COVERED: no existing identity-bound primitive lets this controller
 //!   end the guard's worker (the adapter signals only its own bridge, and never the worker), and a
 //!   sandboxed job cannot end its loop. An idle expiry is not crash evidence, so there is no S4.
-//! - `s5-cancel`: a spinning unit cancelled while it runs.
+//! - `s5-cancel`: a spinning unit cancelled while it runs: the cancel is sent only after the unit's
+//!   monitor registration (so after its Run) and the job's own running marker (its output, written
+//!   before it loops); `cancel_after_run_started` is a required condition of the case.
 //! - `s6-originals`: the controller's original B3 guards are dropped right after the monitor's
 //!   registration; exclusion is then held by the custody set (the controller's session custody
 //!   source, the bridge and the monitor), never by the dropped originals. Monitor-only custody is
@@ -82,7 +84,10 @@ const UNIT_LIMITS: Limits = Limits {
 const IDLE: Duration = Duration::from_secs(3);
 /// Quiescence evidence must arrive within this bound of a unit's terminal reply.
 const QUIESCENCE: Duration = Duration::from_secs(10);
-/// S5 cancels this long after the spinning unit's worker registration.
+/// S5 waits at most this long, after the spinning unit's monitor registration, for the job's
+/// running marker.
+const MARKER_WAIT: Duration = Duration::from_secs(30);
+/// S5 cancels this long after the spinning job's running marker appears.
 const CANCEL_AFTER: Duration = Duration::from_secs(2);
 
 fn arg(name: &str) -> Result<PathBuf, String> {
@@ -167,6 +172,18 @@ fn no_children() -> bool {
     let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
     let found = unsafe { libc::waitid(libc::P_ALL, 0, &mut info, flags) };
     found == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD)
+}
+
+/// The running marker of `unit`'s job: its declared output, which the spin op writes as its
+/// first action, inside the attempt folder `prepare` staged (`jobs/<unit>-<attempt>`).
+fn running_marker(jobs: &Path, unit: &str) -> Option<PathBuf> {
+    let prefix = format!("{unit}-");
+    fs::read_dir(jobs)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|entry| entry.path().join("output/piece.txt"))
+        .find(|path| fs::read(path).is_ok_and(|bytes| bytes.starts_with(b"started")))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -333,6 +350,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
     let (registered_tx, registered_rx) = mpsc::channel::<(String, bool)>();
     let mut registrations: Vec<Value> = vec![];
     let mut s6: Value = Value::Null;
+    let mut cancel: Value = Value::Null;
     let mut collected: Vec<UnitRecord> = vec![];
     let deadline = proof.started + SEQUENCE_DEADLINE;
     let mut deadline_hit = false;
@@ -558,8 +576,9 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                     handle.submit(unit);
                 }
                 handle.close();
-                // The spinning unit's worker registration, or the driver's end, or the deadline.
-                let worker_registered = loop {
+                // The spinning unit's MONITOR registration (its Run follows only after it), or
+                // the driver's end, or the deadline.
+                let monitor_registered = loop {
                     if Instant::now() >= deadline {
                         deadline_hit = true;
                         break false;
@@ -569,7 +588,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                         break false;
                     }
                     match registered_rx.recv_timeout(Duration::from_secs(1)) {
-                        Ok((_, false)) => break true,
+                        Ok((unit, true)) if unit == "spin" => break true,
                         Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
                             ended = true;
@@ -577,9 +596,35 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                         }
                     }
                 };
-                if worker_registered {
-                    std::thread::sleep(CANCEL_AFTER);
+                // Then, bounded, the running marker the spin job writes before it loops: its
+                // declared output, which exists only once the job itself has run.
+                let mut marker: Option<(PathBuf, f64)> = None;
+                if monitor_registered {
+                    let wait_until = (Instant::now() + MARKER_WAIT).min(deadline);
+                    while marker.is_none() && Instant::now() < wait_until && !driver.is_finished() {
+                        marker = running_marker(&jobs, "spin")
+                            .map(|path| (path, proof.started.elapsed().as_secs_f64()));
+                        if marker.is_none() {
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                    }
+                    if marker.is_some() {
+                        std::thread::sleep(CANCEL_AFTER);
+                    }
+                    // Cancel in every case so the unit ends; only a cancel after the marker
+                    // counts as a running-job cancel.
+                    let cancelled_after = proof.started.elapsed().as_secs_f64();
                     handle.cancel("spin");
+                    cancel = json!({
+                        "monitor_registered": true,
+                        "running_marker": marker.as_ref().map(|(path, _)| path.display().to_string()),
+                        "marker_seen_after_seconds": marker.as_ref().map(|(_, at)| *at),
+                        "cancelled_after_seconds": cancelled_after,
+                        "cancel_after_run_started": marker.is_some(),
+                    });
+                } else {
+                    cancel =
+                        json!({"monitor_registered": false, "cancel_after_run_started": false});
                 }
             }
         }
@@ -836,6 +881,12 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
     evidence["lock_files"] = json!(lock_files);
     if case.kind == Kind::DropOriginals {
         evidence["originals_dropped"] = s6;
+    }
+    if case.kind == Kind::Cancel {
+        if cancel["cancel_after_run_started"] != true {
+            problems.push("the cancel was not sent after the job's running marker".into());
+        }
+        evidence["cancel"] = cancel;
     }
     evidence["problems"] = json!(problems);
     Ok(evidence)
