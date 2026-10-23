@@ -53,6 +53,18 @@ def test_object_uids_are_local_but_complete_numeric_arrays_are_not(monkeypatch):
     assert proof.fbx_fields('actual.fbx')==expected
 
 
+def test_geometry_datablock_labels_follow_unique_actual_model_but_model_names_remain_exact(monkeypatch):
+    tree=fixture.fbx_tree()
+    monkeypatch.setitem(sys.modules,'io_scene_fbx',SimpleNamespace(parse_fbx=SimpleNamespace(parse=lambda path:(tree,7400))))
+    expected=proof.fbx_fields('actual.fbx')
+    tree.elems[0].elems[0].props[1]=b'Cube\x00\x01Geometry'
+    assert proof.fbx_fields('actual.fbx')==expected
+    tree.elems[0].elems[1].props[1]=b'OtherNativeName\x00\x01Model'
+    assert proof.fbx_fields('actual.fbx')!=expected
+    tree.elems[1].elems.pop(0)
+    with pytest.raises(ValueError,match='unique actual Model'):proof.fbx_fields('actual.fbx')
+
+
 @pytest.mark.parametrize('field',['missing','extra','duplicate'])
 def test_complete_original_census_cannot_be_narrowed_or_invented(field):
     props=['P'+str(n) for n in range(32)];trees=['T'+str(n) for n in range(4)]

@@ -94,12 +94,25 @@ def fbx_fields(path):
 
     Unlike triangle counts or representative corners, this includes every geometry
     array, smoothing/channel mapping, material property and authored model frame.
-    Header timestamps and producer file paths are deliberately outside this scope.
+    Geometry datablock labels are keyed by their unique actual bound Model name:
+    the immutable fit called the collision datablock Cube while its actual UCX
+    Model identity is unchanged. Model names/bindings and all actual geometry
+    fields remain exact. Header timestamps/file paths are outside this scope.
     """
     from io_scene_fbx import parse_fbx
     root,_=parse_fbx.parse(str(path))
     objects=next(node for node in root.elems if node.id==b'Objects')
+    table={node.props[0]:node for node in objects.elems}
+    connections=next(node for node in root.elems if node.id==b'Connections')
+    geometry_names={}
+    for geometry in (node for node in objects.elems if node.id==b'Geometry'):
+        owners=[table[row.props[2]] for row in connections.elems if row.id==b'C'
+            and len(row.props)==3 and row.props[0]==b'OO' and row.props[1]==geometry.props[0]
+            and row.props[2] in table and table[row.props[2]].id==b'Model']
+        require(len(owners)==1,'Serialized geometry lacks a unique actual Model owner')
+        geometry_names[geometry.props[0]]=owners[0].props[1]
     identities={node.props[0]:(node.id,node.props[1]) for node in objects.elems}
+    identities.update({key:(b'Geometry',name) for key,name in geometry_names.items()})
     require(len(identities)==len(objects.elems) and len(set(identities.values()))==len(identities),
         'Ambiguous actual serialized object identities')
     def value(v):
@@ -114,7 +127,9 @@ def fbx_fields(path):
         return [type(v).__name__,getattr(v,'typecode',None),[value(x) for x in v]]
     def node(n,object_root=False):
         props=list(n.props)
-        if object_root:props[0]=identities[props[0]]
+        if object_root:
+            uid=props[0];props[0]=identities[uid]
+            if n.id==b'Geometry':props[1]=geometry_names[uid]
         if n.id==b'C':
             for index in (1,2):
                 props[index]=identities.get(props[index],('scene-root',props[index]))
@@ -235,11 +250,16 @@ def native_readback(spec):
     import unreal
     import atomic_equivalence_capture as capture
     check_inputs(spec);expected=members(spec['props'],spec['trees'])
-    require(set(spec['components'])==set(expected),'Native fixture lacks complete original 48-mesh census')
+    require(set(spec['components'])==set(spec['meshes'])==set(expected)
+        and len(set(spec['components'].values()))==48 and len(set(spec['meshes'].values()))==48,
+        'Native fixture lacks complete original unique 48-mesh census')
     records={}
     for key in expected:
         STAGE[0]='actual native readback '+key
         component=unreal.load_object(None,spec['components'][key]);require(component is not None,'Missing actual native fixture component')
+        mesh=component.get_editor_property('static_mesh')
+        require(mesh is not None and mesh.get_name()==key and mesh.get_path_name()==spec['meshes'][key],
+            'Actual native fixture mesh identity differs from original export census')
         records[key]=capture.capture([component],key,Path(spec['output'])/key,controls=[],policy_scope='fixture',inputs=list(spec['inputs']))
         print('HIDAMARI NATIVE READBACK '+str(len(records))+'/48 '+key,flush=True)
     check_inputs(spec);atomic_json(Path(spec['output'])/'native.json',records)
