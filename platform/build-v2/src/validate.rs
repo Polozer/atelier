@@ -231,7 +231,7 @@ pub(crate) fn validate_structure(
     registry: &OpRegistry,
     allowed_install_roots: &[String],
 ) -> Result<ValidatedStructure, ValidationError> {
-    if declaration.schema_version != SCHEMA_VERSION {
+    if ![LEGACY_SCHEMA_VERSION, SCHEMA_VERSION].contains(&declaration.schema_version) {
         return Err(fail("unsupported declaration schema version"));
     }
     nonempty(&declaration.cache_version, "cache version")?;
@@ -243,6 +243,7 @@ pub(crate) fn validate_structure(
     }
     let mut units = BTreeMap::new();
     let mut items = BTreeMap::new();
+    let mut groups = BTreeMap::new();
     let mut installs = Claims::new();
     let mut logical = Claims::new();
     for unit in &declaration.units {
@@ -287,7 +288,35 @@ pub(crate) fn validate_structure(
                 unit.script
             )));
         }
-        if unit.outputs.is_empty() {
+        if declaration.schema_version == LEGACY_SCHEMA_VERSION && !unit.output_groups.is_empty() {
+            return Err(fail("output groups require declaration schema 2"));
+        }
+        if !unit.output_groups.is_empty() {
+            crate::groups::validate_ownership(
+                &unit.output_groups,
+                &unit
+                    .outputs
+                    .iter()
+                    .flat_map(|item| item.files.iter().map(|file| file.path.clone()))
+                    .collect::<Vec<_>>(),
+            )?;
+        }
+        for group in &unit.output_groups {
+            group.validate_root_param(&unit.params)?;
+            if !op.output_classes.contains(&group.class) {
+                return Err(fail("unsupported output group class"));
+            }
+            if unit.outputs.iter().any(|item| item.id == group.id) {
+                return Err(fail("output item/group id collision"));
+            }
+            if groups
+                .insert((unit.id.clone(), group.id.clone()), group)
+                .is_some()
+            {
+                return Err(fail("duplicate output group id"));
+            }
+        }
+        if unit.outputs.is_empty() && unit.output_groups.is_empty() {
             return Err(fail(format!("unit has no outputs: {}", unit.id)));
         }
         let mut job_outputs = Claims::new();
@@ -382,7 +411,8 @@ pub(crate) fn validate_structure(
                 } => {
                     note(whole, "whole-input reason")?;
                     note(conditional, "input conditional note")?;
-                    let narrowed = matches!(source, ContentSource::File { selector: Some(pointer), .. } if !pointer.is_empty());
+                    let narrowed = matches!(source, ContentSource::File { selector: Some(pointer), .. } if !pointer.is_empty())
+                        || matches!(source, ContentSource::GroupMember { .. });
                     if rule.require_whole_reason && !narrowed && whole.is_none() {
                         return Err(fail(format!(
                             "broad op input requires a whole reason: {name}"
@@ -411,6 +441,27 @@ pub(crate) fn validate_structure(
                             if let Some(selector) = selector {
                                 pointer(selector)?;
                             }
+                            None
+                        }
+                        ContentSource::GroupMember {
+                            unit: producer,
+                            group,
+                            piece,
+                        } => {
+                            if declaration.schema_version == LEGACY_SCHEMA_VERSION {
+                                return Err(fail("group members require declaration schema 2"));
+                            }
+                            crate::groups::name(piece)?;
+                            let contract = groups
+                                .get(&(producer.clone(), group.clone()))
+                                .ok_or_else(|| fail("missing producer group"))?;
+                            if !rule.item_classes.contains(&contract.class) {
+                                return Err(fail("unsupported producer group class"));
+                            }
+                            dependencies
+                                .get_mut(&unit.id)
+                                .unwrap()
+                                .insert(producer.clone());
                             None
                         }
                         ContentSource::Item { unit, item } => Some(ItemRef {

@@ -138,6 +138,7 @@ impl Fixture {
                 snapshot: &self.snapshot,
                 versions: &self.versions,
                 produced: &self.produced,
+                produced_groups: &BTreeMap::new(),
                 staged_inputs: &self.staged,
                 worker: &self.worker,
                 validator: &self.validator,
