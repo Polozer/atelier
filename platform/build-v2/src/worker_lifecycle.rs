@@ -1,21 +1,21 @@
-//! C5b: one job's owned worker lifecycle over guarded attempts.
+//! C5b: one job's owned worker lifecycle over guarded attempts, and the C5c session driver.
 //!
-//! [`Lifecycle`] is a pure state machine. It combines the guard's observations
-//! ([`LaunchEvent`]), the worker session's events and caller cancellation into C5a's
-//! [`JobPolicy`], and emits [`Command`]s. It tracks each attempt's custody separately from the
-//! policy: an attempt is `Released` only by the guard's confirmed cleanup receipt and `Held` on
-//! anything less. Nothing here releases capacity, signals a process or deletes a result.
-//! [`run_job`] drives it with a real [`WorkerLauncher`] and the C1a session.
-use crate::failure_policy::{
-    CleanupState, Decision, End, Event as PolicyEvent, JobPolicy, Limits, MonoTime, Observation,
-    Outcome, Phase, PolicyError, Stop,
-};
+//! [`Lifecycle`] is a pure state machine: a [`SessionLifecycle`] serving exactly one unit. It
+//! combines the guard's observations ([`LaunchEvent`]), the worker session's events and caller
+//! cancellation into C5a's [`JobPolicy`], and emits [`Command`]s. It tracks each attempt's custody
+//! separately from the policy: an attempt is `Released` only by the guard's confirmed cleanup
+//! receipt and `Held` on anything less. Nothing here releases capacity, signals a process or
+//! deletes a result. [`run_session`] drives a session with a real [`WorkerLauncher`] and the C1a
+//! session; [`run_job`] is a session with one unit.
+use crate::failure_policy::{JobPolicy, Limits, MonoTime, Outcome, PolicyError};
 use crate::guard_adapter::{
-    AdmissionRequest, AttemptEvent, CleanupReceipt, LaunchEvent, StoppedBy, WorkerAttempt,
-    WorkerCommand, WorkerLauncher,
+    AdmissionRequest, AttemptEvent, LaunchEvent, WorkerAttempt, WorkerCommand, WorkerLauncher,
 };
 use crate::leases::ProcessIdentity;
 use crate::protocol::{JobOutputs, JobRequest, Request, Response, read_frame, write_frame};
+use crate::session_lifecycle::{
+    SessionCommand, SessionConfig, SessionInput, SessionLifecycle, UnitId, UnitPlan, UnitRecord,
+};
 use crate::worker_session::{Event as WorkerEvent, Session, SessionError};
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -113,118 +113,82 @@ pub enum LifecycleError {
     Invariant(String),
 }
 
-#[derive(Clone, Debug)]
-struct Attempt {
-    record: AttemptRecord,
-    registered: bool,
-    ready: bool,
-    job_sent: bool,
-    terminal_seen: bool,
-    shutdown_sent: bool,
-    stop_sent: bool,
-    exited: bool,
-    finished: bool,
-    settle_by: Option<MonoTime>,
-}
-
-impl Attempt {
-    fn new(attempt: u32) -> Self {
-        Self {
-            record: AttemptRecord {
-                attempt,
-                admitted: false,
-                worker: None,
-                custody: Custody::Pending,
-            },
-            registered: false,
-            ready: false,
-            job_sent: false,
-            terminal_seen: false,
-            shutdown_sent: false,
-            stop_sent: false,
-            exited: false,
-            finished: false,
-            settle_by: None,
-        }
-    }
-}
-
-/// One job across at most [`crate::failure_policy::MAX_ATTEMPTS`] guarded attempts.
+/// One job across at most [`crate::failure_policy::MAX_ATTEMPTS`] guarded attempts: a
+/// [`SessionLifecycle`] serving exactly one unit, closed at once.
 #[derive(Clone, Debug)]
 pub struct Lifecycle {
-    policy: JobPolicy,
-    limits: Limits,
-    /// Absolute end of the optional overall deadline; `None` if absent or never reached.
-    overall_deadline: Option<MonoTime>,
-    attempts: Vec<Attempt>,
-    outcome: Option<Outcome>,
-    outputs: Option<JobOutputs>,
-    abort: Option<String>,
+    inner: SessionLifecycle,
 }
 
-fn reached(at: Option<MonoTime>, now: MonoTime) -> bool {
-    at.is_some_and(|at| now >= at)
+const JOB_UNIT: &str = "job";
+
+fn commands(commands: Vec<SessionCommand>) -> Vec<Command> {
+    commands
+        .into_iter()
+        .filter_map(|command| match command {
+            SessionCommand::Submit { session } => Some(Command::Submit { attempt: session }),
+            SessionCommand::Register {
+                session, worker, ..
+            } => Some(Command::RegisterWorker {
+                attempt: session,
+                worker,
+            }),
+            SessionCommand::Run { session, .. } => Some(Command::StartJob { attempt: session }),
+            SessionCommand::Shutdown { session } => Some(Command::Shutdown { attempt: session }),
+            SessionCommand::Stop { session } => Some(Command::Stop { attempt: session }),
+            SessionCommand::Settled { .. } => None,
+        })
+        .collect()
 }
 
 impl Lifecycle {
     /// A queued job: the first command is `Submit { attempt: 1 }`.
     pub fn new(submitted: MonoTime, limits: Limits) -> (Self, Vec<Command>) {
-        let lifecycle = Self {
-            policy: JobPolicy::new(submitted, limits),
+        let mut inner = SessionLifecycle::new(SessionConfig {
+            cleanup: limits.cleanup,
+        });
+        let unit = UnitPlan {
+            id: JOB_UNIT.into(),
             limits,
-            overall_deadline: limits.overall.and_then(|span| submitted.checked_add(span)),
-            attempts: vec![Attempt::new(1)],
-            outcome: None,
-            outputs: None,
-            abort: None,
         };
-        (lifecycle, vec![Command::Submit { attempt: 1 }])
+        let mut first = vec![];
+        for input in [SessionInput::Submit(unit), SessionInput::Close] {
+            first.extend(
+                inner
+                    .on(submitted, input)
+                    .expect("a fresh session accepts one unit and close"),
+            );
+        }
+        (Self { inner }, commands(first))
     }
 
     pub fn policy(&self) -> &JobPolicy {
-        &self.policy
+        self.inner
+            .unit_policy(JOB_UNIT)
+            .expect("the lifecycle's one unit")
     }
 
     pub fn attempts(&self) -> Vec<AttemptRecord> {
-        self.attempts.iter().map(|a| a.record.clone()).collect()
+        self.inner.sessions()
     }
 
     /// The finished job, once the outcome is known and every attempt is released or held.
     pub fn report(&self) -> Option<Report> {
-        let outcome = self.outcome.clone()?;
-        if self
-            .attempts
-            .iter()
-            .any(|a| a.record.custody == Custody::Pending)
-        {
+        if !self.inner.settled() {
             return None;
         }
+        let unit = self.inner.unit(JOB_UNIT)?;
         Some(Report {
-            outcome,
+            outcome: unit.outcome,
             attempts: self.attempts(),
-            outputs: self.outputs.clone(),
-            abort: self.abort.clone(),
+            outputs: unit.outputs,
+            abort: unit.abort,
         })
     }
 
     /// The next instant a [`Input::Tick`] can change anything.
     pub fn next_deadline(&self) -> Option<MonoTime> {
-        self.attempts
-            .iter()
-            .filter(|a| a.record.custody == Custody::Pending)
-            .filter_map(|a| a.settle_by)
-            .chain(self.policy.next_deadline())
-            .min()
-    }
-
-    fn current(&self) -> u32 {
-        self.attempts.last().map_or(0, |a| a.record.attempt)
-    }
-
-    fn slot(&mut self, attempt: u32) -> Option<&mut Attempt> {
-        self.attempts
-            .iter_mut()
-            .find(|a| a.record.attempt == attempt)
+        self.inner.next_deadline()
     }
 
     /// @cc [owner:fontanierh,label:correctness] lifecycle-retry-once
@@ -234,354 +198,25 @@ impl Lifecycle {
     /// the policy's `RequestAdmission`, which follows the previous attempt's confirmed cleanup
     /// receipt, and MUST launch only on the new attempt's own admission. See tests/worker_lifecycle.rs.
     pub fn on(&mut self, now: MonoTime, input: Input) -> Result<Vec<Command>, LifecycleError> {
-        let mut out = vec![];
-        match input {
-            Input::Cancel => self.decide(now, PolicyEvent::CancelRequested, &mut out)?,
-            Input::Tick => self.decide(now, PolicyEvent::Tick, &mut out)?,
-            Input::SubmitFailed { attempt, reason } => {
-                if let Some(slot) = self.slot(attempt) {
-                    // A submit error means no admission owner was started
-                    // (launcher-submit-error-means-nothing-started), so nothing is held.
-                    slot.finished = true;
-                    slot.record.custody = Custody::Released;
-                }
-                if attempt == self.current() {
-                    self.abort.get_or_insert(format!("launch failed: {reason}"));
-                    self.decide(now, PolicyEvent::CancelRequested, &mut out)?;
-                }
-            }
-            Input::Registered { attempt, ok } => {
-                if attempt == self.current() {
-                    if ok {
-                        if let Some(slot) = self.slot(attempt) {
-                            slot.registered = true;
-                        }
-                        self.start_job(&mut out);
-                    } else {
-                        self.abort.get_or_insert(
-                            "worker identity could not be added to the write lease".into(),
-                        );
-                        self.decide(now, PolicyEvent::CancelRequested, &mut out)?;
-                    }
-                }
-            }
-            Input::Worker { attempt, event } => {
-                if attempt == self.current() {
-                    self.worker(now, event, &mut out)?;
-                }
-            }
-            Input::Launch(AttemptEvent { attempt, event }) => {
-                self.launch(now, attempt, event, &mut out)?
-            }
-        }
-        self.settle(now, &mut out);
-        Ok(out)
-    }
-
-    fn phase(&self) -> Phase {
-        self.policy.phase().clone()
-    }
-
-    fn index(&self, attempt: u32) -> Option<usize> {
-        self.attempts
-            .iter()
-            .position(|a| a.record.attempt == attempt)
-    }
-
-    fn start_job(&mut self, out: &mut Vec<Command>) {
-        if !matches!(self.phase(), Phase::Running { .. }) {
-            return;
-        }
-        let attempt = self.current();
-        if let Some(slot) = self.slot(attempt) {
-            if slot.ready && slot.registered && !slot.job_sent {
-                slot.job_sent = true;
-                out.push(Command::StartJob { attempt });
-            }
-        }
-    }
-
-    fn stop(slot: &mut Attempt, out: &mut Vec<Command>) {
-        // Never interrupt the guard's own unwinding once the worker has exited.
-        if !slot.stop_sent && !slot.exited && !slot.finished {
-            slot.stop_sent = true;
-            out.push(Command::Stop {
-                attempt: slot.record.attempt,
-            });
-        }
-    }
-
-    fn decide(
-        &mut self,
-        now: MonoTime,
-        event: PolicyEvent,
-        out: &mut Vec<Command>,
-    ) -> Result<(), LifecycleError> {
-        let decision = self
-            .policy
-            .decide(now, event)
-            .map_err(LifecycleError::Policy)?;
-        let attempt = self.current();
-        match decision {
-            Decision::Wait | Decision::Launch { .. } => {}
-            Decision::BeginCleanup { stop, .. } => {
-                let Some(slot) = self.slot(attempt) else {
-                    return Err(LifecycleError::Invariant(
-                        "cleanup without an attempt".into(),
-                    ));
-                };
-                let graceful = matches!(stop, Stop::WorkerReported(_))
-                    && slot.ready
-                    && slot.terminal_seen
-                    && !slot.exited;
-                if graceful && !slot.shutdown_sent {
-                    slot.shutdown_sent = true;
-                    out.push(Command::Shutdown { attempt });
-                } else if !graceful {
-                    Self::stop(slot, out);
-                }
-            }
-            Decision::RequestAdmission { attempt: next } => {
-                let previous = self.slot(attempt).map(|slot| slot.record.custody.clone());
-                if previous != Some(Custody::Released) {
-                    return Err(LifecycleError::Invariant(
-                        "a retry needs the previous attempt's confirmed cleanup".into(),
-                    ));
-                }
-                self.attempts.push(Attempt::new(next));
-                out.push(Command::Submit { attempt: next });
-            }
-            Decision::Finish(outcome) => {
-                let cleanup = self.limits.cleanup;
-                let deadline = self.overall_deadline;
-                let unconfirmed = matches!(outcome.cleanup, CleanupState::Unconfirmed(_));
-                let completed = outcome.end == End::Completed;
-                self.outcome = Some(outcome);
-                if let Some(slot) = self.slot(attempt) {
-                    if !slot.finished {
-                        if completed && slot.ready && !slot.exited {
-                            if !slot.shutdown_sent {
-                                slot.shutdown_sent = true;
-                                out.push(Command::Shutdown { attempt });
-                            }
-                        } else if !completed {
-                            Self::stop(slot, out);
-                        }
-                        if slot.settle_by.is_none() {
-                            // Wait for the cleanup limit, but never past the overall deadline,
-                            // which covers cleanup too (failure-policy-time-limits). An
-                            // overflowing sum is never reached. Unsettled custody is then held.
-                            slot.settle_by = [now.checked_add(cleanup), deadline]
-                                .into_iter()
-                                .flatten()
-                                .min();
-                        }
-                    }
-                    if unconfirmed && slot.record.custody == Custody::Pending {
-                        slot.record.custody = Custody::Held(
-                            "the policy's cleanup limit or deadline passed without a confirmed receipt"
-                                .into(),
-                        );
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// A malformed or inconsistent guard report: never crash or cleanup evidence.
-    fn fault(
-        &mut self,
-        now: MonoTime,
-        attempt: u32,
-        out: &mut Vec<Command>,
-    ) -> Result<(), LifecycleError> {
-        if let Some(slot) = self.slot(attempt) {
-            Self::stop(slot, out);
-        }
-        if attempt != self.current() {
-            return Ok(());
-        }
-        match self.phase() {
-            Phase::Running { .. } | Phase::CleaningUp { .. } => self.decide(
-                now,
-                PolicyEvent::Observed(Observation::ProtocolViolation),
-                out,
-            ),
-            Phase::Queued | Phase::AwaitingReadmission { .. } => {
-                self.abort
-                    .get_or_insert("the guard reported an inconsistent attempt".into());
-                self.decide(now, PolicyEvent::CancelRequested, out)
-            }
-            Phase::Done(_) => Ok(()),
-        }
-    }
-
-    fn launch(
-        &mut self,
-        now: MonoTime,
-        attempt: u32,
-        event: LaunchEvent,
-        out: &mut Vec<Command>,
-    ) -> Result<(), LifecycleError> {
-        let current = attempt == self.current();
-        let Some(index) = self.index(attempt) else {
-            return Ok(());
-        };
-        if let LaunchEvent::Finished { cleanup, .. } = event {
-            let slot = &mut self.attempts[index];
-            slot.finished = true;
-            let confirmed = cleanup == CleanupReceipt::Confirmed;
-            slot.record.custody = match cleanup {
-                CleanupReceipt::Confirmed => Custody::Released,
-                CleanupReceipt::Unconfirmed { reason } => Custody::Held(reason),
-            };
-            let (exited, admitted) = (slot.exited, slot.record.admitted);
-            if !current {
-                return Ok(());
-            }
-            return match self.phase() {
-                Phase::CleaningUp { .. } if confirmed => {
-                    self.decide(now, PolicyEvent::CleanupFinished, out)
-                }
-                Phase::Running { .. } => {
-                    // The guard finished without reporting the worker's exit.
-                    self.decide(
-                        now,
-                        PolicyEvent::Observed(Observation::ProtocolViolation),
-                        out,
-                    )?;
-                    if confirmed {
-                        self.decide(now, PolicyEvent::CleanupFinished, out)?;
-                    }
-                    Ok(())
-                }
-                Phase::Queued | Phase::AwaitingReadmission { .. } if !admitted && !exited => {
-                    self.abort
-                        .get_or_insert("the admission owner ended before admission".into());
-                    self.decide(now, PolicyEvent::CancelRequested, out)
-                }
-                _ => Ok(()),
-            };
-        }
-        if !current || self.attempts[index].finished {
-            return Ok(());
-        }
-        match event {
-            LaunchEvent::Queued | LaunchEvent::Finished { .. } => Ok(()),
-            LaunchEvent::Admitted => {
-                if self.attempts[index].record.admitted {
-                    return self.fault(now, attempt, out);
-                }
-                self.attempts[index].record.admitted = true;
-                match self.phase() {
-                    Phase::Queued | Phase::AwaitingReadmission { .. } => {
-                        self.decide(now, PolicyEvent::Admitted, out)
-                    }
-                    _ => Ok(()),
-                }
-            }
-            LaunchEvent::ChildStarted { worker } => {
-                let (admitted, pinned) = {
-                    let record = &self.attempts[index].record;
-                    (record.admitted, record.worker.clone())
-                };
-                match pinned {
-                    _ if !admitted => self.fault(now, attempt, out),
-                    Some(pinned) if pinned == worker => Ok(()),
-                    Some(_) => self.fault(now, attempt, out),
-                    None => {
-                        self.attempts[index].record.worker = Some(worker.clone());
-                        if self.outcome.is_none() {
-                            out.push(Command::RegisterWorker { attempt, worker });
-                        }
-                        Ok(())
-                    }
-                }
-            }
-            LaunchEvent::ChildExited {
-                worker, stopped_by, ..
-            } => {
-                let slot = &mut self.attempts[index];
-                if slot.record.worker.as_ref() != Some(&worker) {
-                    return self.fault(now, attempt, out);
-                }
-                slot.exited = true;
-                let requested = slot.stop_sent || slot.shutdown_sent;
-                let event = match stopped_by {
-                    Some(StoppedBy::Guard) | Some(StoppedBy::Deadline) => {
-                        Some(PolicyEvent::Observed(Observation::GuardStopped))
-                    }
-                    // Someone else asked the admission owner to stop: a cancellation, never a crash.
-                    Some(StoppedBy::Cancel) if !requested => Some(PolicyEvent::CancelRequested),
-                    Some(StoppedBy::Cancel) => None,
-                    None if requested => None,
-                    None => Some(PolicyEvent::Observed(Observation::UnexpectedExit)),
-                };
-                match event {
-                    Some(event) => self.decide(now, event, out),
-                    None => Ok(()),
-                }
-            }
-            LaunchEvent::Fault(_) => self.fault(now, attempt, out),
-        }
-    }
-
-    fn worker(
-        &mut self,
-        now: MonoTime,
-        event: Result<WorkerEvent, WorkerFault>,
-        out: &mut Vec<Command>,
-    ) -> Result<(), LifecycleError> {
-        let attempt = self.current();
-        match event {
-            Ok(WorkerEvent::Ready { .. }) => {
-                if let Some(slot) = self.slot(attempt) {
-                    slot.ready = true;
-                }
-                self.start_job(out);
-                Ok(())
-            }
-            Ok(WorkerEvent::Started { .. }) | Ok(WorkerEvent::Stopped) => Ok(()),
-            Ok(WorkerEvent::Finished(finished)) => {
-                if let Some(slot) = self.slot(attempt) {
-                    slot.terminal_seen = true;
-                }
-                match finished.result {
-                    Ok(outputs) => {
-                        self.decide(now, PolicyEvent::Completed, out)?;
-                        if self
-                            .outcome
-                            .as_ref()
-                            .is_some_and(|o| o.end == End::Completed)
-                        {
-                            self.outputs = Some(outputs);
-                        }
-                        Ok(())
-                    }
-                    Err(failure) => self.decide(now, PolicyEvent::WorkerFailed(failure.kind), out),
-                }
-            }
-            Err(WorkerFault::Protocol(_)) => match self.phase() {
-                Phase::Running { .. } | Phase::CleaningUp { .. } => self.decide(
-                    now,
-                    PolicyEvent::Observed(Observation::ProtocolViolation),
-                    out,
-                ),
-                _ => Ok(()),
+        let input = match input {
+            Input::Launch(event) => SessionInput::Launch(event),
+            Input::Worker { attempt, event } => SessionInput::Worker {
+                session: attempt,
+                event,
             },
-            Err(WorkerFault::Disconnected(_)) => Ok(()),
-        }
-    }
-
-    fn settle(&mut self, now: MonoTime, out: &mut Vec<Command>) {
-        for slot in &mut self.attempts {
-            if slot.record.custody == Custody::Pending && reached(slot.settle_by, now) {
-                slot.record.custody =
-                    Custody::Held("no confirmed cleanup receipt within the cleanup limit".into());
-                Self::stop(slot, out);
-            }
-        }
+            Input::Registered { attempt, ok } => SessionInput::Registered {
+                session: attempt,
+                unit: JOB_UNIT.into(),
+                ok,
+            },
+            Input::SubmitFailed { attempt, reason } => SessionInput::SubmitFailed {
+                session: attempt,
+                reason,
+            },
+            Input::Cancel => SessionInput::CancelAll,
+            Input::Tick => SessionInput::Tick,
+        };
+        self.inner.on(now, input).map(commands)
     }
 }
 
@@ -624,6 +259,35 @@ pub struct JobSpec {
     pub custody: Vec<File>,
 }
 
+/// Everything [`run_session`] needs for one session of compatible units.
+pub struct SessionSpec {
+    pub worker_version: String,
+    pub command: WorkerCommand,
+    pub purpose: String,
+    pub memory_gib: u32,
+    pub config: SessionConfig,
+    /// The guard's execution limit for each session: a backstop, separate from unit job limits.
+    pub execution_limit: Duration,
+    /// Each session reports into a fresh `attempt-N` folder here.
+    pub report_root: PathBuf,
+    /// Checkout-lock duplicates; each session's custodian gets its own duplicate of each.
+    pub custody: Vec<File>,
+}
+
+/// One unit for [`run_session`]: its lifecycle plan and the job request it runs.
+#[derive(Clone, Debug)]
+pub struct SessionUnit {
+    pub plan: UnitPlan,
+    pub job: JobRequest,
+}
+
+/// A settled session: every unit's record and every session's custody.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionReport {
+    pub sessions: Vec<AttemptRecord>,
+    pub units: Vec<UnitRecord>,
+}
+
 enum Message {
     Launch(AttemptEvent),
     Frame {
@@ -634,16 +298,39 @@ enum Message {
         attempt: u32,
         error: String,
     },
+    Submit(Box<SessionUnit>),
+    CancelUnit(UnitId),
     Cancel,
+    Close,
 }
 
-/// Cancels a running [`run_job`] from another thread.
+/// Cancels a running [`run_job`] or [`run_session`] from another thread.
 #[derive(Clone)]
 pub struct Canceller(Sender<Message>);
 
 impl Canceller {
     pub fn cancel(&self) {
         let _ = self.0.send(Message::Cancel);
+    }
+}
+
+/// Feeds a running [`run_session`] from another thread.
+#[derive(Clone)]
+pub struct SessionHandle(Sender<Message>);
+
+impl SessionHandle {
+    pub fn submit(&self, unit: SessionUnit) {
+        let _ = self.0.send(Message::Submit(Box::new(unit)));
+    }
+    pub fn cancel(&self, unit: &str) {
+        let _ = self.0.send(Message::CancelUnit(unit.into()));
+    }
+    pub fn cancel_all(&self) {
+        let _ = self.0.send(Message::Cancel);
+    }
+    /// No more units: drain, then end the session gracefully.
+    pub fn close(&self) {
+        let _ = self.0.send(Message::Close);
     }
 }
 
@@ -696,9 +383,25 @@ pub fn job_channel() -> (Canceller, JobInbox) {
     (Canceller(sender.clone()), JobInbox { sender, receiver })
 }
 
+/// A channel pair for [`run_session`]: hand out the [`SessionHandle`], pass the other half in.
+pub fn session_channel() -> (SessionHandle, JobInbox) {
+    let (sender, receiver) = mpsc::channel();
+    (SessionHandle(sender.clone()), JobInbox { sender, receiver })
+}
+
 pub struct JobInbox {
     sender: Sender<Message>,
     receiver: Receiver<Message>,
+}
+
+fn send<A>(entry: &Live<A>, request: Request) -> Result<(), WorkerFault> {
+    let writer = entry
+        .writer
+        .as_ref()
+        .ok_or_else(|| WorkerFault::Disconnected("no request pipe".into()))?;
+    writer
+        .send(request)
+        .map_err(|_| WorkerFault::Disconnected("the request pipe closed".into()))
 }
 
 fn fault_of(error: SessionError) -> WorkerFault {
@@ -708,8 +411,9 @@ fn fault_of(error: SessionError) -> WorkerFault {
     }
 }
 
-/// Run one job to a settled [`Report`]: every attempt released or held.
-/// `register` must durably add a worker identity to the write lease (B2 `add_worker`).
+/// Run one job to a settled [`Report`]: every attempt released or held. It is a session with
+/// one unit, closed at once. `register` must durably add a worker identity to the write lease
+/// (B2 `add_worker`).
 pub fn run_job<L: WorkerLauncher>(
     launcher: &mut L,
     clock: &dyn Clock,
@@ -717,30 +421,97 @@ pub fn run_job<L: WorkerLauncher>(
     inbox: JobInbox,
     register: &mut dyn FnMut(&ProcessIdentity) -> Result<(), String>,
 ) -> Result<Report, LifecycleError> {
-    let (mut lifecycle, first) = Lifecycle::new(clock.now(), spec.limits);
+    let session = SessionSpec {
+        worker_version: spec.worker_version.clone(),
+        command: spec.command.clone(),
+        purpose: spec.purpose.clone(),
+        memory_gib: spec.memory_gib,
+        config: SessionConfig {
+            cleanup: spec.limits.cleanup,
+        },
+        execution_limit: spec.limits.job,
+        report_root: spec.report_root.clone(),
+        custody: spec
+            .custody
+            .iter()
+            .map(File::try_clone)
+            .collect::<io::Result<_>>()
+            .map_err(|error| {
+                LifecycleError::Invariant(format!("cannot duplicate custody: {error}"))
+            })?,
+    };
+    let _ = inbox.sender.send(Message::Submit(Box::new(SessionUnit {
+        plan: UnitPlan {
+            id: JOB_UNIT.into(),
+            limits: spec.limits,
+        },
+        job: spec.job.clone(),
+    })));
+    let _ = inbox.sender.send(Message::Close);
+    let (published, _records) = mpsc::channel();
+    let report = run_session(
+        launcher,
+        clock,
+        &session,
+        inbox,
+        &mut |_, worker| register(worker),
+        published,
+    )?;
+    let unit = report
+        .units
+        .into_iter()
+        .next()
+        .ok_or_else(|| LifecycleError::Invariant("the job's unit is missing".into()))?;
+    Ok(Report {
+        outcome: unit.outcome,
+        attempts: report.sessions,
+        outputs: unit.outputs,
+        abort: unit.abort,
+    })
+}
+
+/// @cc [owner:fontanierh,label:correctness] session-publication-off-lifecycle
+/// A settled unit's record MUST be handed off through `published` without waiting on its
+/// receiver, so publication never blocks the lifecycle's deadlines, cancellation or stops.
+/// See tests/guard_adapter.rs
+/// (`run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver`).
+///
+/// Run a session of compatible units to a settled [`SessionReport`]: every unit released or held,
+/// after [`SessionHandle::close`]. `register` must durably add the session's worker identity to
+/// the unit's write lease (B2 `add_worker`) before that unit runs.
+pub fn run_session<L: WorkerLauncher>(
+    launcher: &mut L,
+    clock: &dyn Clock,
+    spec: &SessionSpec,
+    inbox: JobInbox,
+    register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
+    published: Sender<UnitRecord>,
+) -> Result<SessionReport, LifecycleError> {
+    let mut lifecycle = SessionLifecycle::new(spec.config);
+    let mut jobs: BTreeMap<UnitId, JobRequest> = BTreeMap::new();
     let mut live: BTreeMap<u32, Live<L::Attempt>> = BTreeMap::new();
-    let mut pending: Vec<Input> = vec![];
-    let mut commands = first;
+    let mut pending: Vec<SessionInput> = vec![];
+    let mut commands: Vec<SessionCommand> = vec![];
+    let mut closed = false;
     loop {
         for command in std::mem::take(&mut commands) {
             match command {
-                Command::Submit { attempt } => {
+                SessionCommand::Submit { session } => {
                     let request = (|| -> io::Result<AdmissionRequest> {
-                        let remaining = lifecycle.policy().next_deadline();
-                        let queue_limit = remaining.map(|deadline| {
+                        let queue_limit = lifecycle.queue_deadline().map(|deadline| {
                             // Slightly past the overall deadline, so the policy stops the
                             // attempt first and the guard withdraws it through normal cancel.
                             deadline
                                 .elapsed()
                                 .saturating_sub(clock.now().elapsed())
-                                .saturating_add(spec.limits.cleanup)
+                                .saturating_add(spec.config.cleanup)
                         });
                         Ok(AdmissionRequest {
                             purpose: spec.purpose.clone(),
                             memory_gib: spec.memory_gib,
-                            execution_limit: spec.limits.job,
+                            execution_limit: spec.execution_limit,
                             queue_limit,
-                            report_dir: spec.report_root.join(format!("attempt-{attempt}")),
+                            report_dir: spec.report_root.join(format!("attempt-{session}")),
                             custody: spec
                                 .custody
                                 .iter()
@@ -749,7 +520,7 @@ pub fn run_job<L: WorkerLauncher>(
                         })
                     })();
                     let submitted = request.and_then(|request| {
-                        launcher.submit(attempt, &spec.command, request, {
+                        launcher.submit(session, &spec.command, request, {
                             let sink = inbox.sender.clone();
                             let (events, relay) = mpsc::channel::<AttemptEvent>();
                             thread::spawn(move || {
@@ -765,11 +536,11 @@ pub fn run_job<L: WorkerLauncher>(
                     match submitted {
                         Ok(mut handle) => {
                             let writer = handle.take_pipes().map(|(response, request)| {
-                                reader(attempt, response, inbox.sender.clone());
-                                writer(attempt, request, inbox.sender.clone())
+                                reader(session, response, inbox.sender.clone());
+                                writer(session, request, inbox.sender.clone())
                             });
                             live.insert(
-                                attempt,
+                                session,
                                 Live {
                                     handle,
                                     session: Session::new(spec.worker_version.clone()),
@@ -777,47 +548,70 @@ pub fn run_job<L: WorkerLauncher>(
                                 },
                             );
                         }
-                        Err(error) => pending.push(Input::SubmitFailed {
-                            attempt,
+                        Err(error) => pending.push(SessionInput::SubmitFailed {
+                            session,
                             reason: error.to_string(),
                         }),
                     }
                 }
-                Command::RegisterWorker { attempt, worker } => pending.push(Input::Registered {
-                    attempt,
-                    ok: register(&worker).is_ok(),
-                }),
-                Command::StartJob { attempt } | Command::Shutdown { attempt } => {
-                    if let Some(entry) = live.get_mut(&attempt) {
-                        let request = match command {
-                            Command::StartJob { .. } => entry.session.run(spec.job.clone()),
-                            _ => entry.session.shutdown(),
-                        };
-                        let sent = request.map_err(fault_of).and_then(|request| {
-                            let writer = entry.writer.as_ref().ok_or_else(|| {
-                                WorkerFault::Disconnected("no request pipe".into())
-                            })?;
-                            writer.send(request).map_err(|_| {
-                                WorkerFault::Disconnected("the request pipe closed".into())
-                            })
+                SessionCommand::Register {
+                    session,
+                    unit,
+                    worker,
+                } => {
+                    let ok = register(&unit, &worker).is_ok();
+                    pending.push(SessionInput::Registered { session, unit, ok });
+                }
+                SessionCommand::Run { session, unit } => {
+                    let Some(entry) = live.get_mut(&session) else {
+                        continue;
+                    };
+                    let request = match jobs.get(&unit) {
+                        Some(job) => entry.session.run(job.clone()).map_err(fault_of),
+                        None => Err(WorkerFault::Protocol(format!(
+                            "no job request for unit {unit}"
+                        ))),
+                    };
+                    if let Err(fault) = request.and_then(|request| send(entry, request)) {
+                        pending.push(SessionInput::Worker {
+                            session,
+                            event: Err(fault),
                         });
-                        if let Err(fault) = sent {
-                            pending.push(Input::Worker {
-                                attempt,
-                                event: Err(fault),
-                            });
-                        }
                     }
                 }
-                Command::Stop { attempt } => {
-                    if let Some(entry) = live.get_mut(&attempt) {
+                SessionCommand::Shutdown { session } => {
+                    let Some(entry) = live.get_mut(&session) else {
+                        continue;
+                    };
+                    let request = entry.session.shutdown().map_err(fault_of);
+                    if let Err(fault) = request.and_then(|request| send(entry, request)) {
+                        pending.push(SessionInput::Worker {
+                            session,
+                            event: Err(fault),
+                        });
+                    }
+                }
+                SessionCommand::Stop { session } => {
+                    if let Some(entry) = live.get_mut(&session) {
                         let _ = entry.handle.stop();
+                    }
+                }
+                SessionCommand::Settled { unit } => {
+                    if let Some(record) = lifecycle.unit(&unit) {
+                        // An unbounded channel: a slow or absent receiver never blocks here.
+                        let _ = published.send(record);
                     }
                 }
             }
         }
-        if let Some(report) = lifecycle.report() {
-            return Ok(report);
+        if closed && lifecycle.done() {
+            return Ok(SessionReport {
+                sessions: lifecycle.sessions(),
+                units: jobs
+                    .keys()
+                    .filter_map(|unit| lifecycle.unit(unit))
+                    .collect(),
+            });
         }
         let input = match pending.pop() {
             Some(input) => input,
@@ -837,10 +631,25 @@ pub fn run_job<L: WorkerLauncher>(
                     None => inbox.receiver.recv().ok(),
                 };
                 match message {
-                    None => Input::Tick,
-                    Some(Message::Cancel) => Input::Cancel,
-                    Some(Message::WriteFailed { attempt, error }) => Input::Worker {
-                        attempt,
+                    None => SessionInput::Tick,
+                    Some(Message::Cancel) => {
+                        closed = true;
+                        SessionInput::CancelAll
+                    }
+                    Some(Message::Close) => {
+                        closed = true;
+                        SessionInput::Close
+                    }
+                    Some(Message::CancelUnit(unit)) => SessionInput::CancelUnit(unit),
+                    Some(Message::Submit(unit)) => {
+                        if closed || jobs.contains_key(&unit.plan.id) {
+                            continue; // refused: the session is closed or the unit is known
+                        }
+                        jobs.insert(unit.plan.id.clone(), unit.job);
+                        SessionInput::Submit(unit.plan)
+                    }
+                    Some(Message::WriteFailed { attempt, error }) => SessionInput::Worker {
+                        session: attempt,
                         event: Err(WorkerFault::Disconnected(error)),
                     },
                     Some(Message::Launch(event)) => {
@@ -850,7 +659,7 @@ pub fn run_job<L: WorkerLauncher>(
                                 entry.writer = None;
                             }
                         }
-                        Input::Launch(event)
+                        SessionInput::Launch(event)
                     }
                     Some(Message::Frame { attempt, frame }) => {
                         let Some(entry) = live.get_mut(&attempt) else {
@@ -868,7 +677,10 @@ pub fn run_job<L: WorkerLauncher>(
                                 WorkerFault::Disconnected(error.to_string())
                             }),
                         };
-                        Input::Worker { attempt, event }
+                        SessionInput::Worker {
+                            session: attempt,
+                            event,
+                        }
                     }
                 }
             }

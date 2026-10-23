@@ -638,3 +638,71 @@ fn concurrent_handshakes_stay_within_bound() {
         assert_eq!(handle.join().unwrap(), End::Completed);
     }
 }
+
+#[test]
+fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let session = SessionSpec {
+        worker_version: job_spec.worker_version.clone(),
+        command: job_spec.command.clone(),
+        purpose: job_spec.purpose.clone(),
+        memory_gib: job_spec.memory_gib,
+        config: atelier_build_v2::session_lifecycle::SessionConfig {
+            cleanup: Duration::from_secs(3),
+        },
+        execution_limit: Duration::from_secs(30),
+        report_root: space.0.clone(),
+        custody: vec![],
+    };
+    let (handle, inbox) = session_channel();
+    for id in ["a", "b"] {
+        let mut request = job();
+        request.job_id = id.into();
+        handle.submit(SessionUnit {
+            plan: atelier_build_v2::session_lifecycle::UnitPlan {
+                id: id.into(),
+                limits: job_spec.limits,
+            },
+            job: request,
+        });
+    }
+    handle.close();
+    // Nobody reads the records until the session is over: publication never blocks it.
+    let (published, records) = mpsc::channel();
+    let mut registered = vec![];
+    let report = run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |unit, worker| {
+            registered.push((unit.clone(), worker.clone()));
+            Ok(())
+        },
+        published,
+    )
+    .unwrap();
+    let records: Vec<_> = records.try_iter().collect();
+    assert_eq!(
+        records.iter().map(|r| r.unit.as_str()).collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+    assert!(records.iter().all(|r| r.outcome.end == End::Completed));
+    assert_eq!(report.units, records);
+    assert!(
+        report
+            .sessions
+            .iter()
+            .all(|s| s.custody == Custody::Released),
+        "every session confirmed clean"
+    );
+    assert_eq!(
+        registered
+            .iter()
+            .map(|(unit, _)| unit.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a", "b"],
+        "each unit's lease gets its worker before the unit runs"
+    );
+}

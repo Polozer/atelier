@@ -1,0 +1,33 @@
+schema_version = 1
+
+[[scenarios]]
+id = "c5c.session.units_run_in_order_one_session_at_a_time"
+tests = ["atelier-build-v2::session_lifecycle/units_run_in_order_one_session_at_a_time"]
+
+[[scenarios]]
+id = "c5c.session.a_crash_retry_joins_a_later_session_only_after_confirmed_cleanup"
+tests = ["atelier-build-v2::session_lifecycle/a_crash_retry_joins_a_later_session_only_after_confirmed_cleanup"]
+
+[[scenarios]]
+id = "c5c.session.a_held_session_starts_no_further_session"
+tests = ["atelier-build-v2::session_lifecycle/a_held_session_starts_no_further_session"]
+
+[[scenarios]]
+id = "c5c.session.cancelling_one_waiting_unit_keeps_the_session_for_the_others"
+tests = ["atelier-build-v2::session_lifecycle/cancelling_one_waiting_unit_keeps_the_session_for_the_others"]
+
+[[scenarios]]
+id = "c5c.session.units_that_expire_while_waiting_withdraw_the_request_within_their_deadline"
+tests = ["atelier-build-v2::session_lifecycle/units_that_expire_while_waiting_withdraw_the_request_within_their_deadline"]
+
+[[scenarios]]
+id = "c5c.session.a_unit_after_close_or_twice_is_refused"
+tests = ["atelier-build-v2::session_lifecycle/a_unit_after_close_or_twice_is_refused"]
+
+[[scenarios]]
+id = "c5c.session.session_commands_never_delete_or_republish"
+tests = ["atelier-build-v2::session_lifecycle/session_commands_never_delete_or_republish"]
+
+[[scenarios]]
+id = "c5c.session.run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver"
+tests = ["atelier-build-v2::guard_adapter/run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver"]
