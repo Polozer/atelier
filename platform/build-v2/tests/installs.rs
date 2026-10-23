@@ -1212,6 +1212,115 @@ fn current_sources_pin_without_cache_and_clone_only_certified_unchanged_items() 
                 .collect(),
         },
     };
+    // Resolve a real consumer key from certified output content, without running its producer.
+    let mut declaration = graph.declaration().clone();
+    let mut consumer = declaration.units[0].clone();
+    consumer.id = "consumer".into();
+    consumer.op.kind = "consume".into();
+    consumer.script = "ops/consume.py".into();
+    consumer.code = vec![consumer.script.clone()];
+    consumer.inputs = vec![Input::Content {
+        name: "item".into(),
+        source: ContentSource::Item {
+            unit: "export".into(),
+            item: "mesh".into(),
+        },
+        whole: None,
+        conditional: None,
+    }];
+    consumer.outputs = vec![Item {
+        id: "consumed".into(),
+        logical_path: "/Data/Consumed".into(),
+        class: "Blob".into(),
+        destination: Destination::Store,
+        files: vec![OutputFile {
+            path: "result.bin".into(),
+            install_path: None,
+            required: true,
+        }],
+    }];
+    declaration.units.push(consumer);
+    let code = b"def run(context):\n    context.output('result.bin').write_bytes((context.input('item') / 'output/main.bin').read_bytes() + b' consumed')\n".to_vec();
+    let snapshot = BTreeMap::from([
+        ("ops/run.py".into(), SnapshotEntry::File(b"script".to_vec())),
+        ("ops/consume.py".into(), SnapshotEntry::File(code)),
+    ]);
+    let registry = BTreeMap::from([
+        (
+            ("blob".into(), "1".into()),
+            OpDefinition {
+                inputs: BTreeMap::new(),
+                output_classes: BTreeSet::from(["Blob".into()]),
+                params: BTreeMap::new(),
+            },
+        ),
+        (
+            ("consume".into(), "1".into()),
+            OpDefinition {
+                inputs: BTreeMap::from([(
+                    "item".into(),
+                    InputRule {
+                        role: InputRole::Content,
+                        required: true,
+                        allow_absent_file: false,
+                        allow_selector: false,
+                        require_whole_reason: false,
+                        item_classes: BTreeSet::from(["Blob".into()]),
+                    },
+                )]),
+                output_classes: BTreeSet::from(["Blob".into()]),
+                params: BTreeMap::new(),
+            },
+        ),
+    ]);
+    let validated = validate(
+        &declaration,
+        &registry,
+        &snapshot,
+        &["games/first/Content".into()],
+    )
+    .unwrap();
+    let produced = BTreeMap::from([(
+        ("export".into(), "mesh".into()),
+        StoredItem {
+            item: declaration.units[0].outputs[0].clone(),
+            files: match &input.payload {
+                InputPayload::Item { files, .. } => files.clone(),
+                _ => unreachable!(),
+            },
+            external_locator: None,
+        },
+    )]);
+    let implementation = ImplementationIdentity {
+        version: atelier_build_v2::launch::PYTHON_JOB_LOOP_VERSION.into(),
+        digest: "a".repeat(64),
+    };
+    let prepared = prepare(
+        &declaration,
+        &validated,
+        "consumer",
+        &KeyContext {
+            snapshot: &snapshot,
+            versions: &BTreeMap::new(),
+            produced: &produced,
+            produced_groups: &BTreeMap::new(),
+            staged_inputs: &BTreeMap::from([("item".into(), "inputs/item".into())]),
+            worker: &implementation,
+            validator: &implementation,
+        },
+        &mut SourceHashCache::default(),
+    )
+    .unwrap();
+    let provider = sources.objects_for(&[&prepared.inputs()[0]]).unwrap();
+    let staged = atelier_build_v2::staging::stage(
+        &prepared,
+        &snapshot,
+        &provider,
+        &workspace.path("consumer-job"),
+        "consumer",
+    )
+    .unwrap();
+    drop(provider);
     let objects = sources.objects_for(&[&input]).unwrap();
     let digest = atelier_build_v2::store::ObjectDigest::from_hex(&receipt.files[0].digest).unwrap();
     let clone = workspace.path("job-clone");
@@ -1243,6 +1352,32 @@ fn current_sources_pin_without_cache_and_clone_only_certified_unchanged_items() 
     drop(objects);
     drop(sources);
     installer.recover(&guard, &view("first", &graph)).unwrap();
+    // Read custody is gone before the child runs; its independent clone still has original bytes.
+    let python = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|path| path.join("python3"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../studio/atelier/build_v2/python_worker.py")
+        .canonicalize()
+        .unwrap();
+    let command = atelier_build_v2::launch::WorkerCommand::python_job_loop(python, script);
+    let outcome = atelier_build_v2::launch::run_staged(
+        &atelier_build_v2::launch::DirectChild,
+        &command,
+        atelier_build_v2::launch::PYTHON_JOB_LOOP_VERSION,
+        &staged,
+    )
+    .unwrap();
+    let atelier_build_v2::launch::JobOutcome::Completed(actual) = outcome else {
+        panic!("consumer failed: {outcome:?}")
+    };
+    assert_eq!(actual.len(), 1);
+    assert_eq!(
+        fs::read(&actual[0].source).unwrap(),
+        b"current bytes consumed"
+    );
+    atelier_build_v2::staging::remove_job(staged.job_dir()).unwrap();
     assert!(reader.pin_current_sources(&guard, &unit).unwrap().is_none());
 }
 
@@ -1329,4 +1464,213 @@ fn retirement_valid_at_prepare_refuses_new_owner_receipt_before_journal_or_mutat
             .iter()
             .any(|lease| !lease.rooted && lease.result_keys.contains(target.key()))
     );
+}
+
+#[cfg(target_os = "macos")]
+fn freeze_local(
+    reader: &ReceiptReader,
+    guard: &atelier_build_v2::checkout_locks::BuildGuard,
+    unit: &PreparedUnit,
+    workspace: &Workspace,
+    bytes: &[u8],
+) -> atelier_build_v2::completion::FrozenCompletion {
+    let work = reader.begin_completion(guard, unit, identity()).unwrap();
+    assert!(!work.lease().rooted);
+    let source = workspace.path("local-source");
+    fs::write(&source, bytes).unwrap();
+    work.freeze(
+        vec![ActualOutput {
+            path: "output/main.bin".into(),
+            source,
+        }],
+        |outputs| {
+            use std::io::Read;
+            let mut actual = vec![];
+            outputs[0]
+                .object
+                .reader()
+                .unwrap()
+                .read_to_end(&mut actual)
+                .unwrap();
+            assert_eq!(actual, bytes);
+            Ok(())
+        },
+        |_, _, _| panic!("no groups"),
+    )
+    .unwrap()
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn local_valid_completion_installs_without_cache_and_preserves_frozen_bytes_after_publish_failure()
+{
+    let workspace = Workspace::new();
+    let reader = ReceiptReader::open(
+        &workspace.0,
+        InstallPolicy {
+            project: namespace("first"),
+            allowed_install_roots: vec!["games/first/Content".into()],
+        },
+    )
+    .unwrap();
+    let guard = reader.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture("first", "1");
+    let mut completion = freeze_local(&reader, &guard, &unit, &workspace, b"validated local bytes");
+    let lease = completion.lease().clone();
+    assert!(!workspace.path("cache").exists());
+    // Changing live job output after freeze cannot affect publication or install.
+    fs::write(workspace.path("local-source"), b"changed live output").unwrap();
+    let store = ResultStore::open(workspace.path("cache")).unwrap();
+    fs::remove_dir(workspace.path("cache/objects/sha256")).unwrap();
+    fs::write(
+        workspace.path("cache/objects/sha256"),
+        b"unavailable objects",
+    )
+    .unwrap();
+    assert!(
+        completion
+            .publish(&store, |_| panic!("cache publication failed before root"))
+            .is_err()
+    );
+    fs::remove_dir_all(workspace.path("cache")).unwrap();
+    fs::write(workspace.path("cache"), b"unavailable cache").unwrap();
+    let mut plan = reader
+        .prepare_local(&guard, completion, &view("first", &graph), vec![])
+        .unwrap();
+    assert!(matches!(
+        plan.commit(&guard, |_| panic!("local result cannot claim cached root"))
+            .unwrap(),
+        InstallOutcome::InstalledLocally {
+            retention_error: None
+        }
+    ));
+    assert_eq!(
+        fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+        b"validated local bytes"
+    );
+    assert!(matches!(
+        reader.receipt_status(&guard, &unit).unwrap(),
+        CurrentStatus::Current(_)
+    ));
+    let scope = workspace
+        .path("build/build-v2/install/completions")
+        .join(&lease.staging);
+    let evidence: serde_json::Value =
+        serde_json::from_slice(&fs::read(scope.join("completion.json")).unwrap()).unwrap();
+    assert_eq!(evidence["envelope"]["result"]["key"], unit.key());
+    let payload = evidence["objects"][0]["path"].as_str().unwrap();
+    assert_eq!(
+        fs::read(scope.join(payload)).unwrap(),
+        b"validated local bytes"
+    );
+    assert_eq!(
+        fs::read(workspace.path("cache")).unwrap(),
+        b"unavailable cache"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn frozen_completion_cache_adoption_does_not_rehash_live_output_and_conflicts_block_local_install()
+{
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture("first", "1");
+    let mut completion = freeze_local(&installer, &guard, &unit, &workspace, b"frozen once");
+    fs::write(workspace.path("local-source"), b"changed live source").unwrap();
+    let store = ResultStore::open(workspace.path("cache")).unwrap();
+    let result = completion.publish(&store, |_| Ok(())).unwrap();
+    assert_eq!(
+        result.result.outputs[0].files[0].digest,
+        sha256(b"frozen once")
+    );
+    restore(&installer, &guard, &unit, &view("first", &graph));
+    assert_eq!(
+        fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+        b"frozen once"
+    );
+    let mut conflicting = freeze_local(
+        &installer,
+        &guard,
+        &unit,
+        &workspace,
+        b"different same-key bytes",
+    );
+    assert!(matches!(
+        conflicting.publish(&store, |_| panic!("conflict cannot root")),
+        Err(ResultError::Nondeterminism(_))
+    ));
+    assert!(matches!(
+        installer.prepare_local(&guard, conflicting, &view("first", &graph), vec![]),
+        Err(InstallError::Invalid(_))
+    ));
+    let current_conflict = freeze_local(
+        &installer,
+        &guard,
+        &unit,
+        &workspace,
+        b"different same-key bytes",
+    );
+    assert!(matches!(
+        installer.prepare_local(&guard, current_conflict, &view("first", &graph), vec![]),
+        Err(InstallError::LocalCompletion(ResultError::Nondeterminism(
+            _
+        )))
+    ));
+    assert!(
+        !workspace
+            .path("build/build-v2/install/journal.json")
+            .exists()
+    );
+    assert_eq!(
+        fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+        b"frozen once"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn interrupted_local_install_retains_completion_and_uses_existing_quarantine_recovery() {
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (old_graph, old) = fixture("first", "1");
+    publish(&workspace, &old, b"old", None, 0o644);
+    restore(&installer, &guard, &old, &view("first", &old_graph));
+    let (graph, unit) = fixture("first", "2");
+    let completion = freeze_local(&installer, &guard, &unit, &workspace, b"new local");
+    let lease = completion.lease().clone();
+    let mut plan = installer
+        .prepare_local(&guard, completion, &view("first", &graph), vec![])
+        .unwrap();
+    assert!(
+        plan.commit_with(
+            &guard,
+            |event| if event == InstallEvent::CloneCreated(0) {
+                Err(std::io::Error::other("fault after local clone"))
+            } else {
+                Ok(())
+            },
+            |_| panic!("fault cannot root")
+        )
+        .is_err()
+    );
+    assert!(installer.locks().try_read_content().is_err());
+    installer.recover(&guard, &view("first", &graph)).unwrap();
+    assert_eq!(
+        fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+        b"old"
+    );
+    let scope = workspace
+        .path("build/build-v2/install/completions")
+        .join(&lease.staging);
+    assert!(scope.join("completion.json").is_file());
+    assert!(
+        workspace
+            .path("build/build-v2/install/completions/leases")
+            .join(format!("{}.json", lease.id))
+            .is_file()
+    );
+    installer.locks().try_read_content().unwrap();
 }

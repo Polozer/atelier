@@ -83,7 +83,8 @@ pub struct ObjectStore {
 /// Neither the staged path nor a constructor is public; it cannot certify a caller's digest claim.
 #[derive(Debug)]
 pub struct PreparedObject {
-    root: PathBuf,
+    root: Option<PathBuf>,
+    retain: bool,
     staging: PathBuf,
     staging_dir: PathBuf,
     digest: ObjectDigest,
@@ -91,6 +92,109 @@ pub struct PreparedObject {
     source_mode: u32,
 }
 impl PreparedObject {
+    // Private local scopes retain evidence on failure/drop; B2's temporary tokens clean their own leaf.
+    pub(crate) fn freeze_local(source: &Path, scope: &Path) -> Result<Self, StoreError> {
+        let prepared = Self::freeze_in(source, scope, None, true)?;
+        File::open(&prepared.staging_dir)?.sync_all()?;
+        File::open(scope)?.sync_all()?;
+        Ok(prepared)
+    }
+    fn reserve(scope: &Path, root: Option<PathBuf>, retain: bool) -> Result<Self, StoreError> {
+        // Reserve a private directory first, so even a partially failed clone has
+        // unambiguous cleanup ownership. Stale or foreign names are never removed.
+        let staging_dir = loop {
+            let serial = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
+            let path = scope.join(format!("{}-{serial}", std::process::id()));
+            match fs::create_dir(&path) {
+                Ok(()) => break path,
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let prepared = PreparedObject {
+            root,
+            retain,
+            staging: staging_dir.join("payload"),
+            staging_dir,
+            digest: ObjectDigest("0".repeat(64)),
+            size: 0,
+            source_mode: 0,
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&prepared.staging_dir, fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(prepared)
+    }
+    fn freeze_in(
+        source: &Path,
+        scope: &Path,
+        root: Option<PathBuf>,
+        retain: bool,
+    ) -> Result<Self, StoreError> {
+        if !fs::symlink_metadata(scope)?.is_dir() {
+            return Err(StoreError::InvalidFile("staging scope is not a directory"));
+        }
+        let metadata = fs::symlink_metadata(source)?;
+        if !metadata.is_file() {
+            return Err(StoreError::InvalidFile("source is not a regular file"));
+        }
+        let mut prepared = Self::reserve(scope, root, retain)?;
+        native::clone_file(source, &prepared.staging).map_err(StoreError::Clone)?;
+        let cloned = fs::symlink_metadata(&prepared.staging)?;
+        if !cloned.is_file() {
+            return Err(StoreError::InvalidFile(
+                "cloned source is not a regular file",
+            ));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            prepared.source_mode = cloned.permissions().mode() & 0o777;
+            fs::set_permissions(&prepared.staging, fs::Permissions::from_mode(0o444))?;
+        }
+        #[cfg(not(unix))]
+        {
+            let mut permissions = fs::metadata(&prepared.staging)?.permissions();
+            permissions.set_readonly(true);
+            fs::set_permissions(&prepared.staging, permissions)?;
+        }
+        let mut file = File::open(&prepared.staging)?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0; 64 * 1024];
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+            prepared.size += count as u64;
+        }
+        prepared.digest = ObjectDigest(format!("{:x}", hasher.finalize()));
+        file.sync_all()?;
+        Ok(prepared)
+    }
+
+    pub(crate) fn local_path(&self, scope: &Path) -> Result<&Path, StoreError> {
+        self.staging
+            .strip_prefix(scope)
+            .map_err(|_| StoreError::WrongStore)
+    }
+    pub(crate) fn clone_to(&self, destination: &Path) -> Result<(), StoreError> {
+        let metadata = immutable(&self.staging)?;
+        if metadata.len() != self.size {
+            return Err(StoreError::InvalidFile("frozen snapshot size differs"));
+        }
+        native::clone_file(&self.staging, destination).map_err(StoreError::Clone)?;
+        match immutable(destination) {
+            Ok(metadata) if metadata.len() == self.size => Ok(()),
+            _ => {
+                let _ = fs::remove_file(destination);
+                Err(StoreError::InvalidFile("frozen clone changed"))
+            }
+        }
+    }
     /// Validator view of the frozen bytes already hashed by preparation.
     /// The opaque reader cannot change permissions or recover the private staging path.
     pub fn reader(&self) -> Result<impl Read + Seek, StoreError> {
@@ -108,6 +212,9 @@ impl PreparedObject {
 }
 impl Drop for PreparedObject {
     fn drop(&mut self) {
+        if self.retain {
+            return;
+        }
         let _ = fs::remove_file(&self.staging);
         let _ = fs::remove_dir(&self.staging_dir);
     }
@@ -223,6 +330,11 @@ impl ObjectStore {
         source: &Path,
         scope: &Path,
     ) -> Result<PreparedObject, StoreError> {
+        self.check_scope(scope)?;
+        PreparedObject::freeze_in(source, scope, Some(self.root.clone()), false)
+    }
+
+    fn check_scope(&self, scope: &Path) -> Result<(), StoreError> {
         if scope != self.root.join("staging")
             && scope.parent() != Some(self.root.join("staging").as_path())
         {
@@ -231,67 +343,24 @@ impl ObjectStore {
         if !fs::symlink_metadata(scope)?.is_dir() {
             return Err(StoreError::InvalidFile("staging scope is not a directory"));
         }
-        let metadata = fs::symlink_metadata(source)?;
-        if !metadata.is_file() {
-            return Err(StoreError::InvalidFile("source is not a regular file"));
-        }
-        // Reserve a private directory first, so even a partially failed clone has
-        // unambiguous cleanup ownership. Stale or foreign names are never removed.
-        let staging_dir = loop {
-            let serial = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
-            let path = scope.join(format!("{}-{serial}", std::process::id()));
-            match fs::create_dir(&path) {
-                Ok(()) => break path,
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
-            }
-        };
-        let mut prepared = PreparedObject {
-            root: self.root.clone(),
-            staging: staging_dir.join("payload"),
-            staging_dir,
-            digest: ObjectDigest("0".repeat(64)),
-            size: 0,
-            source_mode: 0,
-        };
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&prepared.staging_dir, fs::Permissions::from_mode(0o700))?;
-        }
-        native::clone_file(source, &prepared.staging).map_err(StoreError::Clone)?;
-        let cloned = fs::symlink_metadata(&prepared.staging)?;
-        if !cloned.is_file() {
-            return Err(StoreError::InvalidFile(
-                "cloned source is not a regular file",
-            ));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            prepared.source_mode = cloned.permissions().mode() & 0o777;
-            fs::set_permissions(&prepared.staging, fs::Permissions::from_mode(0o444))?;
-        }
-        #[cfg(not(unix))]
-        {
-            let mut permissions = fs::metadata(&prepared.staging)?.permissions();
-            permissions.set_readonly(true);
-            fs::set_permissions(&prepared.staging, permissions)?;
-        }
-        let mut file = File::open(&prepared.staging)?;
-        let mut hasher = Sha256::new();
-        let mut buffer = [0; 64 * 1024];
-        loop {
-            let count = file.read(&mut buffer)?;
-            if count == 0 {
-                break;
-            }
-            hasher.update(&buffer[..count]);
-            prepared.size += count as u64;
-        }
-        prepared.digest = ObjectDigest(format!("{:x}", hasher.finalize()));
-        file.sync_all()?;
-        Ok(prepared)
+        Ok(())
+    }
+
+    /// Clone an existing private frozen proof into this store's already-leased scope.
+    /// No live source reread and no second payload hash is permitted.
+    pub(crate) fn adopt_in(
+        &self,
+        frozen: &PreparedObject,
+        scope: &Path,
+    ) -> Result<PreparedObject, StoreError> {
+        self.check_scope(scope)?;
+        let mut object = PreparedObject::reserve(scope, Some(self.root.clone()), false)?;
+        frozen.clone_to(&object.staging)?;
+        object.digest = frozen.digest.clone();
+        object.size = frozen.size;
+        object.source_mode = frozen.source_mode;
+        File::open(&object.staging)?.sync_all()?;
+        Ok(object)
     }
 
     /// @cc [owner:fontanierh,label:correctness] first-object-wins
@@ -299,7 +368,7 @@ impl ObjectStore {
     /// replacing any existing entry. Existing entries MUST be regular and read-only. Neither
     /// publication nor a clone hit may rehash previously verified bytes or scan output folders.
     pub fn publish(&self, prepared: PreparedObject) -> Result<PublishedObject, StoreError> {
-        if prepared.root != self.root {
+        if prepared.root.as_ref() != Some(&self.root) {
             return Err(StoreError::WrongStore);
         }
         let destination = self.object_path(&prepared.digest);

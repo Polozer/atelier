@@ -133,3 +133,15 @@ Private transaction directories MUST actually be empty before cleanup clears the
 unknown private leaves MUST preserve the active barrier and evidence. Only checkout output-parent
 directories MAY remain populated. See unknown_private_cleanup_leaves_preserve_journal_and_block_readers
 in tests/installs.rs.
+
+@cc [owner:fontanierh,label:correctness;safety] build-v2-local-completion-capabilities
+Recorded identities MUST validate the exact complete prepared record without probing payload objects;
+they MUST NOT certify byte availability or convert into available group/staging tokens. CurrentSources
+MUST come from the shared receipt validator under read custody with no-follow pinned file descriptors,
+and clone only certified consumer content/mode views with pre/post observations. Custody ends after
+staging independent job clones, before running a worker. No copy, hash or live-path reopen is permitted.
+FrozenCompletion MUST validate/hash independent snapshots once and retain them across cache publication
+failure. Local installation MUST reuse the existing journal/ownership/receipt engine without opening
+CAS or claiming a StoredHit; known semantic conflicts MUST refuse before mutation. Local scopes and
+real owner/worker evidence remain independent from shared CAS claims and MUST be preserved on failure.
+See tests/results.rs metadata lookup cases and tests/installs.rs current/local completion scenarios.

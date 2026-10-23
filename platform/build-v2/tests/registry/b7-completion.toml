@@ -1,0 +1,16 @@
+schema_version = 1
+
+[[scenarios]]
+id = "b7.installs.local_valid_completion_installs_without_cache_and_preserves_frozen_bytes_after_publish_failure"
+tests = ["atelier-build-v2::installs/local_valid_completion_installs_without_cache_and_preserves_frozen_bytes_after_publish_failure"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b7.installs.frozen_completion_cache_adoption_does_not_rehash_live_output_and_conflicts_block_local_install"
+tests = ["atelier-build-v2::installs/frozen_completion_cache_adoption_does_not_rehash_live_output_and_conflicts_block_local_install"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b7.installs.interrupted_local_install_retains_completion_and_uses_existing_quarantine_recovery"
+tests = ["atelier-build-v2::installs/interrupted_local_install_retains_completion_and_uses_existing_quarantine_recovery"]
+platforms = ["darwin"]

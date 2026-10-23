@@ -1,7 +1,7 @@
 //! Per-unit immutable result publication. B3 installs and B4 root policy are separate.
 use crate::groups::{
-    OutputGroupContract, PlanRoster, RecordedGroupIdentity, ValidatedGroup, recorded_identity,
-    restore_recorded, validate_frozen,
+    OutputGroupContract, PlanRoster, RecordedGroupIdentity, StoredOutputGroup, ValidatedGroup,
+    recorded_identity, restore_recorded, validate_frozen,
 };
 use crate::keys::{PreparedUnit, canonical_bytes, normalized_mode};
 use crate::leases::{LeaseRecord, LeaseStore, ProcessIdentity, directory, sync_dir};
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 pub const ENVELOPE_VERSION: u32 = 1;
 pub type OutputSources = BTreeMap<(String, String), PathBuf>;
-type GroupSources = BTreeMap<(String, String), PathBuf>;
+pub(crate) type GroupSources = BTreeMap<(String, String), PathBuf>;
 pub type GroupHit = (ResultEnvelope, BTreeMap<String, ValidatedGroup>);
 #[derive(Clone, Debug)]
 pub struct ActualOutput {
@@ -279,7 +279,7 @@ impl ResultStore {
     }
 }
 
-fn partition_outputs(
+pub(crate) fn partition_outputs(
     unit: &PreparedUnit,
     actual: Vec<ActualOutput>,
 ) -> Result<(OutputSources, GroupSources), ResultError> {
@@ -355,6 +355,115 @@ fn check_manifest(unit: &PreparedUnit, outputs: &[StoredItem]) -> Result<(), Res
         }
     }
     Ok(())
+}
+
+pub(crate) type FrozenParts = (Vec<StoredItem>, Vec<StoredOutputGroup>, Vec<PreparedObject>);
+
+// Both local completion and cache staging use exactly the same full membership/format checks.
+pub(crate) fn freeze_partitioned(
+    unit: &PreparedUnit,
+    mut sources: OutputSources,
+    mut group_sources: GroupSources,
+    validator: impl FnOnce(&[FrozenOutput<'_>]) -> Result<(), String>,
+    mut group_validator: impl FnMut(
+        &OutputGroupContract,
+        &PlanRoster,
+        &BTreeMap<String, &PreparedObject>,
+    ) -> Result<(), String>,
+    mut freeze: impl FnMut(&Path) -> Result<PreparedObject, ResultError>,
+) -> Result<FrozenParts, ResultError> {
+    let mut outputs = vec![];
+    let mut objects = vec![];
+    let mut labels = vec![];
+    for item in &unit.ingredients().logical_outputs {
+        if item.destination == Destination::External {
+            return Err(invalid("external result needs its adapter"));
+        }
+        let mut files = vec![];
+        for file in &item.files {
+            let key = (item.id.clone(), file.path.clone());
+            let Some(source) = sources.remove(&key) else {
+                if file.required {
+                    return Err(invalid(format!("missing output {}", file.path)));
+                }
+                continue;
+            };
+            let object = freeze(&source)?;
+            files.push(StoredFile {
+                path: file.path.clone(),
+                digest: object.digest().to_string(),
+                size: object.size(),
+                mode: normalized_mode(object.source_mode()),
+            });
+            labels.push((item, file.path.as_str()));
+            objects.push(object);
+        }
+        outputs.push(StoredItem {
+            item: item.clone(),
+            files,
+            external_locator: None,
+        });
+    }
+    if !sources.is_empty() {
+        return Err(invalid("undeclared output sources"));
+    }
+    let frozen: Vec<_> = labels
+        .iter()
+        .zip(&objects)
+        .map(|((item, path), object)| FrozenOutput { item, path, object })
+        .collect();
+    validator(&frozen).map_err(ResultError::Validation)?;
+    drop(frozen);
+    drop(labels);
+    let mut output_groups = Vec::new();
+    for contract in &unit.ingredients().output_groups {
+        let names: Vec<_> = group_sources
+            .keys()
+            .filter(|(group, _)| group == &contract.id)
+            .cloned()
+            .collect();
+        if names.len() as u64
+            > contract
+                .max_pieces
+                .checked_add(1)
+                .ok_or_else(|| invalid("group member count overflow"))?
+        {
+            return Err(invalid("group member count budget exceeded"));
+        }
+        let mut declared_bytes = 0u64;
+        for key in &names {
+            let size = fs::symlink_metadata(&group_sources[key])?.len();
+            if size > contract.max_member_bytes {
+                return Err(invalid("group member byte budget exceeded"));
+            }
+            declared_bytes = declared_bytes
+                .checked_add(size)
+                .ok_or_else(|| invalid("group byte count overflow"))?;
+        }
+        if declared_bytes > contract.max_total_bytes {
+            return Err(invalid("group byte budget exceeded"));
+        }
+        let mut indices = BTreeMap::new();
+        for (group, path) in names {
+            let source = group_sources.remove(&(group, path.clone())).unwrap();
+            let object = freeze(&source)?;
+            indices.insert(path, objects.len());
+            objects.push(object);
+        }
+        let members: BTreeMap<_, _> = indices
+            .iter()
+            .map(|(path, index)| (path.clone(), &objects[*index]))
+            .collect();
+        let token = validate_frozen(contract, &members, |roster, objects| {
+            group_validator(contract, roster, objects)
+        })
+        .map_err(ResultError::Validation)?;
+        output_groups.push(token.stored().clone());
+    }
+    if !group_sources.is_empty() {
+        return Err(invalid("unknown output group sources"));
+    }
+    Ok((outputs, output_groups, objects))
 }
 
 impl WriteTransaction {
@@ -445,112 +554,28 @@ impl WriteTransaction {
 
     fn stage_partitioned(
         self,
-        mut sources: OutputSources,
-        mut group_sources: GroupSources,
+        sources: OutputSources,
+        group_sources: GroupSources,
         validator: impl FnOnce(&[FrozenOutput<'_>]) -> Result<(), String>,
-        mut group_validator: impl FnMut(
+        group_validator: impl FnMut(
             &OutputGroupContract,
             &PlanRoster,
             &BTreeMap<String, &PreparedObject>,
         ) -> Result<(), String>,
     ) -> Result<StagedResult, ResultError> {
-        let mut outputs = vec![];
-        let mut objects = vec![];
-        let mut labels = vec![];
-        for item in &self.unit.ingredients().logical_outputs {
-            if item.destination == Destination::External {
-                return Err(invalid("external result needs its adapter"));
-            }
-            let mut files = vec![];
-            for file in &item.files {
-                let key = (item.id.clone(), file.path.clone());
-                let Some(source) = sources.remove(&key) else {
-                    if file.required {
-                        return Err(invalid(format!("missing output {}", file.path)));
-                    }
-                    continue;
-                };
-                let object = self.store.objects.prepare_in(
-                    &source,
-                    &self.store.objects.root().join(&self.lease.staging),
-                )?;
-                files.push(StoredFile {
-                    path: file.path.clone(),
-                    digest: object.digest().to_string(),
-                    size: object.size(),
-                    mode: normalized_mode(object.source_mode()),
-                });
-                labels.push((item, file.path.as_str()));
-                objects.push(object);
-            }
-            outputs.push(StoredItem {
-                item: item.clone(),
-                files,
-                external_locator: None,
-            });
-        }
-        if !sources.is_empty() {
-            return Err(invalid("undeclared output sources"));
-        }
-        let frozen: Vec<_> = labels
-            .iter()
-            .zip(&objects)
-            .map(|((item, path), object)| FrozenOutput { item, path, object })
-            .collect();
-        validator(&frozen).map_err(ResultError::Validation)?;
-        drop(frozen);
-        drop(labels);
-        let mut output_groups = Vec::new();
-        for contract in &self.unit.ingredients().output_groups {
-            let names: Vec<_> = group_sources
-                .keys()
-                .filter(|(group, _)| group == &contract.id)
-                .cloned()
-                .collect();
-            if names.len() as u64
-                > contract
-                    .max_pieces
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("group member count overflow"))?
-            {
-                return Err(invalid("group member count budget exceeded"));
-            }
-            let mut declared_bytes = 0u64;
-            for key in &names {
-                let size = fs::symlink_metadata(&group_sources[key])?.len();
-                if size > contract.max_member_bytes {
-                    return Err(invalid("group member byte budget exceeded"));
-                }
-                declared_bytes = declared_bytes
-                    .checked_add(size)
-                    .ok_or_else(|| invalid("group byte count overflow"))?;
-            }
-            if declared_bytes > contract.max_total_bytes {
-                return Err(invalid("group byte budget exceeded"));
-            }
-            let mut indices = BTreeMap::new();
-            for (group, path) in names {
-                let source = group_sources.remove(&(group, path.clone())).unwrap();
-                let object = self.store.objects.prepare_in(
-                    &source,
-                    &self.store.objects.root().join(&self.lease.staging),
-                )?;
-                indices.insert(path, objects.len());
-                objects.push(object);
-            }
-            let members: BTreeMap<_, _> = indices
-                .iter()
-                .map(|(path, index)| (path.clone(), &objects[*index]))
-                .collect();
-            let token = validate_frozen(contract, &members, |roster, objects| {
-                group_validator(contract, roster, objects)
-            })
-            .map_err(ResultError::Validation)?;
-            output_groups.push(token.stored().clone());
-        }
-        if !group_sources.is_empty() {
-            return Err(invalid("unknown output group sources"));
-        }
+        let (outputs, output_groups, objects) = freeze_partitioned(
+            &self.unit,
+            sources,
+            group_sources,
+            validator,
+            group_validator,
+            |source| {
+                self.store
+                    .objects
+                    .prepare_in(source, &self.store.objects.root().join(&self.lease.staging))
+                    .map_err(ResultError::Store)
+            },
+        )?;
         let envelope = ResultEnvelope {
             version: ENVELOPE_VERSION,
             result: ResultRecord {
@@ -568,6 +593,46 @@ impl WriteTransaction {
         Ok(StagedResult {
             transaction: self,
             envelope,
+            objects,
+        })
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub(crate) fn stage_completion(
+        self,
+        completion: &crate::completion::FrozenCompletion,
+    ) -> Result<StagedResult, ResultError> {
+        let envelope = completion.result();
+        if envelope.result.key != self.unit.key()
+            || &envelope.result.ingredients != self.unit.ingredients()
+        {
+            return Err(invalid(
+                "local completion does not match prepared cache key",
+            ));
+        }
+        // Detect known nondeterminism from complete recorded metadata even when winner blobs vanished.
+        let winner = {
+            let _guard = self.store.leases.lock()?;
+            self.store.read_metadata(&self.unit)?
+        };
+        if let Some(winner) = winner {
+            if winner.envelope.result.outputs != envelope.result.outputs
+                || winner.envelope.result.output_groups != envelope.result.output_groups
+            {
+                return Err(ResultError::Nondeterminism(self.unit.key().into()));
+            }
+        }
+        let mut objects = vec![];
+        for object in &completion.objects {
+            objects.push(
+                self.store
+                    .objects
+                    .adopt_in(object, &self.store.objects.root().join(&self.lease.staging))?,
+            );
+        }
+        Ok(StagedResult {
+            transaction: self,
+            envelope: envelope.clone(),
             objects,
         })
     }
