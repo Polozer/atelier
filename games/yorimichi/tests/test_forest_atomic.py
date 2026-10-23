@@ -46,6 +46,9 @@ def test_forest_every_level_has_own_constructor_export_and_complete_data_inputs(
             assert 'forest.record.'+name in step.reads
         if logical.endswith('_LOD3'):
             assert 'forest.impostor_views.'+name in step.reads
+    from atelier import build_batches
+    for step in bakes:
+        build_batches.validate(step)  # a cached batch declares the warm-source runtime it executes through
     final=next(s for s in steps if s.name=='world.forest')
     assert final.cache and len(final.reads)==49
     assert {p.name for p in final.products}=={'forest.library','forest.mesh_files','forest.manifest'}
