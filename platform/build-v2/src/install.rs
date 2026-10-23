@@ -1185,7 +1185,7 @@ struct JournalRecord {
     journal: InstallJournal,
 }
 
-impl CheckoutInstaller {
+impl ReceiptReader {
     fn reserve_scope(
         &self,
         mut next: impl FnMut() -> u64,
