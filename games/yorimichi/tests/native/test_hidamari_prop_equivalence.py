@@ -6,6 +6,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('hidamari_prop_proof_test',HERE/'hidamari_prop_equivalence.py')
@@ -28,6 +29,16 @@ def test_every_ordered_source_corner_channel_and_frame_is_observed(field):
     elif field=='smooth':piece['smooth'][0]=True
     else:piece['uvs'].pop()
     assert proof.piece_signature(piece,['Rock','Wood'],matrix)!=expected
+
+
+def test_unused_positions_and_point_attributes_are_preserved_separately_from_corners():
+    piece=fixture.piece();expected=proof.piece_signature(piece,['Rock','Wood'],fixture.MATRIX)
+    piece['positions']=np.concatenate([piece['positions'],[[.2,.3,.4]]])
+    name,domain,kind,values=piece['colours'][0]
+    piece['colours'][0]=(name,domain,kind,np.concatenate([values,[[.1,.2,.3,.4]]]))
+    observed=proof.piece_signature(piece,['Rock','Wood'],fixture.MATRIX)
+    assert observed['positions']==expected['positions'] and observed['colours']==expected['colours']
+    assert observed['all_positions']!=expected['all_positions'] and observed['point_colours']!=expected['point_colours']
 
 
 @pytest.mark.parametrize('field',['geometry','smoothing','material_property','global_axis','pivot'])

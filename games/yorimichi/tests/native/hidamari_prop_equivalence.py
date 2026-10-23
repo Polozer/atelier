@@ -56,10 +56,11 @@ def piece_signature(piece,slots,matrix):
     """Observe every ordered source corner independently of the production capture."""
     faces=piece['faces'];indices=np.asarray([i for face in faces for i in face],dtype='<i4')
     positions=np.asarray(piece['positions'],dtype='<f4')
-    return dict(counts=[len(face) for face in faces],positions=_array(positions[indices],'<f4'),
+    return dict(counts=[len(face) for face in faces],all_positions=_array(positions,'<f4'),positions=_array(positions[indices],'<f4'),
         normals=_array(piece['normals'],'<f4'),materials=_array(piece['materials'],'<i4'),
         smooth=_array(piece['smooth'],'?'),slots=list(slots),matrix=np.asarray(matrix,dtype='<f8').tolist(),selection=dict(piece['selection']),
         uvs=[dict(name=name,data=_array(values,'<f4')) for name,values in piece['uvs']],
+        point_colours=[dict(name=name,kind=kind,data=_array(values,'<f4')) for name,domain,kind,values in piece['colours'] if domain=='POINT'],
         colours=[dict(name=name,domain=domain,kind=kind,data=_array(np.asarray(values)[indices] if domain=='POINT' else values,'<f4'))
             for name,domain,kind,values in piece['colours']])
 
