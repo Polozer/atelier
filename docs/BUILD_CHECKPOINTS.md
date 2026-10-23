@@ -32,42 +32,24 @@ module/plugin binaries. Producer tool keys and complete inventory identities are
 invalidate a previous stamp. Existing bytes cannot be adopted under a newly selected toolchain. Conflicting bytes for one input
 key disable that entry rather than choosing one result silently.
 
-Tasks with complete output declarations have individually reusable entries. Tasks with representative outputs
-continue through compatible workspace incremental state; their files and source fingerprints are retained,
-but that state is not promoted into a produced task/tool certificate. Normal output/input checks still apply.
-This includes existing non-factory Blender steps, whose ambient startup does not support portable action proof.
-Add complete declarations and an explicit factory tool environment when migrating those tasks to individual reuse.
+Tasks with complete output declarations have individually reusable entries. A task without declared
+outputs owns exactly the files its run wrote under the generated root and the project Content
+(`package_ownership.py`), and publishes them as its entry. A non-factory Blender task's tool key
+also covers everything its startup can read beyond the keyed app bundle: the bytes of the version's
+user resource tree (preferences, startup file, add-ons, startup scripts, app templates, extensions;
+Blender's derived extension cache excepted) and the `BLENDER_USER_*` and `BLENDER_SYSTEM_*`
+variables with the trees they name. Its fingerprint is unchanged, so dependents are not re-keyed.
 
 For existing native state, compiled engine BuildId and SDK must be compatible. The receiving observed environment
 is recorded locally; a later tool change invalidates compatibility-only stamps. Unknown or expensive misses still
 stop before native work. Reuse never manufactures producer provenance or treats any Intermediate file as proof.
 A changed C++ target still goes through UBT; this is not a cross-worktree compiler object cache.
 
-Native importers can also declare a `CandidateScope` on their normal build step. Before a
-cache miss executes, including a batched leaf, the executor discovers compatible retained
-checkpoints locally and in private history. It stages the declared reports and complete package
-directories as independent copies in ignored `.state/import-candidates/`. Existing receiver
-products and stamps remain intact; no manual donor selection is required. An engine/SDK mismatch,
-missing clean donor revision, incomplete history or corrupted bytes makes the candidate unavailable.
-
-These are compatibility candidates, not certified task results. The native importer loads one
-validated bundle, verifies each selected member on access, and must prove its current source and
-geometry policy match before reuse. The bundle carries `donor_stamp`, the original task evidence.
-Its per-file input identities recover historical importer and support code from local Git objects
-without executing it. The capture revision identifies the capture; it does not prove which importer
-produced an older package. Missing original policy evidence is a normal import miss. It reruns current material, role, bounds and collision checks.
-Changed or unproved assets import normally. Only the normal successful importer can publish a
-current result. A whole-task miss can therefore reuse unchanged meshes without accepting stale
-validation or overwriting unrelated completed receiver work. Importers must integrate this shared
-protocol and declare their real artifact boundaries; arbitrary existing importers are not inferred.
-
-Each finalized native summary records actual imported/local/candidate counts and `miss_reasons`.
-These reasons identify the observed refusal, such as a dirty loaded package, mismatched saved receipt,
-missing compatible history, changed candidate geometry, recorded source mismatch or rejected current
-validation. They are observations, not proof that an import was avoidable. Read the exact invocation's
-`native-imports/TASK/summary.json` and require `finalized_after_native_success`; pending packets and
-staged file counts are not successful reuse. Reasons publish only after the normal successful host
-boundary, including for unsupported mesh policies that imported normally without reusable receipts.
+The only reuse path is per step: a task's result comes back from its own action entry, saved under its
+exact input key, or the task runs. There is no whole-workspace restore, hydration, certificate adoption or
+cross-checkpoint donor ranking. Unreal imports without a declared output folder own exactly the files they
+wrote in the run (their saved packages, other Content files they changed and their explicit outputs);
+see `package_ownership.py` for the claim, conflict and non-determinism rules.
 
 Existing local imports made before package inventories can follow a bounded incremental transition:
 their recovered source/import policy and receiving environment must agree, their package files must
@@ -78,13 +60,8 @@ fall back to weaker evidence. This is compatibility-only continuity, not proof o
 identity or a newly produced action result. It avoids reconstructing intact older local assets;
 it does not authorize arbitrary existing packages or manual stamp adoption.
 
-For an agreed read-only handoff from a clean, fully stopped older producer, use
-`atelier cache retain-candidates GAME --source CHECKOUT`. It writes capture scratch/logs in the
-controller and immutable files in the machine cache. It never writes producer `.state`, stamps,
-products or Zen data. Only generated/Content members and historical evidence enter a candidate-only
-catalogue; this is not a complete workspace seed or a new task certificate. Normal importer discovery
-finds it automatically. Preserve the producer until the key is reported. This diagnostic capture is
-not required for ordinary release retention. With the producer owner’s permission,
+`atelier cache retain-candidates GAME --source CHECKOUT` still captures a clean, stopped producer into
+candidate-only local history for diagnostics; builds no longer read it. With the producer owner’s permission,
 `atelier cache recover-history GAME --source CHECKOUT --checkpoint KEY --before-ns N --task TASK`
 can recover explicitly selected small original stamp records. Both timestamps must precede the
 known pre-capture boundary, the checkout must match the captured producer, and each read must
@@ -121,11 +98,8 @@ IDs do not count as content changes. Importer implementation, native module, act
 invalidate the tasks that consume them. Existing imports keep their dependency result when the previous
 declaration and retained outputs prove the migration changes only dependency metadata.
 
-Fresh checkouts can receive the latest compatible complete workspace as an incremental seed. Receiving task
-certificates are recomputed against current inputs. Intermediate is path-bound and is restored only at its
-original checkout path; PCH and object files are never blindly relocated. Shared engine/DDC/Zen services stay in
-place. Zen cooked data is exported/imported with UE snapshot operations, never by copying a live database.
-The implementation currently targets the installed macOS UE 5.8 toolchain.
+Fresh checkouts restore each task from its own action entry, in plan order. Shared engine/DDC/Zen services stay
+in place. The implementation currently targets the installed macOS UE 5.8 toolchain.
 
 ## Expensive misses stop
 
@@ -217,9 +191,10 @@ checkpoint pruning are not implemented by this private-store collector.
 
 ## Recovery and validation
 
-Interrupted restoration writes a durable launch barrier and removes success stamps before replacement. Build,
-play and package refuse partial state. Rerun the normal build to finish the recorded restore; after guard exit,
-receiving inputs and bytes are checked again before success publication. Preserve journals and logs on failure.
+An interrupted task restoration writes a durable launch barrier and removes that task's success stamp before
+replacement. Build, play and package refuse partial state. Rerun the normal build to finish the recorded restore;
+receiving inputs and bytes are checked again before success publication. An interrupted whole-checkpoint restore
+left by an older controller is dropped with the stamps it may have mixed, and every task proves its own result. Preserve journals and logs on failure.
 For a journaled partial transfer, `atelier cache abandon-transfer GAME` removes its journaled partial generated files while
 preserving tracked source and logs; then use the normal build.
 
