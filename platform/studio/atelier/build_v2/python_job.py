@@ -361,12 +361,23 @@ class PathGuard:
                 self.checked.skip = False
         return guarded
 
+    def path_hook(self, entry):
+        """First import path hook: the import system probes each new `sys.path` or package path entry
+        with the C-level `posix.stat`, which raises no audit event, so an undeclared entry, present or
+        missing, is checked here before any finder looks at it. The entries `main` kept (checked by real
+        path) and those startup already cached are trusted; every other entry must be declared."""
+        if entry not in self.trusted_entries:
+            self.check('read', entry)
+        raise ImportError('not handled here')
+
     def install(self):
         self.original_readlink = os.readlink
         sys.addaudithook(self.audit)
         for name, access in self.DESCRIPTOR_CALLS.items():
             if hasattr(os, name):
                 setattr(os, name, self.wrap(name, getattr(os, name), access))
+        self.trusted_entries = set(sys.path)
+        sys.path_hooks.insert(0, self.path_hook)
 
 
 _NO_PATH = object()
@@ -403,7 +414,8 @@ def main(config, report):
         seed = 0
     fix_clock_and_entropy(seed)
     context = JobContext(config['inputs'], config['outputs'], config['params'], seed)
-    PathGuard(job_dir, config['read_subpaths'], config['read_literals'], report).install()
+    guard = PathGuard(job_dir, config['read_subpaths'], config['read_literals'], report)
+    guard.install()
     try:
         spec = importlib.util.spec_from_file_location('atelier_job_entry', os.path.join(job_dir, config['script']))
         module = importlib.util.module_from_spec(spec)
@@ -413,6 +425,9 @@ def main(config, report):
         if not callable(entry):
             raise TypeError('the entry script defines no run(context) function')
         entry(context)
+        if guard.path_hook not in sys.path_hooks or finder not in sys.meta_path:
+            # Without them a probe of an undeclared import path could have gone unseen.
+            raise UndeclaredModuleError('the job removed the import guards')
         loaded = undeclared_modules(finder)
         if loaded:
             raise UndeclaredModuleError(f'undeclared modules were loaded: {", ".join(loaded)}')

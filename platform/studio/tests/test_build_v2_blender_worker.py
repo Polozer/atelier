@@ -24,7 +24,7 @@ def fake_blender(root):
     """A stand-in `Blender` binary inside an application bundle, run by this test's interpreter."""
     binary = root / 'Blender.app/Contents/MacOS/Blender'
     binary.parent.mkdir(parents=True)
-    binary.write_text(f'#!{sys.executable}\n' + (FIXTURES / 'fake_blender.py').read_text(encoding='utf-8'))
+    binary.write_text(f'#!{sys.executable} -sS\n' + (FIXTURES / 'fake_blender.py').read_text(encoding='utf-8'))
     binary.chmod(0o755)
     return binary
 

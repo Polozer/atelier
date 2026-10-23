@@ -361,7 +361,8 @@ Supported Python-level checks:
   of a path), resolved against the job folder or the descriptor's real directory;
 - writes outside `output/`;
 - refused directory changes, links, process starts, sockets and named `ctypes` libraries;
-- imports limited to installed platform modules and the declared code;
+- imports limited to installed platform modules and the declared code, and new import path entries
+  (`sys.path` or package paths) that are undeclared fail when probed, present or missing;
 - fixed wall clocks (`time.time`/`time_ns`, default `localtime`/`gmtime`/`ctime`/`strftime`,
   `datetime` now/today, `clock_gettime` of realtime clocks);
 - `random` on the declared seed, including `random.seed()` and `Random()`;
@@ -371,7 +372,10 @@ Known gaps, which these checks do not intercept:
 - native extension code that probes a *missing* undeclared path through the C library (an existing
   one is still killed by the kernel), so nothing here proves undeclared absence probes cannot happen;
 - monotonic, performance-counter and CPU-time clocks, and file timestamps, which stay real;
-- random generators in native libraries that read OS entropy themselves.
+- random generators in native libraries that read OS entropy themselves;
+- deliberate tampering with the guard itself: removing the import path hook or the declared-code
+  finder is detected when the op returns, but code that removes and restores them, or restores the
+  original `os` functions, is outside this trusted-code scope.
 
 Unit code MUST NOT derive outputs from real clocks, timestamps or native entropy. Clean-room and
 determinism fixtures remain required.
@@ -450,7 +454,9 @@ Portable tests run the loop's test-only entry
 and installs a minimal `bpy`. They cover the protocol, command line, environment, order independence,
 seed and params, cancel, failures and output refusal through the result store. Blender itself, its
 exporter, the sandbox profile and native reads are proven only by the T1b session
-(`blender_jobs::t1b_blender_session`, ignored by default): the production entry in the installed
+(the example [examples/t1b_blender_session.rs](examples/t1b_blender_session.rs), run with
+`cargo run --example t1b_blender_session` under `guarded --kind job`; an example because CI hosts have no
+Blender and the T0 registry admits no ignored tests): the production entry in the installed
 Blender, run once in one admitted session over the frozen pyramid in
 [tests/fixtures/t1b](tests/fixtures/t1b), checking equal export bytes alone, after another job and in a
 fresh loop, seed determinism, the selected payload, params and code, refusals and denials, and the

@@ -126,7 +126,9 @@ membership. Limitations, not guarantees: native extension code that probes a mis
 through the C library is NOT detected (the kernel answers ENOENT with no sandbox decision), so these
 checks do not prove undeclared absence probes cannot happen; elapsed-time clocks (monotonic, perf
 counters, CPU time) and file timestamps are real; random generators in native libraries that read OS
-entropy themselves are not intercepted. Scope: job code is trusted project code. The kernel
+entropy themselves are not intercepted; deliberate tampering with the guard's own hooks, finders or
+patched functions is out of scope (removal of the import hook or finder is detected). Scope: job
+code is trusted project code. The kernel
 filesystem and network sandbox is the enforcement; the Python guard is additional detection of
 accidental undeclared dependencies, not an adversarial Python jail, and these checks do not intercept
 all nondeterminism or absence probes. This scope MUST NOT excuse an ordinary API bug in a supported

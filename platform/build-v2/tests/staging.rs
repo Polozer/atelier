@@ -818,8 +818,11 @@ mod sandboxed {
             format!("import posix; posix.stat({secret:?})"),
             format!("os.listdir({:?})", space.0),
             "import socket; socket.socket().connect(('127.0.0.1', 9))".to_string(),
-            "import sys; sys.path.append('/usr/local/lib'); __import__('not_declared_module')"
-                .to_string(),
+            // A missing undeclared import path: hermetic, and caught by the guard, not the kernel.
+            format!(
+                "import sys; sys.path.append({:?}); __import__('not_declared_module')",
+                space.path("no-such-lib")
+            ),
         ]
         .into_iter()
         .enumerate()
