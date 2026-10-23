@@ -5,8 +5,82 @@ import argparse
 import json
 import math
 from pathlib import Path
+import re
 import tomllib
 import xml.etree.ElementTree as ET
+
+
+FRAGMENT_NAME = re.compile(r'[a-z0-9][a-z0-9._-]*\.toml')
+FRAGMENT_KEYS = frozenset({'schema_version', 'scenarios', 'pending'})
+ROW_KEYS = {'scenarios': frozenset({'id', 'tests', 'platforms'}),
+            'pending': frozenset({'id', 'task'})}
+
+
+def load_registry(directory: Path) -> dict:
+    """@cc [owner:fontanierh,label:correctness] build-v2-registry-fragments
+    The registry loader MUST take one explicit directory and MUST reject a missing or empty one.
+    Every directory entry MUST be a regular, non-symbolic, lowercase TOML file named
+    [a-z0-9][a-z0-9._-]*.toml; any other entry MUST fail. Each fragment MUST declare
+    schema_version = 1, use only the documented keys, give every row a non-empty id and the
+    section's required values, and declare at least one row. Discovery MUST merge every fragment
+    in sorted filename order without deduplication, filtering or coverage policy; duplicate ids,
+    missing or unmapped scenarios, ignored and filtered tests, execution evidence and the
+    ten-second budget remain the checker's.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise ValueError(f'registry directory is missing or not a directory: {directory}')
+    fragments = []
+    for entry in sorted(directory.iterdir(), key=lambda path: path.name):
+        if entry.is_symlink() or not entry.is_file() or not FRAGMENT_NAME.fullmatch(entry.name):
+            raise ValueError(f'unexpected registry entry: {entry.name}')
+        fragments.append(entry)
+    if not fragments:
+        raise ValueError(f'no registry fragments in {directory}')
+
+    merged = {'schema_version': 1, 'scenarios': [], 'pending': []}
+    for path in fragments:
+        try:
+            fragment = tomllib.loads(path.read_text())
+        except tomllib.TOMLDecodeError as error:
+            raise ValueError(f'{path.name}: {error}') from error
+        unknown = sorted(set(fragment) - FRAGMENT_KEYS)
+        if unknown:
+            raise ValueError(f'{path.name}: unknown keys {unknown}')
+        if type(fragment.get('schema_version')) is not int or fragment['schema_version'] != 1:
+            raise ValueError(f'{path.name}: schema_version must be 1')
+        rows = 0
+        for section in ('scenarios', 'pending'):
+            table = fragment.get(section, [])
+            if not isinstance(table, list):
+                raise ValueError(f'{path.name}: {section} must be a list of tables')
+            for index, row in enumerate(table):
+                where = f'{path.name}: {section}[{index}]'
+                if not isinstance(row, dict):
+                    raise ValueError(f'{where}: expected a table')
+                unknown = sorted(set(row) - ROW_KEYS[section])
+                if unknown:
+                    raise ValueError(f'{where}: unknown keys {unknown}')
+                if not isinstance(row.get('id'), str) or not row['id']:
+                    raise ValueError(f'{where}.id: expected a non-empty string')
+                if section == 'scenarios':
+                    tests = row.get('tests')
+                    if (not isinstance(tests, list) or not tests
+                            or any(not isinstance(test, str) or not test for test in tests)):
+                        raise ValueError(f'{where}.tests: expected a non-empty list of non-empty strings')
+                    platforms = row.get('platforms')
+                    if platforms is not None and (not isinstance(platforms, list) or not platforms
+                                                  or any(not isinstance(item, str) or not item
+                                                         for item in platforms)):
+                        raise ValueError(
+                            f'{where}.platforms: expected a non-empty list of non-empty strings')
+                elif not isinstance(row.get('task'), str) or not row['task']:
+                    raise ValueError(f'{where}.task: expected a non-empty string')
+                merged[section].append(dict(row))
+                rows += 1
+        if not rows:
+            raise ValueError(f'{path.name}: fragment declares no rows')
+    return merged
 
 
 def check_registry(registry: dict, listing: dict, junit: ET.Element | None = None) -> dict:
@@ -74,12 +148,12 @@ def check_registry(registry: dict, listing: dict, junit: ET.Element | None = Non
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--registry', type=Path, required=True)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument('--registry-dir', type=Path, required=True)
     parser.add_argument('--listing', type=Path, required=True)
     parser.add_argument('--junit', type=Path)
     args = parser.parse_args()
-    registry = tomllib.loads(args.registry.read_text())
+    registry = load_registry(args.registry_dir)
     listing = json.loads(args.listing.read_text())
     junit = ET.parse(args.junit).getroot() if args.junit else None
     print(json.dumps(check_registry(registry, listing, junit), sort_keys=True))
