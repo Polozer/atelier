@@ -5,10 +5,8 @@
 //! admission, guards, deadlines and crash evidence and implements this seam; it appends
 //! `--request-fd N --response-fd M` exactly as [`DirectChild`] does. [`DirectChild`] starts an owned
 //! child with no admission and exists for tests and local tools only.
-use crate::keys::PreparedUnit;
 use crate::protocol::{FailureKind, WorkerFailure};
-use crate::results::OutputSources;
-use crate::staging::{StagedJob, collect_outputs};
+use crate::staging::{ActualFile, StagedJob, collect_outputs};
 use crate::worker_session::{Channel, Session};
 use std::collections::BTreeMap;
 use std::io::{self, PipeReader, PipeWriter};
@@ -127,22 +125,21 @@ impl StartWorker for DirectChild {
 /// The outcome of one staged job, before B2 freezes and publishes anything.
 #[derive(Debug)]
 pub enum JobOutcome {
-    /// The complete output manifest for `WriteTransaction::stage`.
-    Completed(OutputSources),
+    /// Every file the job produced, fixed outputs and group members alike, for B2/A4b staging.
+    Completed(Vec<ActualFile>),
     Failed(WorkerFailure),
 }
 
 /// @cc [owner:fontanierh,label:correctness] staged-job-run
 /// Running a staged job MUST start one worker, complete the versioned handshake, send exactly the
 /// staged request, and turn only a `completed` whose reported files equal the actual `output/` tree
-/// into a manifest. Worker failures, protocol breaks and mismatched outputs MUST yield no manifest;
-/// a broken worker is stopped, never reused. Nothing is published or deleted here. See
-/// tests/python_jobs.rs.
+/// into the complete actual file list; membership is decided by the result store. Worker failures,
+/// protocol breaks and reported/actual mismatches MUST yield no outputs; a broken worker is
+/// stopped, never reused. Nothing is published or deleted here. See tests/staging.rs.
 pub fn run_staged<L: StartWorker>(
     launcher: &L,
     command: &WorkerCommand,
     worker_version: &str,
-    prepared: &PreparedUnit,
     staged: &StagedJob,
 ) -> Result<JobOutcome, String> {
     let (mut worker, pipes) = launcher
@@ -165,7 +162,7 @@ pub fn run_staged<L: StartWorker>(
         }
     };
     let outcome = match finished.result {
-        Ok(outputs) => match collect_outputs(staged, prepared, &outputs.files) {
+        Ok(outputs) => match collect_outputs(staged, &outputs.files) {
             Ok(sources) => JobOutcome::Completed(sources),
             Err(message) => JobOutcome::Failed(WorkerFailure {
                 kind: FailureKind::Job,

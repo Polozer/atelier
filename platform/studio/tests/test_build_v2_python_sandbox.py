@@ -41,9 +41,11 @@ import json, os
 def run(context):
     data = context.input('shape').read_bytes()
     context.output('piece.txt').write_text(json.dumps([data.decode(), sorted(os.listdir('.')), dict(context.params)]))
+    os.makedirs('output/pieces/a')  # a group folder under output/ is writable too
+    open('output/pieces/a/m.glb', 'w').write('member')
 '''
     assert loop.run(stage(tmp_path / 'job', script=script)) == {
-        'type': 'completed', 'job_id': 'job-1', 'outputs': {'files': ['piece.txt']}}
+        'type': 'completed', 'job_id': 'job-1', 'outputs': {'files': ['piece.txt', 'pieces/a/m.glb']}}
     assert (tmp_path / 'job/output/piece.txt').read_text() == '["ab", ["in", "ops", "output"], {"scale": 2}]'
     loop.close()
 

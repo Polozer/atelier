@@ -448,7 +448,7 @@ fn staging_refuses_incomplete_items_reused_folders_and_relative_roots() {
 }
 
 #[test]
-fn collected_outputs_must_equal_the_reported_and_declared_files() {
+fn collected_outputs_are_every_actual_file_and_fixed_mapping_refuses_others() {
     let space = Workspace::new();
     let fixture = Fixture::new("assets");
     let prepared = fixture.prepared();
@@ -462,36 +462,40 @@ fn collected_outputs_must_equal_the_reported_and_declared_files() {
     .unwrap();
     let output = job.output_dir();
     fs::write(output.join("piece.txt"), b"piece").unwrap();
-    let sources = collect_outputs(&job, &prepared, &["piece.txt".into()]).unwrap();
+    let actual = collect_outputs(&job, &["piece.txt".into()]).unwrap();
+    let piece = ActualFile {
+        path: "piece.txt".into(),
+        source: output.join("piece.txt"),
+    };
+    assert_eq!(actual, [piece.clone()]);
     assert_eq!(
-        sources,
+        fixed_sources(&prepared, &actual).unwrap(),
         BTreeMap::from([(
             ("piece".to_string(), "piece.txt".to_string()),
-            output.join("piece.txt")
+            piece.source.clone()
         )])
     );
-    assert!(collect_outputs(&job, &prepared, &[]).is_err());
-    assert!(collect_outputs(&job, &prepared, &["piece.txt".into(), "piece.txt".into()]).is_err());
-    fs::create_dir(output.join("notes")).unwrap();
-    fs::write(output.join("notes/extra.txt"), b"notes").unwrap();
-    let both = ["notes/extra.txt".to_string(), "piece.txt".to_string()];
-    assert_eq!(collect_outputs(&job, &prepared, &both).unwrap().len(), 2);
+    assert!(collect_outputs(&job, &[]).is_err());
+    assert!(collect_outputs(&job, &["piece.txt".into(), "piece.txt".into()]).is_err());
+    assert!(collect_outputs(&job, &["piece.txt".into(), "ghost.txt".into()]).is_err());
+    // Every actual file is reported, declared or not, including files under a would-be group root.
+    fs::create_dir_all(output.join("pieces/a")).unwrap();
+    fs::write(output.join("pieces/a/member.glb"), b"member").unwrap();
     fs::write(output.join("stray.txt"), b"stray").unwrap();
-    let error = collect_outputs(
-        &job,
-        &prepared,
-        &[both[0].clone(), both[1].clone(), "stray.txt".into()],
-    )
-    .unwrap_err();
+    let all = [
+        "pieces/a/member.glb".to_string(),
+        "piece.txt".into(),
+        "stray.txt".into(),
+    ];
+    let actual = collect_outputs(&job, &all).unwrap();
+    let paths: Vec<_> = actual.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["piece.txt", "pieces/a/member.glb", "stray.txt"]);
+    let error = fixed_sources(&prepared, &actual).unwrap_err();
     assert!(error.contains("not declared"), "{error}");
-    fs::remove_file(output.join("stray.txt")).unwrap();
-    std::os::unix::fs::symlink("/etc/hosts", output.join("notes/link")).unwrap();
-    let error = collect_outputs(
-        &job,
-        &prepared,
-        &[both[0].clone(), both[1].clone(), "notes/link".into()],
-    )
-    .unwrap_err();
+    std::os::unix::fs::symlink("/etc/hosts", output.join("pieces/link")).unwrap();
+    let mut with_link = all.to_vec();
+    with_link.push("pieces/link".into());
+    let error = collect_outputs(&job, &with_link).unwrap_err();
     assert!(error.contains("not a regular file"), "{error}");
 }
 
@@ -527,22 +531,21 @@ fn run(space: &Workspace, fixture: &Fixture, name: &str, sandboxed: bool) -> (Jo
         &DirectChild,
         &job_loop(sandboxed),
         PYTHON_JOB_LOOP_VERSION,
-        &prepared,
         &job,
     )
     .unwrap();
     (outcome, job.output_dir())
 }
 
-fn completed(outcome: JobOutcome) -> BTreeSet<(String, String)> {
+fn completed(outcome: JobOutcome) -> BTreeSet<String> {
     match outcome {
-        JobOutcome::Completed(sources) => sources.into_keys().collect(),
+        JobOutcome::Completed(actual) => actual.into_iter().map(|file| file.path).collect(),
         JobOutcome::Failed(failure) => panic!("job failed: {failure:?}"),
     }
 }
 
-fn piece() -> BTreeSet<(String, String)> {
-    BTreeSet::from([("piece".to_string(), "piece.txt".to_string())])
+fn piece() -> BTreeSet<String> {
+    BTreeSet::from(["piece.txt".to_string()])
 }
 
 fn same_bytes_under_other_ids_folders_and_source_locations(sandboxed: bool) {
@@ -594,11 +597,15 @@ fn python_job_output_changes_with_only_seed_or_params() {
 }
 
 #[test]
-fn python_job_failures_and_bad_outputs_yield_no_manifest() {
+fn python_job_failures_yield_no_outputs_and_undeclared_files_are_reported() {
     let space = Workspace::new();
     for (index, (attempt, kind)) in [
         ("raise ValueError('bad mesh')", FailureKind::Job),
-        ("open('output/stray.txt', 'w').write('x')", FailureKind::Job),
+        ("os.mkfifo('output/pipe')", FailureKind::Job),
+        (
+            "os.symlink('/etc/hosts', 'output/link')",
+            FailureKind::Dependency,
+        ),
         (
             "os.path.exists('/nonexistent-build-v2-probe')",
             FailureKind::Dependency,
@@ -618,6 +625,17 @@ fn python_job_failures_and_bad_outputs_yield_no_manifest() {
     let mut optional = Fixture::new("assets");
     optional.params(serde_json::json!({"seed": 7, "scale": 2, "notes": true}));
     assert_eq!(completed(run(&space, &optional, "notes", false).0).len(), 2);
+    // An undeclared file is reported, not hidden; the fixed-result mapping then refuses it.
+    let mut stray = Fixture::new("assets");
+    stray.params(serde_json::json!({"seed": 7, "scale": 2,
+        "attempts": ["open('output/stray.txt', 'w').write('x')"]}));
+    let (outcome, _) = run(&space, &stray, "stray", false);
+    let JobOutcome::Completed(actual) = outcome else {
+        panic!("the stray job did not complete")
+    };
+    let paths: Vec<_> = actual.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["piece.txt", "stray.txt"]);
+    assert!(fixed_sources(&stray.prepared(), &actual).is_err());
 }
 
 #[cfg(target_os = "macos")]
@@ -716,14 +734,8 @@ mod sandboxed {
         assert_eq!(fs::read(mesh.join("mesh.bin")).unwrap(), b"mesh bytes");
         assert_eq!(mode(&mesh.join("mesh.bin")), 0o444);
         assert_eq!(mode(&mesh.join("bin/tool.sh")), 0o555);
-        let outcome = run_staged(
-            &DirectChild,
-            &job_loop(true),
-            PYTHON_JOB_LOOP_VERSION,
-            &prepared,
-            &job,
-        )
-        .unwrap();
+        let outcome =
+            run_staged(&DirectChild, &job_loop(true), PYTHON_JOB_LOOP_VERSION, &job).unwrap();
         assert_eq!(completed(outcome), piece());
     }
 }

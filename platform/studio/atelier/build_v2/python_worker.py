@@ -14,7 +14,7 @@ reports as a `dependency` failure. There is no unsandboxed fallback: elsewhere a
 loop was started with `--no-sandbox-portable-test`, which exists only for portable tests of the loop
 itself and proves nothing about isolation.
 
-Returned output membership is checked here and again by the controller. Only the standard library
+The loop reports every regular file the job left under `output/`; the controller decides membership. Only the standard library
 is used, so this file also runs by path without the atelier package.
 """
 import argparse
@@ -155,8 +155,12 @@ def job_config(job, job_dir, result_fd):
             'read_literals': platform_reads()[1], 'result_fd': result_fd}
 
 
-def output_files(job_dir, outputs):
-    """Every regular file under `output/`, refusing links, other types and undeclared names."""
+def output_files(job_dir):
+    """Every regular file under `output/`, declared or not; links and other types fail the job.
+
+    The loop reports the complete actual set (fixed outputs and group members alike) and leaves
+    membership to the controller, which holds the exact fixed and group output contracts.
+    """
     root = os.path.join(job_dir, 'output')
     found = []
     for directory, subdirectories, files in os.walk(root):
@@ -165,11 +169,6 @@ def output_files(job_dir, outputs):
             if os.path.islink(path) or not (os.path.isdir(path) or os.path.isfile(path)):
                 raise JobRefused('job', f'output {os.path.relpath(path, root)!r} is not a regular file')
         found.extend(os.path.relpath(os.path.join(directory, name), root) for name in files)
-    declared = {item['path']: item['required'] for item in outputs}
-    undeclared = sorted(set(found) - set(declared))
-    missing = sorted(path for path, required in declared.items() if required and path not in found)
-    if undeclared or missing:
-        raise JobRefused('job', f'outputs do not match the declaration: undeclared {undeclared}, missing {missing}')
     return sorted(found)
 
 
@@ -297,7 +296,7 @@ class Worker:
             raise JobRefused(result.get('kind', 'job'), result.get('message', 'the job failed'))
         if status != 0:
             raise JobRefused('job', f'the job process exited with status {status}')
-        return output_files(job_dir, job['outputs'])
+        return output_files(job_dir)
 
 
 def main(argv=None):

@@ -72,7 +72,8 @@ undeclared read, existence check (of a present or missing path), listing, networ
 start MUST fail the job as `dependency` rather than return a value; writes outside `output/` MUST
 fail. There MUST be no unsandboxed fallback except the explicit portable-test flag. Wall-clock reads
 MUST be fixed, OS entropy refused and `random` seeded from the declared seed. The loop MUST make both
-protocol descriptors non-inheritable before any job runs, and MUST report only declared, regular
-output files. Native extension code probing a missing path is a documented gap. See
+protocol descriptors non-inheritable before any job runs, and MUST report every regular file left
+under `output/` (fixed outputs and group members alike), failing on links and special files; the
+controller decides membership. Native extension code probing a missing path is a documented gap. See
 platform/studio/tests/test_build_v2_python_worker.py, test_build_v2_python_sandbox.py and
 tests/staging.rs.

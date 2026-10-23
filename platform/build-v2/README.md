@@ -290,8 +290,10 @@ and hash nothing. Staging failure removes only its own fresh folder. The request
 staged paths and drops output `install_path`s; locators, selectors and logical paths never appear.
 
 `staging::collect_outputs` walks `output/` without following links and requires the worker's reported
-files to equal the regular files found; each maps to its declaring item, giving the complete
-`OutputSources` manifest that B2's `WriteTransaction::stage` freezes, hashes and validates once.
+files to equal the regular files found. It returns every actual file (`ActualFile`: path and source),
+declared or not, so fixed outputs and group members alike reach the result store, which holds the
+exact contracts and decides membership; nothing hashes here. `fixed_sources` maps a fixed-only unit's
+files to their items for B2's `WriteTransaction::stage` and refuses any other file.
 `remove_job` deletes a job folder after B2 has staged or refused its outputs.
 
 `launch::StartWorker` is the launcher seam: start a `WorkerCommand` (program, args, complete
@@ -299,7 +301,7 @@ environment, working folder) with a dedicated pipe, appending `--request-fd N --
 later `stop` or `wait` it. C7's supervised launcher implements it with admission, guards and deadlines;
 `DirectChild` starts an owned child for tests and local tools only. `launch::run_staged` runs one
 staged job: handshake, the staged request, then `collect_outputs` on `completed`; failures, protocol
-breaks and output mismatches give no manifest, and a broken worker is stopped. Nothing is published
+breaks and reported/actual mismatches give no outputs, and a broken worker is stopped. Nothing is published
 or deleted there.
 
 `platform/studio/atelier/build_v2/python_worker.py` is the Python job loop. It makes both protocol
@@ -323,7 +325,8 @@ path guard (an audit hook plus checked `os.stat`/`lstat`/`access`) also ends the
 any undeclared read, existence check, listing or write, present or missing, and on process starts,
 links and sockets. Elsewhere jobs fail with `dependency`: there is no unsandboxed fallback, except the
 explicit `--no-sandbox-portable-test` flag for portable tests of the loop, which proves no isolation.
-The loop checks output membership and the controller checks it again.
+The loop reports every regular file under `output/` (any group folder there is writable too) and fails
+on links or special files; membership is the controller's.
 
 Known gaps: native extension code that probes a missing undeclared path through the C library is not
 detected (an existing one is still killed). Linux has no sandbox yet. The worker implementation

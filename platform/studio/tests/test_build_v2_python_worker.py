@@ -1,4 +1,5 @@
 """The build-v2 Python job loop runs real tiny jobs over inherited pipes (portable, no isolation claim)."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -52,6 +53,8 @@ class Loop:
             [sys.executable, '-I', str(WORKER), '--request-fd', str(request_read), '--response-fd',
              str(response_write), *flags], pass_fds=(request_read, response_write), stdin=subprocess.DEVNULL,
             stdout=log, stderr=log)
+        # A pipe's two ends share one inode: the job must hold neither protocol pipe.
+        self.protocol_pipes = {(os.fstat(fd).st_dev, os.fstat(fd).st_ino) for fd in (request_read, response_write)}
         os.close(request_read)
         os.close(response_write)
         self.requests = os.fdopen(self.request_write, 'wb', buffering=0)
@@ -190,32 +193,37 @@ def run(context):
     assert (tmp_path / 'probe/output/piece.txt').read_text() == 'missing False'
 
 
-def test_job_sees_only_its_result_descriptor_and_declared_environment(tmp_path, loop):
+def test_job_sees_no_protocol_descriptor_and_only_the_declared_environment(tmp_path, loop):
     probe = '''
-import os
+import json, os, stat
 def run(context):
-    open_fds = []
+    pipes = []
     for fd in range(3, 256):
         try:
-            os.fstat(fd)
-            open_fds.append(fd)
+            info = os.fstat(fd)
         except OSError:
-            pass
-    context.output('piece.txt').write_text(f'{len(open_fds)} {sorted(os.environ)}')
+            continue
+        if stat.S_ISFIFO(info.st_mode):
+            pipes.append([info.st_dev, info.st_ino])
+    context.output('piece.txt').write_text(json.dumps([pipes, sorted(os.environ)]))
 '''
     assert loop.run(stage(tmp_path / 'job', script=probe))['type'] == 'completed'
-    count, environment = (tmp_path / 'job/output/piece.txt').read_text().split(' ', 1)
-    assert count == '1'  # the result pipe; neither protocol descriptor is inherited
-    assert environment == repr(sorted(python_worker.JOB_ENVIRONMENT))
+    pipes, environment = json.loads((tmp_path / 'job/output/piece.txt').read_text())
+    assert pipes  # the job's own result pipe
+    assert not {tuple(pipe) for pipe in pipes} & loop.protocol_pipes
+    assert environment == sorted(python_worker.JOB_ENVIRONMENT)
 
 
-def test_outputs_must_match_the_declaration(tmp_path, loop):
-    extra = 'def run(context):\n    (context.output_dir / "other.txt").write_text("x")\n'
-    assert 'undeclared' in failure(loop.run(stage(tmp_path / 'extra', script=extra)), 'job')
+def test_loop_reports_every_actual_output_and_refuses_links_and_special_files(tmp_path, loop):
+    # Membership is the controller's: undeclared files (a group member, say) are reported, not hidden.
+    extra = ('def run(context):\n    (context.output_dir / "pieces/a").mkdir(parents=True)\n'
+             '    (context.output_dir / "pieces/a/m.glb").write_text("x")\n'
+             '    context.output("piece.txt").write_text("x")\n')
+    assert loop.run(stage(tmp_path / 'extra', script=extra)) == {
+        'type': 'completed', 'job_id': 'job-1', 'outputs': {'files': ['piece.txt', 'pieces/a/m.glb']}}
     missing = 'def run(context):\n    pass\n'
-    assert 'missing' in failure(loop.run(stage(tmp_path / 'missing', script=missing)), 'job')
-    optional = stage(tmp_path / 'optional', script=missing, outputs=[{'path': 'piece.txt', 'required': False}])
-    assert loop.run(optional) == {'type': 'completed', 'job_id': 'job-1', 'outputs': {'files': []}}
+    assert loop.run(stage(tmp_path / 'missing', script=missing)) == {
+        'type': 'completed', 'job_id': 'job-1', 'outputs': {'files': []}}
     link = 'import os\ndef run(context):\n    os.symlink("/etc/hosts", context.output("piece.txt"))\n'
     assert 'os.symlink' in failure(loop.run(stage(tmp_path / 'link', script=link)), 'dependency')
     fifo = 'import os\ndef run(context):\n    os.mkfifo(context.output("piece.txt"))\n'

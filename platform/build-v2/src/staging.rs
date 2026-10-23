@@ -5,7 +5,7 @@
 //! `output/`. Code bytes come from the frozen snapshot that was keyed, checked against the keyed
 //! digests; live sources are never reread. Item inputs are cloned from the object store, never
 //! copied. [`collect_outputs`] turns a finished job's `output/` tree into the complete manifest
-//! that B2's `WriteTransaction::stage` consumes.
+//! that B2 consumes.
 use crate::keys::{InputPayload, PreparedUnit};
 use crate::protocol::JobRequest;
 use crate::results::{OutputSources, WriteTransaction};
@@ -272,16 +272,21 @@ fn stage_into(
     })
 }
 
+/// One file a job actually produced: its `output/`-relative path and where it lies now.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ActualFile {
+    pub path: String,
+    pub source: PathBuf,
+}
+
 /// @cc [owner:fontanierh,label:correctness] collected-output-manifest
 /// Collection MUST walk the job's `output/` tree without following links, refuse anything but
 /// regular files and directories, and require the worker's reported file list to equal the files
-/// found. Every found file is mapped to its declaring item; an undeclared file fails collection. It
-/// never hashes: B2 freezes and hashes the returned sources once. See tests/staging.rs.
-pub fn collect_outputs(
-    staged: &StagedJob,
-    prepared: &PreparedUnit,
-    reported: &[String],
-) -> Result<OutputSources, String> {
+/// found. It MUST return every actual file, declared or not (fixed outputs and group members alike),
+/// so the controller decides membership; [`fixed_sources`] maps a fixed-only unit's files to their
+/// items and refuses any other file. Neither hashes: B2 freezes and hashes the sources once. See
+/// tests/staging.rs.
+pub fn collect_outputs(staged: &StagedJob, reported: &[String]) -> Result<Vec<ActualFile>, String> {
     let root = staged.output_dir();
     let mut found = BTreeMap::new();
     let mut pending = vec![root.clone()];
@@ -316,15 +321,27 @@ pub fn collect_outputs(
     {
         return Err("the worker's reported outputs differ from the files in output/".into());
     }
+    Ok(found
+        .into_iter()
+        .map(|(path, source)| ActualFile { path, source })
+        .collect())
+}
+
+/// The B2 fixed-result manifest for a unit without output groups: each actual file keyed by its
+/// declaring item. A file no fixed output declares fails; required membership is B2's check.
+pub fn fixed_sources(
+    prepared: &PreparedUnit,
+    actual: &[ActualFile],
+) -> Result<OutputSources, String> {
     let mut sources = OutputSources::new();
-    for (relative, path) in found {
+    for file in actual {
         let item = prepared
             .ingredients()
             .logical_outputs
             .iter()
-            .find(|item| item.files.iter().any(|file| file.path == relative))
-            .ok_or_else(|| format!("output {relative} is not declared"))?;
-        sources.insert((item.id.clone(), relative), path);
+            .find(|item| item.files.iter().any(|output| output.path == file.path))
+            .ok_or_else(|| format!("output {} is not declared", file.path))?;
+        sources.insert((item.id.clone(), file.path.clone()), file.source.clone());
     }
     Ok(sources)
 }
