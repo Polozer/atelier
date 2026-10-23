@@ -885,3 +885,104 @@ B4/B4b usage retention, the sole `roots::may_reclaim` adapter, same-store custod
 handling, the restore/GC race, CLI wiring and physical free-space proof remain separate. No shared
 store cleanup or production activation is added. All nine registered pure cases remain T0; the
 pending `t0.restore-gc-race` row is retained.
+
+## Unreal worker (C3)
+
+`unreal::UnrealContext` declares what one Unreal session loads: the engine root and BuildId, the
+editor compile (`Binaries`: a produced folder and its `tree_identity`), the project modules, the
+declared engine plugins (each with the `tree_identity` of its installed descriptor and `Binaries`;
+default-enabled engine plugins are bound only by the BuildId), the project plugins (the editor-only
+`AtelierBuildWorker` plugin is required)
+and the declared `-ini:`/`-ForceDPCVars=` settings. `identity()` drops every location, and
+`profile()` (`unreal-<sha256>`) is the scheduler's `Compatibility.profile`. The profile only groups
+sessions: semantic ini, CVars and module bytes still enter each unit's key.
+
+**DDC.** `UnrealDdc::open(store, build_id)` gives the context its derived-data cache folder,
+`<store root>/unreal-ddc/<engine BuildId>`. The v2 store owns it. It outlives jobs and sessions, and
+nothing cleans it per job. It is rebuildable acceleration only: no reuse, key or receipt decision
+reads it, and store GC may drop it whole. Every session passes `-nowrite -NoZenAutoLaunch` and
+`-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path=<folder>))`. Those flags, the graph and the
+folder are in the profile, so changing any of them gives a new session. Before `hello` the worker
+reads the editor's effective cache graph from the plugin and records it in `unreal-context.json`.
+It refuses the session if the graph holds anything else:
+- a Zen, shared, remote or unknown store;
+- a file-system node outside the folder;
+- a pak other than the installed engine pak.
+
+It also refuses if no node is inside the folder. The controller checks the recorded graph again.
+The graph cannot show a pak opened for writing, so the receipt stamps the installed engine pak and
+`verify()` refuses any change to its size or modification time. That stamp is not a content hash and
+does not prove the pak stayed read-only (a named gap). The T2 probe timings came from tiny inputs and are not
+representative; real assets are measured after C3.
+
+**Frozen worker.** `UnrealWorkerBundle::read(dir)` freezes the bytes of `unreal_worker.py` and the
+`protocol.py` it loads when the context is declared. Each session writes them read-only to
+`<session>/worker/`, and the editor runs that copy, so a later source edit never reaches a session.
+`digest()` is their content identity. It is in the profile and exposed for the future D4/A9 item/op
+key binder, which must also hash the compiled project module and plugin outputs and the semantic
+settings, never the installed BuildId, editor or engine-plugin bytes, or DDC paths. The worker
+reports the digest of the files it actually loaded before `hello`.
+
+`ScratchProject::prepare(session, ctx)` builds `<session>/project/Atelier.uproject` with empty
+`Content`, `Config`, `Saved` and `Intermediate`, and a session `user/` folder. It APFS-clones only the
+editor binaries and each plugin's descriptor and `Binaries`, checks them against the declared
+identities, writes `scratch-receipt.json` and `Atelier/expected-context.json`, and makes the clones
+read-only. A module the editor wants to rebuild therefore fails closed. `verify()` rechecks the
+receipt after the session. Off macOS, `prepare` refuses with "requires macOS".
+
+`job_loop_command` runs `UnrealEditor-Cmd` on the scratch project with
+`-run=pythonscript -script=platform/studio/atelier/build_v2/unreal_worker.py`, fixed unattended
+flags, `-NullRHI`, `-nocrashreports`, `-UserDir=<session>/user`, the DDC flags and graph, and the
+declared settings. The launcher appends the
+protocol descriptors. Once per session, before `hello`, the worker:
+- recomputes each declared engine plugin's identity from the folder the editor loaded it from;
+- reads every declared setting back from the editor: a missing value never matches, ini values
+  compare as exact text and CVars as exact text or the same finite decimal, and each raw readback
+  is kept in `settings_read`;
+- writes `<session>/unreal-context.json` (what the editor loaded and holds).
+
+The controller reads that file with `verify_context_report()` before the first `Run`.
+Each job then:
+- gets an empty `/Game` with its input packages copied in read-only;
+- must save exactly its declared packages, which move to `output/content/Game/`. Each collected
+  file must hold the bytes its last save wrote, and every required output must exist. The plugin
+  hashes the files a save wrote (its target, and each companion it created or replaced) with SHA1
+  after flushing its writes; that hash is integrity only, never a key. A file already there that the
+  save left alone fails the job. Each file keeps its latest attestation and the package that saved
+  it: a file saved by two packages, or attested by another package's save, fails the job.
+  A file written straight into `output/` fails the job;
+- leaves each saved file's own import table in `evidence/imports.json` (`read_import_evidence`). An
+  unreadable table fails the job.
+
+After each job the worker resets Python state, `/Game` and the asset registry. It unloads the
+touched packages with the plugin's synchronous garbage collection, in up to three passes, because an
+imported package survives its first unload. Each package is then checked with `find_object`. Every
+console variable that existed before the job must keep its value, and one registered during the job
+must still be at its default. A failed ensure fails the job. If any reset check fails, the worker
+replies, then exits.
+
+The editor-only plugin lives at `unreal/AtelierBuildWorker`, outside every folder a game or v1
+enumerates. It is cloned only into scratch and micro projects, and its compiled binaries are never
+committed. Its library is the editor surface the worker uses:
+- native context;
+- the effective DDC graph;
+- save recording with flushed file hashes;
+- each saved file's import table;
+- ini values;
+- ensure counting;
+- dirty and loaded packages;
+- the CVar snapshot;
+- synchronous GC;
+- registry forgetting;
+- diagnostic reference chains.
+
+T0 runs this end to end against `tests/fixtures/fake_unreal.py`, a stand-in editor with the same
+command line and plugin surface. Real-editor behaviour (descriptor inheritance, `-UserDir`, shader
+workers, registry forgetting and engine-wide writes) is T2 evidence. Unreal is not sandboxed.
+The engine-wide writes the T2 probes measured are named proof gaps in `build-v2-unreal-scratch-project`:
+- EditorSettings.ini (stopped by `-nowrite`);
+- the tool preset JSON;
+- `Trace.uba`;
+- Zen files and its status utility;
+- crash reports;
+- the shared filesystem DDC, which a session refused for its graph may already have written at startup.
