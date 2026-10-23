@@ -781,10 +781,12 @@ fn a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_publishe
     let published = sim.lifecycle.unit("a").unwrap();
     assert!(matches!(published.attempts[0].custody, Custody::Held(_)));
     assert_eq!(sim.launch(9_000, 1, confirmed()), vec![]);
-    assert_eq!(
-        sim.lifecycle.sessions()[0].custody,
-        Custody::Released,
-        "the late receipt is kept as evidence on the session's own record"
+    let Custody::Held(reason) = sim.lifecycle.sessions()[0].custody.clone() else {
+        panic!("the session record stays held");
+    };
+    assert!(
+        reason.contains("a confirmed cleanup receipt arrived late, at 9000 ms"),
+        "the late receipt is kept as evidence in the held record: {reason}"
     );
     assert_eq!(sim.lifecycle.unit("a").unwrap(), published, "unchanged");
     assert_eq!(
@@ -921,6 +923,71 @@ fn without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_uni
     assert_eq!(a.attempts[0].custody, Custody::Released);
     assert_eq!(a.attempts[0].quiescent, None);
     sim.start(1_500, 2, 202, "b");
+}
+
+#[test]
+fn evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker() {
+    // The reviewer's timeline: a completes at 100 ms with a 1 s bound, and its evidence arrives
+    // at 1200 ms before any Tick.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(100 + QUIET)));
+    assert_eq!(
+        sim.quiet(1_200, 1),
+        vec![SessionCommand::Stop { session: 1 }],
+        "too late: the session stops instead of running b on the same worker"
+    );
+    assert_eq!(sim.lifecycle.unit("a").unwrap().attempts[0].quiescent, None);
+    sim.launch(1_300, 1, exited(101));
+    assert_eq!(
+        sim.launch(1_400, 1, confirmed()),
+        vec![
+            SessionCommand::Submit { session: 2 },
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "a settles only by the receipt; b gets a fresh session"
+    );
+}
+
+#[test]
+fn a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline() {
+    // The reviewer's timeline: a completes at 100 ms with an overall deadline of 200 ms, a Tick
+    // comes at 200 ms, and evidence arrives at 300 ms.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", Some(200)));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+    assert_eq!(
+        sim.lifecycle.next_deadline(),
+        Some(t(200)),
+        "the next wake-up is the overall deadline (the policy's own; not the cap proof, which is \
+         the late-evidence checks below)"
+    );
+    let at_deadline = sim.at(200, SessionInput::Tick);
+    assert!(
+        at_deadline.contains(&SessionCommand::Stop { session: 1 }),
+        "{at_deadline:?}"
+    );
+    let late = sim.quiet(300, 1);
+    assert!(
+        !late.iter().any(|command| matches!(
+            command,
+            SessionCommand::Register { .. } | SessionCommand::Run { .. }
+        )),
+        "{late:?}"
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(
+        a.attempts[0].quiescent, None,
+        "never settled by late evidence"
+    );
+    assert_ne!(a.attempts[0].custody, Custody::Released);
 }
 
 #[test]
@@ -1562,4 +1629,407 @@ fn a_missing_changed_or_unregistered_monitor_never_runs_the_unit() {
         vec![SessionCommand::Stop { session: 1 }]
     );
     assert_eq!(runs(&sim), 0);
+}
+
+fn protocol_fault() -> SessionInput {
+    SessionInput::Worker {
+        session: 1,
+        event: Err(WorkerFault::Protocol("malformed frame".into())),
+    }
+}
+
+fn starts_another_unit(commands: &[SessionCommand]) -> bool {
+    commands.iter().any(|command| {
+        matches!(
+            command,
+            SessionCommand::Register { .. } | SessionCommand::Run { .. }
+        )
+    })
+}
+
+#[test]
+fn no_run_path_runs_a_unit_at_or_past_its_overall_deadline() {
+    // The reviewer's timeline (overall deadline 200 ms, the last registration or hello at
+    // 201 ms) on each of the three paths that can send a Run, before, at and past the bound.
+    for path in ["ready", "registered", "monitor"] {
+        for (at, should_run) in [(199, true), (200, false), (201, false)] {
+            let mut sim = if path == "monitor" {
+                Sim::new().custodian()
+            } else {
+                Sim::new()
+            };
+            sim.at(0, plan("a", Some(200)));
+            sim.at(0, SessionInput::Close);
+            sim.launch(10, 1, LaunchEvent::Admitted);
+            sim.launch(
+                10,
+                1,
+                LaunchEvent::ChildStarted {
+                    worker: worker(101),
+                },
+            );
+            let last = match path {
+                "ready" => {
+                    sim.registered(10, 1, "a");
+                    sim.worker(at, 1, ready())
+                }
+                "registered" => {
+                    sim.worker(10, 1, ready());
+                    sim.registered(at, 1, "a")
+                }
+                _ => {
+                    sim.registered(10, 1, "a");
+                    sim.worker(10, 1, ready());
+                    sim.launch(10, 1, monitored(900));
+                    sim.at(at, monitor_registered(1, "a", true))
+                }
+            };
+            let ran = last.contains(&SessionCommand::Run {
+                session: 1,
+                unit: "a".into(),
+            });
+            assert_eq!(ran, should_run, "{path} at {at} ms: {last:?}");
+            if should_run {
+                continue;
+            }
+            assert!(
+                last.contains(&SessionCommand::Stop { session: 1 }),
+                "{path} at {at} ms: {last:?}"
+            );
+            sim.launch(at + 10, 1, exited(101));
+            sim.launch(at + 20, 1, confirmed());
+            assert_eq!(runs(&sim), 0, "{path} at {at} ms");
+            assert_eq!(
+                sim.lifecycle.unit("a").unwrap().outcome.end,
+                End::Failed(Stop::OverallDeadline),
+                "{path} at {at} ms"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_refreshed_quiet_window_never_outlasts_the_units_cleanup_limit() {
+    // Cook-probe's timeline: quiescence 1000 ms, session cleanup 100 ms, unit cleanup 1100 ms
+    // (the admitted minimum). A is cancelled at 100 ms (its cleanup limit is 1200 ms), its
+    // cancelled terminal arrives at 1090 ms, and evidence arrives with no Tick before, at or
+    // after the cleanup limit.
+    let unit = |id: &str| {
+        SessionInput::Submit(UnitPlan {
+            id: id.into(),
+            limits: Limits {
+                job: Duration::from_millis(JOB),
+                cleanup: Duration::from_millis(1_100),
+                overall: None,
+            },
+        })
+    };
+    for (at, settles) in [(1_150, true), (1_200, false), (1_300, false)] {
+        let mut sim = Sim::with(SessionConfig {
+            cleanup: Duration::from_millis(100),
+            lifetime: Duration::from_millis(100 * JOB),
+            idle: Duration::from_millis(IDLE),
+            quiescence: Some(Duration::from_millis(QUIET)),
+            custodian: false,
+        });
+        sim.at(0, unit("a"));
+        sim.at(0, unit("b"));
+        sim.at(0, SessionInput::Close);
+        sim.start(10, 1, 101, "a");
+        assert_eq!(
+            sim.at(100, SessionInput::CancelUnit("a".into())),
+            vec![SessionCommand::Cancel {
+                session: 1,
+                unit: "a".into()
+            }]
+        );
+        assert_eq!(sim.worker(1_090, 1, cancelled("a")), vec![]);
+        let late = sim.quiet(at, 1);
+        assert_eq!(
+            late.contains(&register(1, "b", 101)),
+            settles,
+            "evidence at {at} ms: {late:?}"
+        );
+        if settles {
+            let a = sim.lifecycle.unit("a").unwrap();
+            assert_eq!(a.attempts[0].quiescent, Some(at as f64 / 1000.0));
+        } else {
+            assert!(
+                late.contains(&SessionCommand::Stop { session: 1 }),
+                "evidence at {at} ms: {late:?}"
+            );
+            // Still cleaning up, so it has no record yet: never settled by the late evidence.
+            assert!(sim.lifecycle.unit("a").is_none(), "evidence at {at} ms");
+        }
+    }
+}
+
+#[test]
+fn a_broken_or_lost_protocol_poisons_the_session_in_every_phase() {
+    // A protocol fault while the completed unit awaits evidence, while its cancelled job cleans
+    // up, and a lost response stream while it awaits evidence: no later evidence lets the
+    // session take b.
+    for case in ["quiescing", "cleaning-up", "disconnected"] {
+        let mut sim = Sim::resident(100 * JOB);
+        sim.at(0, plan("a", None));
+        sim.at(0, plan("b", None));
+        sim.at(0, SessionInput::Close);
+        sim.start(10, 1, 101, "a");
+        let mut later = vec![];
+        match case {
+            "quiescing" => {
+                assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+                let fault = sim.at(200, protocol_fault());
+                assert!(
+                    fault.contains(&SessionCommand::Stop { session: 1 }),
+                    "{case}: {fault:?}"
+                );
+            }
+            "cleaning-up" => {
+                sim.at(100, SessionInput::CancelUnit("a".into()));
+                let fault = sim.at(200, protocol_fault());
+                assert!(
+                    fault.contains(&SessionCommand::Stop { session: 1 }),
+                    "{case}: {fault:?}"
+                );
+                later.extend(sim.worker(300, 1, cancelled("a")));
+            }
+            _ => {
+                assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+                let lost = sim.at(
+                    200,
+                    SessionInput::Worker {
+                        session: 1,
+                        event: Err(WorkerFault::Disconnected("stream lost".into())),
+                    },
+                );
+                assert!(
+                    lost.contains(&SessionCommand::Stop { session: 1 }),
+                    "{case}: stops now, {lost:?}"
+                );
+            }
+        }
+        later.extend(sim.quiet(400, 1));
+        assert!(!starts_another_unit(&later), "{case}: {later:?}");
+        // A unit still cleaning up has no record yet; a settled one was never settled by evidence.
+        if let Some(a) = sim.lifecycle.unit("a") {
+            assert_eq!(a.attempts[0].quiescent, None, "{case}");
+        }
+        assert_eq!(runs(&sim), 1, "{case}: only a's own Run");
+    }
+}
+
+#[test]
+fn a_fault_while_a_unit_awaits_evidence_still_bounds_the_settlement() {
+    // The reviewer's timeline: a guard fault after completion while awaiting quiescence. The
+    // ending session keeps a wake-up at its cleanup limit, capped by the overall deadline.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", Some(1_000)));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+    let fault = sim.launch(200, 1, LaunchEvent::Fault("malformed bridge event".into()));
+    assert!(
+        fault.contains(&SessionCommand::Stop { session: 1 }),
+        "{fault:?}"
+    );
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(1_000)));
+    sim.at(1_000, SessionInput::Tick);
+    assert!(matches!(
+        sim.lifecycle.unit("a").unwrap().attempts[0].custody,
+        Custody::Held(_)
+    ));
+    // A guard fault on a live idle session after a's quiescence settled it (custody pending,
+    // no settlement limit yet, no unit policy): the stop still wakes at its cleanup limit.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    sim.quiet(200, 1);
+    assert_eq!(sim.settled(), vec!["a".to_string()]);
+    assert_eq!(sim.lifecycle.sessions()[0].custody, Custody::Pending);
+    let fault = sim.launch(300, 1, LaunchEvent::Fault("malformed bridge event".into()));
+    assert!(
+        fault.contains(&SessionCommand::Stop { session: 1 }),
+        "{fault:?}"
+    );
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(300 + SESSION_CLEAN)));
+}
+
+#[test]
+fn a_protocol_fault_on_an_idle_session_stops_it_with_a_bounded_settlement() {
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    sim.quiet(200, 1);
+    assert_eq!(sim.settled(), vec!["a".to_string()]);
+    let fault = sim.at(300, protocol_fault());
+    assert!(
+        fault.contains(&SessionCommand::Stop { session: 1 }),
+        "{fault:?}"
+    );
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(300 + SESSION_CLEAN)));
+}
+
+#[test]
+fn a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown() {
+    // T is the settlement limit after a completed unit's shutdown, or a crashed unit's own
+    // cleanup limit. The confirmed receipt arrives at T - 1, T or T + 1, with no Tick before it.
+    let limit = 100 + CLEAN;
+    for crash in [false, true] {
+        for at in [limit - 1, limit, limit + 1] {
+            let case = format!("crash {crash}, receipt at {at}");
+            let mut sim = Sim::new();
+            sim.at(0, plan("a", None));
+            sim.at(0, plan("b", None));
+            sim.start(10, 1, 101, "a");
+            if crash {
+                let exit = LaunchEvent::ChildExited {
+                    worker: worker(101),
+                    exit: ExitInfo::Signal(9),
+                    stopped_by: None,
+                };
+                assert_eq!(sim.launch(100, 1, exit), vec![], "{case}");
+            } else {
+                assert_eq!(
+                    sim.worker(100, 1, completed("a")),
+                    vec![SessionCommand::Shutdown { session: 1 }],
+                    "{case}"
+                );
+                sim.worker(110, 1, WorkerEvent::Stopped);
+                sim.launch(120, 1, exited(101));
+            }
+            let out = sim.launch(at, 1, confirmed());
+            if at < limit {
+                assert!(
+                    out.contains(&SessionCommand::Submit { session: 2 }),
+                    "{case}: released in time, {out:?}"
+                );
+                assert_eq!(sim.lifecycle.sessions()[0].custody, Custody::Released);
+                continue;
+            }
+            assert!(
+                !out.iter()
+                    .any(|c| matches!(c, SessionCommand::Submit { .. })),
+                "{case}: {out:?}"
+            );
+            let a = sim.lifecycle.unit("a").unwrap();
+            assert!(
+                matches!(a.attempts[0].custody, Custody::Held(_)),
+                "{case}: {:?}",
+                a.attempts
+            );
+            assert!(
+                matches!(sim.lifecycle.sessions()[0].custody, Custody::Held(_)),
+                "{case}: the session record stays held"
+            );
+            if crash {
+                assert_eq!(
+                    a.outcome.cleanup,
+                    CleanupState::Unconfirmed(Expiry::CleanupLimit),
+                    "{case}"
+                );
+                assert_eq!(a.outcome.attempts, 1, "{case}: never retried");
+            }
+            let b = sim.lifecycle.unit("b").unwrap();
+            assert_eq!(b.outcome.end, End::Failed(Stop::Cancelled), "{case}");
+            assert_eq!(sim.submits(), vec![1], "{case}");
+        }
+    }
+}
+
+#[test]
+fn a_receipt_past_its_units_overall_deadline_in_any_phase_releases_nothing() {
+    // a's overall deadline T covers its cleanup. The guard's confirmed receipt arrives at
+    // T - 1, T or T + 1 with no Tick and no exit report before it, while b waits.
+    const T: u64 = 1_000;
+    for phase in [
+        "admitted",
+        "preparing",
+        "running",
+        "quiescing",
+        "quiescing-exited",
+        "cleaning-up",
+        "settling",
+    ] {
+        for at in [T - 1, T, T + 1] {
+            let case = format!("{phase}, receipt at {at}");
+            let mut sim = if phase.starts_with("quiescing") {
+                Sim::resident(100 * JOB)
+            } else {
+                Sim::new()
+            };
+            sim.at(0, plan("a", Some(T)));
+            sim.at(0, plan("b", None));
+            match phase {
+                "admitted" => {
+                    sim.launch(10, 1, LaunchEvent::Admitted);
+                }
+                "preparing" => {
+                    sim.launch(10, 1, LaunchEvent::Admitted);
+                    sim.launch(
+                        10,
+                        1,
+                        LaunchEvent::ChildStarted {
+                            worker: worker(101),
+                        },
+                    );
+                    sim.registered(10, 1, "a");
+                }
+                "running" => sim.start(10, 1, 101, "a"),
+                "cleaning-up" => {
+                    sim.start(10, 1, 101, "a");
+                    sim.at(100, SessionInput::CancelUnit("a".into()));
+                }
+                "quiescing-exited" => {
+                    // The paid review's timeline: the reusable unit's worker exits after it
+                    // completed, and the receipt follows past the deadline.
+                    sim.start(10, 1, 101, "a");
+                    sim.worker(100, 1, completed("a"));
+                    sim.launch(150, 1, exited(101));
+                }
+                _ => {
+                    sim.start(10, 1, 101, "a");
+                    sim.worker(100, 1, completed("a"));
+                }
+            }
+            let out = sim.launch(at, 1, confirmed());
+            if at < T {
+                assert!(
+                    out.contains(&SessionCommand::Submit { session: 2 }),
+                    "{case}: released in time, {out:?}"
+                );
+                let a = sim.lifecycle.unit("a").unwrap();
+                assert_eq!(a.attempts[0].custody, Custody::Released, "{case}");
+                continue;
+            }
+            assert!(
+                !out.iter()
+                    .any(|c| matches!(c, SessionCommand::Submit { .. })),
+                "{case}: {out:?}"
+            );
+            let a = sim.lifecycle.unit("a").unwrap();
+            assert!(
+                matches!(a.attempts[0].custody, Custody::Held(_)),
+                "{case}: {:?}",
+                a.attempts
+            );
+            assert!(
+                matches!(sim.lifecycle.sessions()[0].custody, Custody::Held(_)),
+                "{case}: the session record stays held"
+            );
+            if a.outcome.end != End::Completed {
+                assert!(
+                    matches!(a.outcome.cleanup, CleanupState::Unconfirmed(_)),
+                    "{case}: {:?}",
+                    a.outcome
+                );
+            }
+            let b = sim.lifecycle.unit("b").unwrap();
+            assert_eq!(b.outcome.end, End::Failed(Stop::Cancelled), "{case}");
+            assert_eq!(sim.submits(), vec![1], "{case}");
+        }
+    }
 }

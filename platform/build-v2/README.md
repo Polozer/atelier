@@ -991,3 +991,5 @@ The engine-wide writes the T2 probes measured are named proof gaps in `build-v2-
 - Zen files and its status utility;
 - crash reports;
 - the shared filesystem DDC, which a session refused for its graph may already have written at startup.
+
+D2 unused Blender op definitions and in-job bodies support the initial schema-2 MeshIR → FBX route. See [Blender op contracts](../../docs/build-v2/BLENDER_OPS.md) for ownership, frozen validation and pending native acceptance.

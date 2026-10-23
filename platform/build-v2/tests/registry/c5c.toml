@@ -244,3 +244,53 @@ tier = "t1a"
 id = "c5c.session.a_resident_session_without_custody_is_refused"
 tests = ["atelier-build-v2::guard_adapter/a_resident_session_without_custody_is_refused"]
 tier = "t1a"
+
+[[scenarios]]
+id = "c5c.session.evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker"
+tests = ["atelier-build-v2::session_lifecycle/evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline"
+tests = ["atelier-build-v2::session_lifecycle/a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_stop_after_an_invalid_frame_never_signals_an_owner_whose_exit_waits_for_replay"
+tests = ["atelier-build-v2/worker_lifecycle::tests::a_stop_after_an_invalid_frame_never_signals_an_owner_whose_exit_waits_for_replay"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.no_run_path_runs_a_unit_at_or_past_its_overall_deadline"
+tests = ["atelier-build-v2::session_lifecycle/no_run_path_runs_a_unit_at_or_past_its_overall_deadline"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_refreshed_quiet_window_never_outlasts_the_units_cleanup_limit"
+tests = ["atelier-build-v2::session_lifecycle/a_refreshed_quiet_window_never_outlasts_the_units_cleanup_limit"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_broken_or_lost_protocol_poisons_the_session_in_every_phase"
+tests = ["atelier-build-v2::session_lifecycle/a_broken_or_lost_protocol_poisons_the_session_in_every_phase"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_fault_while_a_unit_awaits_evidence_still_bounds_the_settlement"
+tests = ["atelier-build-v2::session_lifecycle/a_fault_while_a_unit_awaits_evidence_still_bounds_the_settlement"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_protocol_fault_on_an_idle_session_stops_it_with_a_bounded_settlement"
+tests = ["atelier-build-v2::session_lifecycle/a_protocol_fault_on_an_idle_session_stops_it_with_a_bounded_settlement"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown"
+tests = ["atelier-build-v2::session_lifecycle/a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_receipt_past_its_units_overall_deadline_in_any_phase_releases_nothing"
+tests = ["atelier-build-v2::session_lifecycle/a_receipt_past_its_units_overall_deadline_in_any_phase_releases_nothing"]
+tier = "t0"

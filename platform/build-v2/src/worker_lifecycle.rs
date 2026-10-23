@@ -651,6 +651,21 @@ impl<A> Live<A> {
             .any(|event| matches!(event.event, LaunchEvent::ChildExited { .. }))
     }
 
+    /// The guard's exit report waits: still held, or released by the stream's end into `replay`
+    /// and not yet applied there (session-exit-after-drain).
+    fn exit_waiting(&self, attempt: u32, replay: &VecDeque<SessionInput>) -> bool {
+        self.exit_held()
+            || replay.iter().any(|input| {
+                matches!(
+                    input,
+                    SessionInput::Launch(AttemptEvent {
+                        attempt: replayed,
+                        event: LaunchEvent::ChildExited { .. },
+                    }) if *replayed == attempt
+                )
+            })
+    }
+
     /// Release every held guard event, in order.
     fn release(&mut self, replay: &mut VecDeque<SessionInput>) {
         self.drain_by = None;
@@ -673,6 +688,17 @@ impl<A> Live<A> {
         }
         SessionInput::Launch(event)
     }
+}
+
+/// The session a `Stop` command may signal: none while its exit report waits, held or released
+/// into `replay` and not yet applied (session-exit-after-drain).
+fn stop_target<'a, A>(
+    live: &'a mut BTreeMap<u32, Live<A>>,
+    session: u32,
+    replay: &VecDeque<SessionInput>,
+) -> Option<&'a mut Live<A>> {
+    live.get_mut(&session)
+        .filter(|entry| !entry.exit_waiting(session, replay))
 }
 
 fn wall_clock() -> f64 {
@@ -952,7 +978,8 @@ struct Shared<'a> {
 /// in order. While the report waits, the driver MUST NOT signal that session's admission owner,
 /// which is already unwinding. See tests/guard_adapter.rs
 /// (`a_reply_read_after_the_exit_report_still_completes_the_unit`,
-/// `an_exit_report_without_the_stream_end_applies_after_the_drain_limit`).
+/// `an_exit_report_without_the_stream_end_applies_after_the_drain_limit`), and this module's
+/// `a_stop_after_an_invalid_frame_never_signals_an_owner_whose_exit_waits_for_replay`.
 ///
 /// `only`: one unit submitted and closed before the inbox is read.
 #[allow(clippy::too_many_arguments)]
@@ -1157,7 +1184,7 @@ fn drive<L: WorkerLauncher>(
                 SessionCommand::Stop { session } => {
                     // A held exit report means the guard is already unwinding: never interrupt
                     // it (session-exit-after-drain). Its receipt or settlement limit decides.
-                    if let Some(entry) = live.get_mut(&session).filter(|entry| !entry.exit_held()) {
+                    if let Some(entry) = stop_target(&mut live, session, &replay) {
                         let _ = entry.handle.stop();
                     }
                 }
@@ -1326,5 +1353,67 @@ fn drive<L: WorkerLauncher>(
             }
         };
         commands = lifecycle.on(clock.now(), input)?;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::guard_adapter::ExitInfo;
+
+    fn exit(pid: u32) -> AttemptEvent {
+        AttemptEvent {
+            attempt: 1,
+            event: LaunchEvent::ChildExited {
+                worker: ProcessIdentity {
+                    pid,
+                    boot: "boot-1".into(),
+                    started: format!("start-{pid}"),
+                },
+                exit: ExitInfo::Code(0),
+                stopped_by: None,
+            },
+        }
+    }
+
+    /// The reviewer's timeline: the guard's exit report is held waiting for the response stream,
+    /// then the stream ends with an InvalidData frame error. The driver's frame arm releases the
+    /// held exit into `replay` before it applies the protocol fault, whose Stop must still see
+    /// the exit as waiting and never signal the unwinding owner.
+    #[test]
+    fn a_stop_after_an_invalid_frame_never_signals_an_owner_whose_exit_waits_for_replay() {
+        let mut entry = Live {
+            handle: (),
+            session: Session::new("w1"),
+            writer: None,
+            terminal_at: None,
+            drained: false,
+            held: vec![exit(101)],
+            drain_by: None,
+            monitor: None,
+            correlated: false,
+        };
+        let mut replay = VecDeque::new();
+        assert!(entry.exit_waiting(1, &replay), "held: the exit waits");
+        // The frame arm on `Err(InvalidData)`: the stream's end releases the held exit.
+        entry.drained = true;
+        entry.release(&mut replay);
+        assert!(
+            !entry.exit_held(),
+            "the held list alone no longer shows the exit"
+        );
+        // The Stop arm's own target: no owner to signal while the released exit waits.
+        let mut live = BTreeMap::from([(1, entry)]);
+        assert!(
+            stop_target(&mut live, 1, &replay).is_none(),
+            "released but not yet applied: the exit still waits, so nothing is signalled"
+        );
+        assert!(
+            stop_target(&mut live, 2, &replay).is_none(),
+            "no such session"
+        );
+        // Once replayed (applied), the session may be signalled again.
+        replay.clear();
+        assert!(stop_target(&mut live, 1, &replay).is_some());
     }
 }

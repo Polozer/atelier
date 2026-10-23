@@ -286,6 +286,9 @@ struct SessionSlot {
     queue_until: Option<MonoTime>,
     /// The guard's custody monitor, once reported (custodian sessions only).
     monitor: Option<ProcessIdentity>,
+    /// A malformed, duplicate or out-of-order frame, a lost response stream or a guard fault:
+    /// the session never runs, takes or settles another unit on evidence again.
+    poisoned: bool,
 }
 
 impl SessionSlot {
@@ -302,6 +305,7 @@ impl SessionSlot {
             stop_sent: false,
             exited: false,
             finished: false,
+            poisoned: false,
             settle_by: None,
             active: None,
             used: false,
@@ -393,10 +397,13 @@ impl UnitSlot {
 /// Once any session's custody is held (an unconfirmed receipt, a missed settlement limit or a
 /// unit's unconfirmed cleanup), the lifecycle MUST start no further session and every waiting
 /// unit MUST give up. A later confirmed receipt MUST NOT reopen sessions or change a unit record
-/// already handed out with `Settled`; it is recorded only on that session's own record. Recovery
-/// is a fresh lifecycle started by the caller. See tests/session_lifecycle.rs
-/// (`a_held_session_starts_no_further_session`,
-/// `a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record`).
+/// already handed out with `Settled`: a late confirmed receipt is recorded in the held record;
+/// the session record stays Held. A confirmed receipt delivered at or past the settlement limit,
+/// or past its unit's cleanup limit or overall deadline in any phase, is such a late receipt
+/// even when no Tick came first: that cleanup stays unconfirmed and the session held. Recovery is a fresh lifecycle started by the caller. See
+/// tests/session_lifecycle.rs (`a_held_session_starts_no_further_session`,
+/// `a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record`,
+/// `a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown`).
 #[derive(Clone, Debug)]
 pub struct SessionLifecycle {
     config: SessionConfig,
@@ -633,7 +640,7 @@ impl SessionLifecycle {
                 if self.live() == Some(s) && self.units[index].session == Some(session) {
                     if ok {
                         self.units[index].monitor_registered = true;
-                        self.run_if_ready(s, &mut out);
+                        self.run_if_ready(now, s, &mut out)?;
                     } else {
                         self.units[index].abort.get_or_insert(
                             "the guard's custody monitor could not be added to the write lease"
@@ -701,8 +708,7 @@ impl SessionLifecycle {
         match failure {
             None => {
                 self.units[index].registered = true;
-                self.run_if_ready(s, out);
-                Ok(())
+                self.run_if_ready(now, s, out)
             }
             Some(failure) => {
                 self.units[index].abort.get_or_insert(failure);
@@ -765,6 +771,9 @@ impl SessionLifecycle {
     /// lifetime (an unused session takes any unit, as its lifetime starts with it).
     fn may_take(&self, s: usize, index: usize, now: MonoTime) -> bool {
         let slot = &self.sessions[s];
+        if slot.poisoned {
+            return false;
+        }
         if !slot.used {
             return true; // refused at submission if it could not fit a fresh session
         }
@@ -824,15 +833,27 @@ impl SessionLifecycle {
         let slot = &self.sessions[s];
         self.config.quiescence.is_some()
             && slot.ready
+            && !slot.poisoned
             && !slot.exited
             && !slot.ending()
             && (!self.closed || self.units.iter().any(UnitSlot::waiting))
     }
 
-    /// Start waiting for unit `index`'s quiescence evidence on its live session.
+    /// Start waiting for unit `index`'s quiescence evidence on its live session, never past the
+    /// unit's overall deadline, which bounds its cleanup too, nor past its policy's own cleanup
+    /// limit, even when the window restarts at a cancelled job's terminal reply
+    /// (session-unit-time-limits).
     fn await_quiet(&mut self, now: MonoTime, index: usize) {
         let bound = self.config.quiescence.unwrap_or_default();
-        self.units[index].quiet_by = now.checked_add(bound);
+        let unit = &mut self.units[index];
+        unit.quiet_by = [
+            now.checked_add(bound),
+            unit.overall_deadline,
+            unit.policy.next_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
     }
 
     /// End live session `s`: shut an idle healthy worker down, otherwise stop the session. Its
@@ -945,8 +966,9 @@ impl SessionLifecycle {
     /// is configured; otherwise each session serves one unit. Without evidence within the bound
     /// the session MUST stop, and the unit then settles only by the session's cleanup receipt. A
     /// running unit's cancel or job limit MUST cancel only that job when the session stays up for
-    /// others, and MUST NOT release anything. Evidence rests on two things: the job sandbox
-    /// denying fork and spawn (an assumption tied to that profile, see
+    /// others, and MUST NOT release anything. A malformed, lost or faulted stream poisons the
+    /// session: it never runs, takes or settles another unit on evidence. Evidence rests on two
+    /// things: the job sandbox denying fork and spawn (an assumption tied to that profile, see
     /// platform/studio/tests/test_build_v2_job_fork.py; a session refuses any key that does not
     /// declare it) and the driver accepting only fresh, exact tree samples taken after the latest
     /// terminal reply (quiescence-sample-evidence). Assumptions and gaps: a sample proves only what
@@ -959,7 +981,10 @@ impl SessionLifecycle {
     /// (`a_reused_session_runs_the_next_unit_only_after_quiescence_evidence`,
     /// `without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_unit`,
     /// `cancelling_a_running_unit_cancels_only_its_job_when_others_wait`,
-    /// `every_session_serves_one_unit_without_quiescence_evidence`).
+    /// `every_session_serves_one_unit_without_quiescence_evidence`,
+    /// `evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker`,
+    /// `a_broken_or_lost_protocol_poisons_the_session_in_every_phase`,
+    /// `a_protocol_fault_on_an_idle_session_stops_it_with_a_bounded_settlement`).
     ///
     /// Quiescence evidence for `session`'s active unit, after its terminal reply: the unit's
     /// attempt is settled, its cleanup finished, and the session may take the next unit.
@@ -974,14 +999,21 @@ impl SessionLifecycle {
             return Ok(());
         };
         let slot = &self.sessions[s];
-        if self.live() != Some(s) || slot.exited || slot.ending() {
+        if self.live() != Some(s) || slot.exited || slot.ending() || slot.poisoned {
             return Ok(());
         }
         let Some(index) = slot.active else {
             return Ok(());
         };
         let unit = &mut self.units[index];
-        if unit.quiet_by.is_none() || !unit.terminal_seen || !sample_time.is_finite() {
+        // Evidence at or past its bound is too late, even before a Tick: `pump_live` then stops
+        // the session in this same input. The bound is checked against the delivery time `now`,
+        // never against `sample_time`: the guard's wall clock and MonoTime are not comparable.
+        if unit.quiet_by.is_none()
+            || reached(unit.quiet_by, now)
+            || !unit.terminal_seen
+            || !sample_time.is_finite()
+        {
             return Ok(());
         }
         unit.quiet_by = None;
@@ -1023,7 +1055,11 @@ impl SessionLifecycle {
     /// (`a_later_units_job_limit_counts_from_its_own_assignment`,
     /// `a_later_units_capacity_wait_stays_outside_its_job_limit`,
     /// `units_that_expire_while_waiting_withdraw_the_request_within_their_deadline`,
-    /// `an_expired_units_deadline_never_bounds_a_later_settlement`).
+    /// `an_expired_units_deadline_never_bounds_a_later_settlement`,
+    /// `a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline`,
+    /// `no_run_path_runs_a_unit_at_or_past_its_overall_deadline`,
+    /// `a_refreshed_quiet_window_never_outlasts_the_units_cleanup_limit`,
+    /// `a_fault_while_a_unit_awaits_evidence_still_bounds_the_settlement`).
     ///
     /// Give waiting unit `index` to admitted session `s`: this is the unit's own admission, so its
     /// job limit starts now.
@@ -1087,13 +1123,25 @@ impl SessionLifecycle {
     /// `a_failed_preparation_ends_the_unit_without_a_run`,
     /// `hello_before_registration_waits_for_the_registration`) and tests/guard_adapter.rs
     /// (`run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver`).
-    fn run_if_ready(&mut self, s: usize, out: &mut Vec<SessionCommand>) {
-        let slot = &self.sessions[s];
-        let Some(index) = slot.active else {
-            return;
+    fn run_if_ready(
+        &mut self,
+        now: MonoTime,
+        s: usize,
+        out: &mut Vec<SessionCommand>,
+    ) -> Result<(), LifecycleError> {
+        let Some(index) = self.sessions[s].active else {
+            return Ok(());
         };
+        // Bring the unit's policy to `now` first: a deadline that passed since the last Tick
+        // ends the unit here, and it never runs (session-unit-time-limits).
+        self.decide(now, index, PolicyEvent::Tick, out)?;
+        let slot = &self.sessions[s];
+        if slot.active != Some(index) {
+            return Ok(());
+        }
         let unit = &mut self.units[index];
         if slot.ready
+            && !slot.poisoned
             && unit.registered
             && (!self.config.custodian || unit.monitor_registered)
             && !unit.job_sent
@@ -1105,6 +1153,7 @@ impl SessionLifecycle {
                 unit: unit.plan.id.clone(),
             });
         }
+        Ok(())
     }
 
     fn decide(
@@ -1243,6 +1292,24 @@ impl SessionLifecycle {
         Ok(())
     }
 
+    /// Stop live session `s` when no unit's policy governs its ending (its active unit awaits
+    /// quiescence evidence, or none is active): it no longer waits for evidence, and its
+    /// settlement is bounded by the cleanup limit and that unit's overall deadline, as in
+    /// `pump_live`, so an ending session always has a wake-up (session-unit-time-limits).
+    fn stop_ungoverned(&mut self, now: MonoTime, s: usize, out: &mut Vec<SessionCommand>) {
+        let cap = self.sessions[s].active.and_then(|index| {
+            let unit = &mut self.units[index];
+            unit.quiet_by = None;
+            unit.overall_deadline
+        });
+        let cleanup = now.checked_add(self.config.cleanup);
+        let slot = &mut self.sessions[s];
+        slot.stop(out);
+        if slot.settle_by.is_none() {
+            slot.settle_by = [cleanup, cap].into_iter().flatten().min();
+        }
+    }
+
     /// A malformed or inconsistent guard report for session `s`: never crash or cleanup evidence.
     fn fault(
         &mut self,
@@ -1251,6 +1318,7 @@ impl SessionLifecycle {
         out: &mut Vec<SessionCommand>,
     ) -> Result<(), LifecycleError> {
         self.sessions[s].stop(out);
+        self.sessions[s].poisoned = true;
         if self.live() != Some(s) {
             return Ok(());
         }
@@ -1262,12 +1330,19 @@ impl SessionLifecycle {
                     PolicyEvent::Observed(Observation::ProtocolViolation),
                     out,
                 ),
-                _ => Ok(()),
+                _ => {
+                    self.stop_ungoverned(now, s, out);
+                    Ok(())
+                }
             },
             None if !self.sessions[s].record.admitted => {
+                self.stop_ungoverned(now, s, out);
                 self.abort_waiting(now, "the guard reported an inconsistent attempt", out)
             }
-            None => Ok(()),
+            None => {
+                self.stop_ungoverned(now, s, out);
+                Ok(())
+            }
         }
     }
 
@@ -1283,11 +1358,45 @@ impl SessionLifecycle {
         };
         let current = self.sessions.len() == s + 1;
         if let LaunchEvent::Finished { cleanup, .. } = event {
-            let custody = match cleanup.clone() {
-                CleanupReceipt::Confirmed => Custody::Released,
-                CleanupReceipt::Unconfirmed { reason } => Custody::Held(reason),
+            // Limits reached by the delivery time `now` apply before the receipt, as if a Tick
+            // had come first: a receipt at or past the settlement limit, or past its unit's
+            // cleanup limit or overall deadline (which covers cleanup) in any phase, leaves that
+            // cleanup unknown (session-held-is-sticky).
+            self.sessions[s].finished = true;
+            let active = self.sessions[s].active.filter(|_| current);
+            let cleaning = active.filter(|&index| {
+                matches!(self.units[index].policy.phase(), Phase::CleaningUp { .. })
+            });
+            if let Some(index) = cleaning {
+                self.decide(now, index, PolicyEvent::Tick, out)?;
+            }
+            let expired = active.is_some_and(|index| {
+                let unit = &self.units[index];
+                reached(unit.overall_deadline, now)
+                    && unit.attempts.iter().any(|attempt| {
+                        attempt.session == session
+                            && attempt.custody == Custody::Pending
+                            && attempt.quiescent.is_none()
+                    })
+            });
+            let held = matches!(self.sessions[s].record.custody, Custody::Held(_));
+            let late = held || expired || reached(self.sessions[s].settle_by, now);
+            if late && self.sessions[s].record.custody == Custody::Pending {
+                self.hold(s, "no confirmed cleanup receipt within the cleanup limit");
+            }
+            let custody = match (cleanup.clone(), &self.sessions[s].record.custody) {
+                // A late confirmed receipt is recorded in the held record, which stays Held:
+                // no reader of the session record can take it for a release.
+                (CleanupReceipt::Confirmed, Custody::Held(reason)) if late => {
+                    Custody::Held(format!(
+                        "{reason}; a confirmed cleanup receipt arrived late, at {} ms",
+                        now.elapsed().as_millis()
+                    ))
+                }
+                (CleanupReceipt::Confirmed, _) => Custody::Released,
+                (CleanupReceipt::Unconfirmed { reason }, _) => Custody::Held(reason),
             };
-            let confirmed = cleanup == CleanupReceipt::Confirmed;
+            let confirmed = cleanup == CleanupReceipt::Confirmed && !late;
             let slot = &mut self.sessions[s];
             slot.finished = true;
             // The session's own record shows the guard's latest receipt, as evidence. Unit
@@ -1350,6 +1459,9 @@ impl SessionLifecycle {
                     )?;
                     if confirmed {
                         self.decide(now, index, PolicyEvent::CleanupFinished, out)?;
+                    } else if late {
+                        // Its expired limits end the cleanup unconfirmed now.
+                        self.decide(now, index, PolicyEvent::Tick, out)?;
                     }
                     Ok(())
                 }
@@ -1460,8 +1572,7 @@ impl SessionLifecycle {
         match event {
             Ok(WorkerEvent::Ready { .. }) => {
                 self.sessions[s].ready = true;
-                self.run_if_ready(s, out);
-                Ok(())
+                self.run_if_ready(now, s, out)
             }
             Ok(WorkerEvent::Started { .. }) | Ok(WorkerEvent::Stopped) => Ok(()),
             Ok(WorkerEvent::Finished(finished)) => {
@@ -1492,23 +1603,52 @@ impl SessionLifecycle {
                 }
                 Ok(())
             }
-            Err(WorkerFault::Protocol(_)) => match active {
-                Some(index)
-                    if matches!(
+            // A broken protocol poisons the session in every phase: it stops and never serves
+            // another unit (build-v2-worker-session-order).
+            Err(WorkerFault::Protocol(_)) => {
+                self.sessions[s].poisoned = true;
+                match active {
+                    Some(index)
+                        if matches!(
+                            self.units[index].policy.phase(),
+                            Phase::Running { .. } | Phase::CleaningUp { .. }
+                        ) =>
+                    {
+                        self.decide(
+                            now,
+                            index,
+                            PolicyEvent::Observed(Observation::ProtocolViolation),
+                            out,
+                        )?;
+                        // A unit already cleaning up keeps its first stop reason; its policy's
+                        // cleanup limit bounds the settlement.
+                        self.units[index].quiet_by = None;
+                        self.sessions[s].stop(out);
+                        Ok(())
+                    }
+                    // A unit awaiting quiescence evidence, or none active.
+                    _ => {
+                        self.stop_ungoverned(now, s, out);
+                        Ok(())
+                    }
+                }
+            }
+            // A lost response stream is not crash evidence, but no reply or hello can arrive any
+            // more: the session never runs, takes or settles another unit on evidence. A session
+            // with no running or cleaning-up unit stops now instead of waiting out its bound.
+            Err(WorkerFault::Disconnected(_)) => {
+                self.sessions[s].poisoned = true;
+                let governed = active.is_some_and(|index| {
+                    matches!(
                         self.units[index].policy.phase(),
                         Phase::Running { .. } | Phase::CleaningUp { .. }
-                    ) =>
-                {
-                    self.decide(
-                        now,
-                        index,
-                        PolicyEvent::Observed(Observation::ProtocolViolation),
-                        out,
                     )
+                });
+                if !governed {
+                    self.stop_ungoverned(now, s, out);
                 }
-                _ => Ok(()),
-            },
-            Err(WorkerFault::Disconnected(_)) => Ok(()),
+                Ok(())
+            }
         }
     }
 
