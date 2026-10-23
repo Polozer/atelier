@@ -23,7 +23,8 @@ def steps(ctx):
         else:
             folder=name.removeprefix('Tree_Caldera_').split('_LOD')[0].replace('BlackPine','black_pine').replace('Cedar','cedar').lower()
             source=GAME/'assets/craterpark/trees'/folder/'raw/output_model_url.glb'
-        assets.append(graph.LogicalAsset(name,REGION/'plan_prop.py',
+        script=REGION/('plan_prop.py' if name.startswith('HD_P_') else 'plan_conifer.py')
+        assets.append(graph.LogicalAsset(name,script,
             args=('--parameters',str(parameter),'--source',str(source),'--data',str(data)),
             inputs=(parameter,source),products=(Product('hidamari.prop_data.'+name,(data,)),)))
     result=graph.steps(ctx,region='hidamari_props',assets=assets)

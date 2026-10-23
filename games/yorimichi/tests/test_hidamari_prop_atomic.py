@@ -71,6 +71,8 @@ def test_each_logical_source_has_one_parameter_and_committed_glb_without_sibling
         assert selected[0].stem==step.name.rsplit('.',1)[-1]
         assert not step.needs and not step.reads
         assert not any('exports/world.' in str(p) or p.name in ('props.py','hidamari_props.py') for p in step.inputs)
+        if selected[0].stem.startswith('HD_P_'):
+            assert not any(p.name=='prop_lod_geometry.py' for p in step.inputs)
     # A data edit is owned by exactly one source action; common constructors are shared honestly.
     changed=GAME/'assets/hidamari/prop-export-parameters/HD_P_postbox.json'
     assert [step.name for step in planners if changed in step.inputs]==['world.hidamari_props.geometry.HD_P_postbox']
