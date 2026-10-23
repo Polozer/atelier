@@ -163,7 +163,7 @@ def test_projected_requests_retain_every_constructor_corner_without_rediscovery(
         for level, expected in enumerate(levels):
             value = S.descriptor(parent, level, inventory)
             # The selected stage receives no other asset, placement roster or route samples.
-            assert set(value) == {'schema', 'asset', 'logical', 'level', 'request'}
+            assert set(value) == {'schema', 'asset', 'logical', 'level', 'request', 'code', 'support', 'palette', 'factory'}
             with patch.object(S, 'requests', side_effect=AssertionError('selected constructor rediscovered siblings')):
                 actual = S.from_descriptor(value, line_factory=lambda: ln)
             assert actual['vertices'] == expected.verts, value['asset']
@@ -212,3 +212,51 @@ def test_runtime_projection_keeps_every_placement_lod_collision_and_render_polic
         assert after['meshes'][name]['lods'] == expected
         spec['lods'] = expected
     assert after == before
+
+
+def test_layout_and_export_driver_edits_do_not_change_selected_source_key(tmp_path, monkeypatch):
+    import hashlib
+    from atelier import build
+    from train import track_projection as projection
+    recipe = load('track_local_key_recipe', GAME / 'train_atomic_build.py')
+    roster_value = dict(S.inventory(line()), schema=1)
+    before = S.descriptor('SM_TK_Sleeper', 0, roster_value)
+    roster = tmp_path / 'belmonte-track/source-data/inventory.json'
+    roster.parent.mkdir(parents=True); roster.write_text(json.dumps(roster_value))
+    source = next(step for step in recipe.track_steps(SimpleNamespace(out=tmp_path))
+                  if step.name == 'world.belmonte_track.source.SM_TK_Sleeper_LOD0')
+    forbidden = {'track.py', 'track_build.py', 'track_sources.py', 'track_projection.py', 'route.py', 'earthworks.py'}
+    assert not forbidden.intersection(path.name for path in source.inputs)
+    def key(descriptor):
+        consumed = hashlib.sha256(json.dumps(descriptor, sort_keys=True).encode()).hexdigest()
+        return build.fingerprint(source, {'product:belmonte_track.request.SM_TK_Sleeper_LOD0': consumed})
+    original_key = key(before)
+    track = tmp_path / 'track.py'
+    original = projection.MODULES['train.track'].read_text()
+    track.write_text(original.replace('def layout(line=None, *, make=None):',
+                                     'def layout(line=None, *, make=None):\n    "unrelated discovery implementation edit"'))
+    monkeypatch.setitem(projection.MODULES, 'train.track', track)
+    read_text = Path.read_text
+    def changed_driver(path, *args, **kwargs):
+        text = read_text(path, *args, **kwargs)
+        if path.name == 'track_build.py':
+            text = text.replace('def main():', 'def main():\n    "unrelated export-driver implementation edit"')
+        return text
+    monkeypatch.setattr(Path, 'read_text', changed_driver)
+    after = S.descriptor('SM_TK_Sleeper', 0, roster_value)
+    assert after == before
+    assert key(after) == original_key
+    assert S.from_descriptor(after)['faces'] == T.sleeper_mesh().faces
+    track.write_text(original.replace('def sleeper_mesh():', 'def sleeper_mesh():\n    "changed consumed constructor"'))
+    assert key(S.descriptor('SM_TK_Sleeper', 0, roster_value)) != original_key
+
+
+def test_station_selected_inputs_exclude_route_and_discovery_sources(tmp_path):
+    recipe = load('track_station_key_recipe', GAME / 'train_atomic_build.py')
+    roster = tmp_path / 'belmonte-track/source-data/inventory.json'
+    roster.parent.mkdir(parents=True)
+    roster.write_text(json.dumps(dict(schema=1, mesh_order=['SM_ST_Sheds'], meshes=dict(SM_ST_Sheds=dict(levels=3)))))
+    source = next(step for step in recipe.track_steps(SimpleNamespace(out=tmp_path))
+                  if step.name == 'world.belmonte_track.source.SM_ST_Sheds_LOD0')
+    assert not {'track.py', 'station.py', 'station_site.py', 'route.py', 'earthworks.py',
+                'track_build.py', 'track_sources.py'}.intersection(path.name for path in source.inputs)

@@ -89,19 +89,13 @@ def decode_argument(value, line_factory):
 
 
 def descriptor(asset, level, value):
-    if (value.get('schema') != 1 or asset not in value['meshes'] or type(level) is not int
-            or not 0 <= level < value['meshes'][asset]['levels']):
-        raise ValueError('Unknown railway request projection')
-    return dict(schema=1, asset=f'{asset}_LOD{level}', logical=asset, level=level,
-                request=value['meshes'][asset]['requests'][level])
+    from train.track_projection import descriptor as project_descriptor
+    return project_descriptor(asset, level, value)
 
 
-def from_descriptor(value, *, line_factory=T.Line):
-    if (value.get('schema') != 1 or value.get('asset') != f"{value.get('logical')}_LOD{value.get('level')}"):
-        raise ValueError('Foreign selected railway request')
-    request = decode_argument(value['request'], line_factory)
-    if not isinstance(request, Request): raise ValueError('Missing selected railway constructor')
-    return packet(value['logical'], value['level'], request.evaluate())
+def from_descriptor(value, *, line_factory=None):
+    from train.construct_track import construct
+    return construct(value, line_factory=line_factory)
 
 
 def requests(line=None):

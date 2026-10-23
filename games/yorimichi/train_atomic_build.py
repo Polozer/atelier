@@ -39,8 +39,17 @@ def track_steps(ctx, *, source_inputs=(), bank_inputs=()):
     data = ctx.out / 'belmonte-track/source-data'
     roster = data / 'inventory.json'
     script = TRAIN / 'track_sources.py'
-    code = [*local_imports(script, (WORLD, WORLD / 'regions')), TRAIN / 'track_build.py']
+    code = local_imports(script, (WORLD, WORLD / 'regions'))
+    request_script = TRAIN / 'track_projection.py'
+    request_code = [*local_imports(request_script, (WORLD,)),
+                    *(TRAIN / file for file in ('track.py', 'station.py', 'station_site.py', 'overbridge.py', 'track_build.py'))]
     inputs = [*code, *source_inputs]
+    selected_script = TRAIN / 'construct_track.py'
+    selected_code = local_imports(selected_script, (WORLD, WORLD / 'regions'))
+    # Only route-derived constructors execute Line/route; fixed primitives and
+    # station frames use their published declarations and explicit frame data.
+    query_code = local_imports(TRAIN / 'route.py', (WORLD, WORLD / 'regions'))
+    terrain_code = local_imports(TRAIN / 'earthworks.py', (WORLD, WORLD / 'regions'))
     result = [Step('world.belmonte_track.sources', [Python(script, ('--output', str(roster)))],
         inputs=inputs, needs=['world.belmonte_train_route'],
         products=[Product('belmonte_track.source_inventory', (roster,))], cache=True, replan=True,
@@ -61,17 +70,19 @@ def track_steps(ctx, *, source_inputs=(), bank_inputs=()):
             source_product = 'belmonte_track.source.' + key; source_products.append(source_product)
             request = data / 'requests' / (key + '.json')
             request_product = 'belmonte_track.request.' + key
-            result.append(Step('world.belmonte_track.request.' + key, [Python(script, (
+            result.append(Step('world.belmonte_track.request.' + key, [Python(request_script, (
                 '--asset', parent, '--level', str(level), '--inventory', str(roster), '--output', str(request)))],
-                inputs=[*code, roster], needs=['world.belmonte_track.sources'],
+                inputs=[*request_code, roster], needs=['world.belmonte_track.sources'],
                 products=[Product(request_product, (request,))], cache=True,
                 about='only the selected constructor arguments and exact source frame, without sibling metadata'))
             uses_line = parent.startswith(('SM_TK_Chunk_', 'SM_TK_Loop', 'SM_TK_Tunnel_',
                                           'SM_TK_Bank_', 'SM_TK_Viaduct_', 'SM_ST_Overbridge'))
             bank = parent.startswith('SM_TK_Bank_')
-            result.append(Step('world.belmonte_track.source.' + key, [Python(script, (
+            result.append(Step('world.belmonte_track.source.' + key, [Python(selected_script, (
                 '--asset', parent, '--level', str(level), '--descriptor', str(request), '--output', str(path)))],
-                inputs=[*code, *(source_inputs if uses_line else ()), *(bank_inputs if bank else ())],
+                inputs=[*selected_code, *(query_code if uses_line else ()),
+                        *(terrain_code if bank or parent.startswith('SM_ST_Overbridge') else ()),
+                        *(source_inputs if uses_line else ()), *(bank_inputs if bank else ())],
                 reads=[request_product, *([
                     'belmonte.natural_surface.SM_BM_NorthApron',
                     'belmonte.natural_surface.SM_BM_NorthCountry'] if bank else [])],
