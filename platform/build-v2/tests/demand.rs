@@ -234,6 +234,83 @@ fn checkout_miss_preserves_original_transaction() {
     assert_eq!(leases[0].id, transaction.lease().id);
 }
 
+#[test]
+fn malformed_retirement_authority_refuses_before_cache_open_or_miss() {
+    let workspace = Workspace::new();
+    let (graph, unit, _) = fixture();
+    let reader = workspace.reader();
+    let guard = reader.locks().try_build_exclusive().unwrap();
+    let removal = RemovalIntent {
+        owner: OwnerId::new(ProjectNamespace::new("fixture").unwrap(), "/Game/Retired").unwrap(),
+        expected_receipt_id: "malformed-receipt-id".into(),
+        exact_paths: BTreeSet::from(["Content/retired.bin".into()]),
+    };
+    let opened = std::cell::Cell::new(false);
+    let resolution = checkout(
+        &reader,
+        &guard,
+        &unit,
+        || {
+            opened.set(true);
+            workspace.installer()
+        },
+        identity(),
+        &ownership(&graph),
+        vec![removal],
+    );
+    assert!(matches!(resolution, Err(InstallError::Invalid(_))));
+    assert!(!opened.get());
+    assert!(!workspace.path("cache").exists());
+    assert!(
+        !workspace
+            .path("build/build-v2/install/journal.json")
+            .exists()
+    );
+}
+
+#[test]
+fn only_cache_origin_failures_become_checkout_non_hits() {
+    let workspace = Workspace::new();
+    let (graph, unit, _) = fixture();
+    let reader = workspace.reader();
+    let guard = reader.locks().try_build_exclusive().unwrap();
+    // The same low-level code is a soft failure only with a genuine cache-origin wrapper.
+    let CheckoutResolution::Miss(miss) = checkout(
+        &reader,
+        &guard,
+        &unit,
+        || {
+            Err(InstallError::Cache(ResultError::Store(
+                StoreError::InvalidDigest,
+            )))
+        },
+        identity(),
+        &ownership(&graph),
+        vec![],
+    )
+    .unwrap() else {
+        panic!("cache error is a non-hit")
+    };
+    assert_eq!(miss.reason, NonHitReason::MalformedObject);
+    assert!(matches!(
+        miss.failure,
+        Some(ResultError::Store(StoreError::InvalidDigest))
+    ));
+    let hard = checkout(
+        &reader,
+        &guard,
+        &unit,
+        || Err(InstallError::Store(StoreError::InvalidDigest)),
+        identity(),
+        &ownership(&graph),
+        vec![],
+    );
+    assert!(matches!(
+        hard,
+        Err(InstallError::Store(StoreError::InvalidDigest))
+    ));
+}
+
 #[cfg(target_os = "macos")]
 fn publish(workspace: &Workspace, unit: &PreparedUnit) {
     let path = workspace.path("produced.bin");
@@ -382,7 +459,7 @@ fn current_noop_never_opens_unavailable_cache_or_rewrites_files_and_receipts() {
         fs::read(workspace.path("cache")).unwrap(),
         b"unavailable cache"
     );
-    // Current surviving output must not silently discard explicit retirement work.
+    // Current surviving output must not silently discard invalid retirement authority.
     let opened = std::cell::Cell::new(false);
     let retirement = RemovalIntent {
         owner: OwnerId::new(ProjectNamespace::new("fixture").unwrap(), "/Game/Retired").unwrap(),
@@ -403,7 +480,7 @@ fn current_noop_never_opens_unavailable_cache_or_rewrites_files_and_receipts() {
         &ownership(&graph),
         vec![retirement],
     );
-    assert!(opened.get());
+    assert!(!opened.get());
     assert!(matches!(result, Err(InstallError::Invalid(_))));
     // With a dirty receipt the same unavailable store is a typed non-hit, not Current.
     fs::write(&output, b"dirty local bytes").unwrap();

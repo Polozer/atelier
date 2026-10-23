@@ -548,6 +548,10 @@ Explicit retirement intents still require preflight even when surviving outputs 
 current. Dirty/absent targets use one B3 `lookup_restore`; misses retain that original
 write transaction, and hits return the existing install plan. Lock, recovery and
 ownership refusals remain hard errors rather than a reason to bypass install custody.
+Retirement authority is checked by B3's cache-free preflight before the lazy opener;
+constructor and B2 errors carry an explicit cache-origin wrapper. An invalid receipt
+ID, stale authority or malformed checkout metadata cannot become a cache miss merely
+because its low-level error uses a store digest type.
 
 `stored` uses B2's checked, durably pinned `lookup_groups`, exposing recorded content and
 private group tokens through a `StoredHit`. It never installs checkout files. Rooting

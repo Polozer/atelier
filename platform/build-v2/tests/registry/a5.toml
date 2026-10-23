@@ -34,3 +34,13 @@ platforms = ["darwin", "linux"]
 id = "a5.stored-hit-retention"
 tests = ["atelier-build-v2::demand/stored_hit_pins_without_install_and_failed_root_preserves_claims"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "a5.retirement-authority-preflight"
+tests = ["atelier-build-v2::demand/malformed_retirement_authority_refuses_before_cache_open_or_miss"]
+platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "a5.cache-origin-errors"
+tests = ["atelier-build-v2::demand/only_cache_origin_failures_become_checkout_non_hits"]
+platforms = ["darwin", "linux"]

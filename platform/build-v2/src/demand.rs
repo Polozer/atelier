@@ -92,6 +92,9 @@ pub fn checkout(
     ownership: &OwnershipSnapshot,
     removals: Vec<RemovalIntent>,
 ) -> Result<CheckoutResolution, InstallError> {
+    // Retirement authority is checkout input, never a cache-health observation.
+    // Validate it through B3 before even opening a potentially unavailable cache.
+    reader.preflight_removals(guard, ownership, &removals)?;
     if let CurrentStatus::Current(receipts) = reader.receipt_status(guard, unit)? {
         // Explicit retirements are work even when the surviving unit is current.
         if removals.is_empty() {
@@ -103,22 +106,12 @@ pub fn checkout(
         Err(InstallError::Cache(error)) => {
             return Ok(CheckoutResolution::Miss(failure(error, None)));
         }
-        Err(InstallError::Store(error)) => {
-            return Ok(CheckoutResolution::Miss(failure(
-                ResultError::Store(error),
-                None,
-            )));
-        }
         Err(error) => return Err(error),
     };
     match installer.lookup_restore(guard, unit, identity, ownership, removals) {
         Ok(RestoreLookup::Hit(plan)) => Ok(CheckoutResolution::Hit(plan)),
         Ok(RestoreLookup::Miss(transaction)) => Ok(CheckoutResolution::Miss(absent(transaction))),
         Err(InstallError::Cache(error)) => Ok(CheckoutResolution::Miss(failure(error, None))),
-        Err(InstallError::Store(error)) => Ok(CheckoutResolution::Miss(failure(
-            ResultError::Store(error),
-            None,
-        ))),
         Err(error) => Err(error),
     }
 }
