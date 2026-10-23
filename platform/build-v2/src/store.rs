@@ -3,7 +3,7 @@
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -91,6 +91,11 @@ pub struct PreparedObject {
     source_mode: u32,
 }
 impl PreparedObject {
+    /// Validator view of the frozen bytes already hashed by preparation.
+    /// The opaque reader cannot change permissions or recover the private staging path.
+    pub fn reader(&self) -> Result<impl Read + Seek, StoreError> {
+        Ok(File::open(&self.staging)?)
+    }
     pub fn digest(&self) -> &ObjectDigest {
         &self.digest
     }
@@ -193,12 +198,39 @@ impl ObjectStore {
             .join(digest.as_hex())
     }
 
+    pub(crate) fn check_recorded(
+        &self,
+        digest: &ObjectDigest,
+        size: u64,
+    ) -> Result<(), StoreError> {
+        if immutable(&self.object_path(digest))?.len() != size {
+            return Err(StoreError::InvalidFile("recorded object size differs"));
+        }
+        Ok(())
+    }
+
     /// @cc [owner:fontanierh,label:correctness] verified-object-snapshot
     /// Preparation MUST clone the source into an independent owned staging file, freeze it read-only,
     /// and hash those exact frozen bytes once before yielding a publication token. It MUST reject
     /// non-regular sources and clone failures without copying bytes or modifying the source.
     pub fn prepare(&self, source: impl AsRef<Path>) -> Result<PreparedObject, StoreError> {
-        let source = source.as_ref();
+        self.prepare_in(source.as_ref(), &self.root.join("staging"))
+    }
+
+    // B2 supplies a unique scope durably leased before this method creates payloads.
+    pub(crate) fn prepare_in(
+        &self,
+        source: &Path,
+        scope: &Path,
+    ) -> Result<PreparedObject, StoreError> {
+        if scope != self.root.join("staging")
+            && scope.parent() != Some(self.root.join("staging").as_path())
+        {
+            return Err(StoreError::InvalidFile("staging scope outside store"));
+        }
+        if !fs::symlink_metadata(scope)?.is_dir() {
+            return Err(StoreError::InvalidFile("staging scope is not a directory"));
+        }
         let metadata = fs::symlink_metadata(source)?;
         if !metadata.is_file() {
             return Err(StoreError::InvalidFile("source is not a regular file"));
@@ -207,10 +239,7 @@ impl ObjectStore {
         // unambiguous cleanup ownership. Stale or foreign names are never removed.
         let staging_dir = loop {
             let serial = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
-            let path = self
-                .root
-                .join("staging")
-                .join(format!("{}-{serial}", std::process::id()));
+            let path = scope.join(format!("{}-{serial}", std::process::id()));
             match fs::create_dir(&path) {
                 Ok(()) => break path,
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
