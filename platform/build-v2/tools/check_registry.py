@@ -101,9 +101,20 @@ def _host_platform(listing: dict) -> str:
     raise ValueError(f'unsupported recorded host platform: {triple}')
 
 
-def _iter_cases(listing: dict):
+def _iter_cases(listing: dict, filtered: bool = False):
+    """Yield (identity, binary-id, name, case).
+
+    A full collection must list every suite. A filtered listing reports a suite with no
+    matching tests as skipped with no testcases; that is expected, and any other skipped shape
+    still fails.
+    """
     for binary, suite in listing['rust-suites'].items():
-        if suite['status'] != 'listed':
+        status = suite['status']
+        if filtered and status == 'skipped':
+            if suite['testcases']:
+                raise ValueError(f'skipped suite carries tests: {binary}')
+            continue
+        if status != 'listed':
             raise ValueError(f'unlisted suite: {binary}')
         binary_id = suite.get('binary-id', binary)
         for name, case in suite['testcases'].items():
@@ -232,7 +243,7 @@ def check_registry(registry: dict, listing: dict, *,
             raise ValueError(f'{tier} listing host {filtered_platform} does not match the '
                              f'collection host {plan["platform"]}')
         matched = set()
-        for identity, _binary_id, _name, case in _iter_cases(filtered):
+        for identity, _binary_id, _name, case in _iter_cases(filtered, filtered=True):
             if case['filter-match']['status'] != 'matches':
                 continue
             if case['ignored']:

@@ -209,6 +209,26 @@ def test_a_tier_listing_from_another_host_is_refused():
         check_registry(registry, listing, tier_listings={'t0': listing_of('fixture/test', triple=DARWIN)})
 
 
+def test_a_filtered_listing_may_report_only_empty_skipped_suites():
+    registry, listing, _ = evidence()
+    filtered = listing_of('fixture/test')
+    filtered['rust-suites']['unmatched'] = {'status': 'skipped', 'testcases': {}}
+    summary = check_registry(registry, listing, tier_listings={'t0': filtered})
+    assert summary['tiers']['t0']['listed'] == 1
+
+
+def test_a_filtered_listing_refuses_skipped_tests_and_unknown_statuses():
+    registry, listing, _ = evidence()
+    filtered = listing_of('fixture/test')
+    filtered['rust-suites']['unmatched'] = {'status': 'skipped', 'testcases': {
+        'stale': {'ignored': False, 'filter-match': {'status': 'mismatch'}}}}
+    with pytest.raises(ValueError, match='skipped suite carries tests'):
+        check_registry(registry, listing, tier_listings={'t0': filtered})
+    filtered['rust-suites']['unmatched'] = {'status': 'failed', 'testcases': {}}
+    with pytest.raises(ValueError, match='unlisted suite'):
+        check_registry(registry, listing, tier_listings={'t0': filtered})
+
+
 def test_overlapping_tier_assignment_is_refused():
     registry, listing, _ = evidence()
     registry['scenarios'].append({'id': 'two', 'tests': ['fixture/test'], 'tier': 't1a'})
