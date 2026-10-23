@@ -559,3 +559,7 @@ tests = ["atelier-build-v2/groups::tests::cached_member_keys_bind_equal_byte_pay
 [[scenarios]]
 id = "a4b.plans.expanded_child_key_ignores_roster_and_planner_code_but_binds_exporter_code"
 tests = ["atelier-build-v2/plans::tests::expanded_child_key_ignores_roster_and_planner_code_but_binds_exporter_code"]
+
+[[scenarios]]
+id = "a4b.plans.receipt_ownership_survives_exporter_and_planner_version_evolution"
+tests = ["atelier-build-v2/plans::tests::receipt_ownership_survives_exporter_and_planner_version_evolution"]

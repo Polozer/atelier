@@ -41,9 +41,16 @@ pub struct RegisteredTemplate {
 /// Raw deserialization must not grant authority to retire another unit's outputs.
 #[derive(Clone, Debug, Serialize)]
 pub struct ExpansionReceipt {
-    template: ChildTemplate,
-    contract: OutputGroupContract,
+    scope: OwnershipScope,
     children: BTreeMap<String, Unit>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct OwnershipScope {
+    producer: String,
+    group: String,
+    unit_prefix: String,
+    logical_namespace: String,
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +88,15 @@ impl Expansion {
 }
 
 impl ChildTemplate {
+    fn ownership(&self) -> OwnershipScope {
+        OwnershipScope {
+            producer: self.producer.clone(),
+            group: self.group.clone(),
+            unit_prefix: self.unit_prefix.clone(),
+            logical_namespace: self.logical_namespace.clone(),
+        }
+    }
+
     fn child(
         &self,
         piece: &str,
@@ -248,7 +264,7 @@ impl RegisteredTemplate {
         let mut declaration = base.declaration().clone();
         let mut previous = BTreeMap::new();
         if let Some(prior) = prior {
-            if prior.template != self.template || prior.contract != self.contract {
+            if prior.scope != self.template.ownership() {
                 return Err("foreign expansion receipt".into());
             }
             previous = prior.children.clone();
@@ -291,8 +307,7 @@ impl RegisteredTemplate {
         Ok(Expansion {
             graph,
             receipt: ExpansionReceipt {
-                template: self.template.clone(),
-                contract: self.contract.clone(),
+                scope: self.template.ownership(),
                 children,
             },
             removals,
@@ -600,6 +615,74 @@ mod tests {
         assert_ne!(
             first,
             key(&["B", "C"], b"planner v2 # comment", b"exporter v2")
+        );
+    }
+
+    #[test]
+    fn receipt_ownership_survives_exporter_and_planner_version_evolution() {
+        let (base, mut registry, template, contract) = fixture();
+        let registered =
+            RegisteredTemplate::register(&base, template.clone(), &registry, &[]).unwrap();
+        let first = registered
+            .expand(&base, &token(&contract, &["A", "B"]), None, &registry, &[])
+            .unwrap();
+        let mut evolved_contract = contract.clone();
+        evolved_contract.adapter_version = "fixture/2".into();
+        evolved_contract.max_pieces += 1;
+        let mut evolved = first.graph().declaration().clone();
+        evolved
+            .units
+            .iter_mut()
+            .find(|u| u.id == "planner")
+            .unwrap()
+            .output_groups[0] = evolved_contract.clone();
+        let version2 = registry[&("fixture".into(), "1".into())].clone();
+        registry.insert(("fixture".into(), "2".into()), version2);
+        let mut template2 = template.clone();
+        template2.op.version = "2".into();
+        template2.script = "ops/export_v2.py".into();
+        template2.code = vec![template2.script.clone(), "ops/export_helper.py".into()];
+        let evolved = BuildGraph::validate(evolved, &registry, &[]).unwrap();
+        let registered2 =
+            RegisteredTemplate::register(&evolved, template2.clone(), &registry, &[]).unwrap();
+        let second = registered2
+            .expand(
+                &evolved,
+                &token(&evolved_contract, &["B", "C"]),
+                Some(first.receipt()),
+                &registry,
+                &[],
+            )
+            .unwrap();
+        let child = second.graph().unit("export.Village.B").unwrap();
+        assert_eq!(child.id, first.graph().unit("export.Village.B").unwrap().id);
+        assert_eq!(
+            child.outputs,
+            first.graph().unit("export.Village.B").unwrap().outputs
+        );
+        assert_eq!(child.op.version, "2");
+        assert_eq!(child.script, template2.script);
+        assert_eq!(child.code, template2.code);
+        assert_eq!(second.removals().len(), 1);
+        assert_eq!(second.removals()[0].unit(), "export.Village.A");
+        assert_eq!(
+            second.removals()[0].outputs(),
+            first.graph().unit("export.Village.A").unwrap().outputs
+        );
+        let mut different_owner = template2;
+        different_owner.logical_namespace = "/Game/Other".into();
+        let foreign =
+            RegisteredTemplate::register(&evolved, different_owner, &registry, &[]).unwrap();
+        assert!(
+            foreign
+                .expand(
+                    &evolved,
+                    &token(&evolved_contract, &["B"]),
+                    Some(first.receipt()),
+                    &registry,
+                    &[]
+                )
+                .is_err()
         );
     }
 

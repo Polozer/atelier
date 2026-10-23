@@ -360,8 +360,8 @@ Cold child selection reports `NeedsPlanner` until validated membership exists, t
 `UnknownChild`; it never exports a provisional unit or fictional hit. `expand` checks all generated
 children with the same global structural validator before returning a graph. It does not require
 unselected source observations. Its private in-process `ExpansionReceipt` records exact generated
-units. Re-expansion accepts that receipt only with the same template/contract and unchanged prior
-unit ownership. Removed children yield exact prior export-Item `RemovalIntent`s, without deleting files or
+units. Re-expansion checks the stable producer/group/unit-prefix/logical-namespace ownership scope
+and unchanged prior units; exporter code/op versions and planner versions/budgets may evolve. Removed children yield exact prior export-Item `RemovalIntent`s, without deleting files or
 inferring ownership from a prefix. A persisted previous group may be re-expanded to reconstruct its
 receipt; raw deserialization cannot mint one. Current D2 schema1 validation refuses zero-piece plans;
 retiring an entire empty family needs an explicit reviewed empty-plan contract.
