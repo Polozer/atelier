@@ -3,4 +3,5 @@
 pub mod fixture;
 pub mod protocol;
 pub mod schema;
+pub mod store;
 pub mod validate;
