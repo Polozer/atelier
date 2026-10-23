@@ -1,6 +1,7 @@
 #include "AtelierBuildWorkerLibrary.h"
 
 #include "AssetCompilingManager.h"
+#include "HAL/FileManager.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "DerivedDataCacheInterface.h"
 #include "DerivedDataCacheUsageStats.h"
@@ -9,7 +10,10 @@
 #include "Engine/Selection.h"
 #include "InterchangeManager.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Misc/CoreMisc.h"
+#include "Misc/FileHelper.h"
+#include "Misc/SecureHash.h"
 #include "UObject/ReferenceChainSearch.h"
 #include "UObject/UObjectHash.h"
 #include "Dom/JsonObject.h"
@@ -22,7 +26,10 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "ShaderCompiler.h"
+#include "Serialization/ArchiveProxy.h"
+#include "UObject/ObjectResource.h"
 #include "UObject/ObjectSaveContext.h"
+#include "UObject/PackageFileSummary.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectIterator.h"
 #include "UObject/UObjectGlobals.h"
@@ -33,7 +40,11 @@ namespace
     {
         FString Package;
         FString Filename;
+        /** SHA1 of each of the package's files on disk, taken after the save's writes were flushed. */
+        TMap<FString, FString> Files;
     };
+
+    const TCHAR* const GPackageExtensions[] = {TEXT(".uasset"), TEXT(".umap"), TEXT(".uexp"), TEXT(".ubulk"), TEXT(".uptnl")};
 
     TArray<FSaved> GSaved;
     FDelegateHandle GSaveHandle;
@@ -42,7 +53,94 @@ namespace
 
     void OnPackageSaved(const FString& PackageFileName, UPackage* Package, FObjectPostSaveContext)
     {
-        GSaved.Add({Package ? Package->GetName() : FString(), FPaths::ConvertRelativePathToFull(PackageFileName)});
+        FSaved Saved{Package ? Package->GetName() : FString(), FPaths::ConvertRelativePathToFull(PackageFileName), {}};
+        // The event can fire before the package's file writes finish; hash only flushed bytes.
+        UPackage::WaitForAsyncFileWrites();
+        const FString Base = FPaths::ChangeExtension(Saved.Filename, FString());
+        for (const TCHAR* Extension : GPackageExtensions)
+        {
+            const FString File = Base + Extension;
+            TArray<uint8> Bytes;
+            if (FPaths::FileExists(File) && FFileHelper::LoadFileToArray(Bytes, *File))
+            {
+                Saved.Files.Add(File, FSHA1::HashBuffer(Bytes.GetData(), Bytes.Num()).ToString().ToLower());
+            }
+        }
+        GSaved.Add(MoveTemp(Saved));
+    }
+
+    /** Reads names through a package file's own name map, as its linker would. */
+    class FNameMapReader : public FArchiveProxy
+    {
+    public:
+        FNameMapReader(FArchive& Inner, const TArray<FName>& InNames) : FArchiveProxy(Inner), Names(InNames) {}
+
+        virtual FArchive& operator<<(FName& Name) override
+        {
+            int32 Index = 0;
+            int32 Number = 0;
+            InnerArchive << Index << Number;
+            if (!Names.IsValidIndex(Index))
+            {
+                SetError();
+                Name = NAME_None;
+                return *this;
+            }
+            Name = FName(Names[Index], Number);
+            return *this;
+        }
+
+    private:
+        const TArray<FName>& Names;
+    };
+
+    /** The import table of a saved package file, or false when the file cannot be read as one. */
+    bool ReadImportTable(const FString& Filename, TArray<FObjectImport>& OutImports)
+    {
+        const TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Filename));
+        if (!File)
+        {
+            return false;
+        }
+        FPackageFileSummary Summary;
+        *File << Summary;
+        if (File->IsError() || Summary.Tag != PACKAGE_FILE_TAG || Summary.NameCount < 0 || Summary.ImportCount < 0)
+        {
+            return false;
+        }
+        File->SetUEVer(Summary.GetFileVersionUE());
+        File->SetLicenseeUEVer(Summary.GetFileVersionLicenseeUE());
+        File->SetCustomVersions(Summary.GetCustomVersionContainer());
+        TArray<FName> Names;
+        File->Seek(Summary.NameOffset);
+        for (int32 Index = 0; Index < Summary.NameCount && !File->IsError(); ++Index)
+        {
+            FNameEntrySerialized Entry(ENAME_LinkerConstructor);
+            *File << Entry;
+            Names.Add(FName(Entry));
+        }
+        FNameMapReader Reader(*File, Names);
+        Reader.SetUEVer(Summary.GetFileVersionUE());
+        Reader.SetLicenseeUEVer(Summary.GetFileVersionLicenseeUE());
+        Reader.SetCustomVersions(Summary.GetCustomVersionContainer());
+        Reader.Seek(Summary.ImportOffset);
+        OutImports.SetNum(Summary.ImportCount);
+        for (FObjectImport& Import : OutImports)
+        {
+            Reader << Import;
+        }
+        if (File->IsError() || Reader.IsError())
+        {
+            return false;
+        }
+        for (const FObjectImport& Import : OutImports)
+        {
+            if (Import.OuterIndex.IsExport() || (Import.OuterIndex.IsImport() && !OutImports.IsValidIndex(Import.OuterIndex.ToImport())))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     FString Write(const TSharedRef<FJsonValue>& Value)
@@ -125,6 +223,12 @@ FString UAtelierBuildWorkerLibrary::EndSaveRecording()
         const TSharedRef<FJsonObject> Item = MakeShared<FJsonObject>();
         Item->SetStringField(TEXT("package"), Saved.Package);
         Item->SetStringField(TEXT("filename"), Saved.Filename);
+        const TSharedRef<FJsonObject> Files = MakeShared<FJsonObject>();
+        for (const TPair<FString, FString>& File : Saved.Files)
+        {
+            Files->SetStringField(File.Key, File.Value);
+        }
+        Item->SetObjectField(TEXT("files"), Files);
         Items.Add(MakeShared<FJsonValueObject>(Item));
     }
     GSaved.Reset();
@@ -169,22 +273,51 @@ TArray<FString> UAtelierBuildWorkerLibrary::LoadedPackageNames(const FString& Pr
     return Names;
 }
 
-FString UAtelierBuildWorkerLibrary::PackageImports(const FString& PackageName)
+FString UAtelierBuildWorkerLibrary::PackageImports(const FString& Filename)
 {
-    TArray<FName> Dependencies;
-    IAssetRegistry::GetChecked().GetDependencies(FName(*PackageName), Dependencies, UE::AssetRegistry::EDependencyCategory::Package);
-    TArray<FString> Names;
-    for (const FName& Dependency : Dependencies)
+    // The saved file's own import table, in table order: never the asset registry's dependencies.
+    TArray<FObjectImport> Imports;
+    if (!ReadImportTable(Filename, Imports))
     {
-        Names.Add(Dependency.ToString());
+        return FString();  // the worker fails the job closed
     }
-    Names.Sort();
-    TArray<TSharedPtr<FJsonValue>> Items;
-    for (const FString& Name : Names)
+    TArray<FString> Paths;
+    Paths.SetNum(Imports.Num());
+    TFunction<FString(int32)> PathOf = [&Imports, &Paths, &PathOf](int32 Index) -> FString
     {
-        Items.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueString>(Name), MakeShared<FJsonValueString>(TEXT("package"))}));
+        if (!Paths[Index].IsEmpty())
+        {
+            return Paths[Index];
+        }
+        const FObjectImport& Import = Imports[Index];
+        FString Path = Import.ObjectName.ToString();
+        if (Import.OuterIndex.IsImport())
+        {
+            const int32 Outer = Import.OuterIndex.ToImport();
+            const bool bOuterIsPackage = Imports[Outer].OuterIndex.IsNull();
+            Path = PathOf(Outer) + (bOuterIsPackage ? TEXT(".") : TEXT(":")) + Path;
+        }
+        Paths[Index] = Path;
+        return Path;
+    };
+    TArray<TSharedPtr<FJsonValue>> Items;
+    for (int32 Index = 0; Index < Imports.Num(); ++Index)
+    {
+        const FObjectImport& Import = Imports[Index];
+        const FString Class = Import.ClassPackage.ToString() + TEXT(".") + Import.ClassName.ToString();
+        Items.Add(MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{MakeShared<FJsonValueString>(PathOf(Index)), MakeShared<FJsonValueString>(Class)}));
     }
     return Write(MakeShared<FJsonValueArray>(Items));
+}
+
+FString UAtelierBuildWorkerLibrary::ConfigValue(const FString& File, const FString& Section, const FString& Key)
+{
+    FString Value;
+    const bool bFound = GConfig && GConfig->GetString(*Section, *Key, Value, GConfig->GetConfigFilename(*File));
+    const TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetBoolField(TEXT("found"), bFound);
+    Result->SetStringField(TEXT("value"), Value);
+    return Write(MakeShared<FJsonValueObject>(Result));
 }
 
 FString UAtelierBuildWorkerLibrary::DdcGraph()

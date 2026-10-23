@@ -18,14 +18,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString DdcGraph();
     /** Start recording every package save (UPackage::PackageSavedWithContextEvent). */
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static void BeginSaveRecording();
-    /** Stop recording; [{package, filename}] saved since BeginSaveRecording, in order. */
+    /** Stop recording; [{package, filename, files: {path: sha1}}] saved since BeginSaveRecording, in order, hashed after each save's writes were flushed. */
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString EndSaveRecording();
     /** Finish asset and shader compilation and pending async loads. */
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static void FinishBackgroundWork();
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static TArray<FString> DirtyPackageNames();
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static TArray<FString> LoadedPackageNames(const FString& Prefix);
-    /** [[dependency package, "package"]] from the asset registry for a saved package. */
-    UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString PackageImports(const FString& PackageName);
+    /** [[import path, class]] from a saved package file's own import table, in table order; empty text if unreadable. */
+    UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString PackageImports(const FString& Filename);
+    /** {found, value}: the effective value of an ini key (File is a base name such as Engine). */
+    UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString ConfigValue(const FString& File, const FString& Section, const FString& Key);
     /** {name: [value, set by]} for every console variable; "Constructor" means still at its default. */
     UFUNCTION(BlueprintCallable, Category = "Atelier|Build") static FString SettingsSnapshot();
     /** An immediate, synchronous garbage collection (the Kismet one only schedules it for the next tick). */

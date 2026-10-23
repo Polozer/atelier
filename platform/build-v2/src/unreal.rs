@@ -86,8 +86,8 @@ pub struct Binaries {
     pub dir: PathBuf,
 }
 
-/// A platform plugin: its `<name>.uplugin` and `Binaries/` are cloned, never its sources. The
-/// identity covers exactly those files.
+/// A plugin and the identity of its `<name>.uplugin` and `Binaries/`. A platform plugin is cloned
+/// (never its sources); an engine plugin stays in the installed engine and is only identified.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Plugin {
     pub name: String,
@@ -106,14 +106,81 @@ pub struct UnrealContext {
     /// The project module binaries.
     pub editor: Binaries,
     pub modules: Vec<Module>,
-    /// Engine plugins enabled by name (installed platform).
-    pub engine_plugins: Vec<String>,
+    /// Engine plugins the project enables, each with the content identity of its installed
+    /// descriptor and `Binaries` ([`tree_identity`]), which the worker recomputes before `hello`.
+    /// Engine plugins enabled by default and engine modules are bound only by the BuildId.
+    pub engine_plugins: Vec<Plugin>,
     /// Platform plugins cloned into the scratch project, including [`WORKER_PLUGIN`].
     pub plugins: Vec<Plugin>,
     /// Declared `-ini:` and `-ForceDPCVars=` arguments, passed verbatim and in order.
     pub settings: Vec<String>,
     /// The persistent v2-owned DDC folder for this engine ([`UnrealDdc::open`]).
     pub ddc: UnrealDdc,
+    /// The frozen worker implementation every session runs ([`UnrealWorkerBundle::read`]).
+    pub worker: UnrealWorkerBundle,
+}
+
+/// The frozen job loop: the exact bytes of `unreal_worker.py` and the `protocol.py` it loads,
+/// captured once when the context is declared. Each session materializes them read-only in its
+/// own folder and the editor runs that copy, never the source tree, so a later edit of the source
+/// cannot reach a session. [`UnrealWorkerBundle::digest`] is their semantic identity: it is in the
+/// session profile and is what the future item/op key binder (D4/A9) must hash.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnrealWorkerBundle {
+    files: BTreeMap<String, Vec<u8>>,
+    digest: String,
+}
+
+/// The worker's files, by their name in the bundle; the script runs and imports only its sibling.
+pub const UNREAL_WORKER_FILES: [&str; 2] = ["protocol.py", "unreal_worker.py"];
+/// The bundle's entry script.
+pub const UNREAL_WORKER_SCRIPT: &str = "unreal_worker.py";
+/// The session folder that holds the frozen bundle.
+pub const WORKER_FOLDER: &str = "worker";
+
+impl UnrealWorkerBundle {
+    /// Freeze the worker files in `source_dir` (regular files only, never links).
+    pub fn read(source_dir: &Path) -> io::Result<Self> {
+        let mut files = BTreeMap::new();
+        for name in UNREAL_WORKER_FILES {
+            let path = source_dir.join(name);
+            if !fs::symlink_metadata(&path)?.is_file() {
+                return Err(invalid(format!("{} is not a regular file", path.display())));
+            }
+            files.insert(name.to_string(), fs::read(&path)?);
+        }
+        Self::from_files(files)
+    }
+
+    /// A bundle from exactly the [`UNREAL_WORKER_FILES`] bytes.
+    pub fn from_files(files: BTreeMap<String, Vec<u8>>) -> io::Result<Self> {
+        if files.keys().map(String::as_str).ne(UNREAL_WORKER_FILES) {
+            return Err(invalid(format!(
+                "the worker bundle holds exactly {UNREAL_WORKER_FILES:?}"
+            )));
+        }
+        let digests: BTreeMap<_, _> = files
+            .iter()
+            .map(|(name, bytes)| (name.clone(), format!("{:x}", Sha256::digest(bytes))))
+            .collect();
+        let canonical = crate::keys::canonical_bytes(&serde_json::json!({
+            "domain": "atelier-unreal-worker", "version": 1, "files": digests,
+        }))
+        .map_err(invalid)?;
+        Ok(Self {
+            files,
+            digest: format!("{:x}", Sha256::digest(&canonical)),
+        })
+    }
+
+    /// The content identity of the frozen files (no locations, no installed engine facts).
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+
+    pub fn files(&self) -> &BTreeMap<String, Vec<u8>> {
+        &self.files
+    }
 }
 
 /// The persistent, v2-owned Unreal derived-data cache: `<store root>/unreal-ddc/<engine BuildId>`.
@@ -286,9 +353,18 @@ impl UnrealContext {
             }
         }
         let mut plugins = BTreeSet::new();
-        for name in &self.engine_plugins {
-            if !name_ok(name) || !plugins.insert(name.clone()) {
-                return Err(invalid(format!("invalid or repeated plugin {name:?}")));
+        for plugin in &self.engine_plugins {
+            if !name_ok(&plugin.name) || !plugins.insert(plugin.name.clone()) {
+                return Err(invalid(format!(
+                    "invalid or repeated plugin {:?}",
+                    plugin.name
+                )));
+            }
+            if !digest_ok(&plugin.identity) {
+                return Err(invalid(format!(
+                    "engine plugin {} identity is not a sha256 digest",
+                    plugin.name
+                )));
             }
         }
         for plugin in &self.plugins {
@@ -339,8 +415,11 @@ impl UnrealContext {
     /// The identity fields, without binary locations. The DDC folder is in it: it is the state the
     /// editor reads, not where a binary was restored.
     pub fn identity(&self) -> serde_json::Value {
-        let mut engine_plugins = self.engine_plugins.clone();
-        engine_plugins.sort();
+        let engine_plugins: BTreeMap<_, _> = self
+            .engine_plugins
+            .iter()
+            .map(|plugin| (plugin.name.clone(), plugin.identity.clone()))
+            .collect();
         let plugins: BTreeMap<_, _> = self
             .plugins
             .iter()
@@ -355,6 +434,7 @@ impl UnrealContext {
             "plugins": plugins,
             "rhi": "null",
             "settings": self.settings,
+            "worker": self.worker.digest(),
             // The cache the editor reads and writes, and how: a different flag, graph or folder
             // is a different session, never a reuse of an old one.
             "ddc": self.ddc_arguments().unwrap_or_default(),
@@ -551,6 +631,14 @@ pub struct LoadedContext {
     pub plugins: BTreeSet<String>,
     /// sha256 of every loaded project or plugin library, by its path relative to the project.
     pub libraries: BTreeMap<String, String>,
+    /// Each declared engine plugin's [`tree_identity`], recomputed by the worker from the folder
+    /// the editor loaded it from, once per session before `hello`.
+    pub engine_plugins: BTreeMap<String, String>,
+    /// The declared settings as the editor actually holds them: each `-ForceDPCVars=` pair with the
+    /// console variable's value and each `-ini:` key with its effective config value.
+    pub settings: Vec<String>,
+    /// [`UnrealWorkerBundle::digest`] of the worker and protocol files the editor actually loaded.
+    pub worker: String,
     pub rhi: String,
     /// The policy the editor's effective cache graph was checked against.
     pub ddc: DdcPolicy,
@@ -595,6 +683,7 @@ pub struct ScratchProject {
     root: PathBuf,
     expected: LoadedContext,
     receipt: ScratchReceipt,
+    worker: UnrealWorkerBundle,
 }
 
 impl ScratchProject {
@@ -622,6 +711,7 @@ impl ScratchProject {
             fs::create_dir(root.join(folder))?;
         }
         fs::create_dir(session.join("user"))?;
+        write_bundle(&session.join(WORKER_FOLDER), &context.worker)?;
         let sources = std::iter::once((
             &context.editor.dir,
             None,
@@ -669,7 +759,8 @@ impl ScratchProject {
         let mut plugins: Vec<serde_json::Value> = context
             .engine_plugins
             .iter()
-            .chain(context.plugins.iter().map(|plugin| &plugin.name))
+            .chain(&context.plugins)
+            .map(|plugin| &plugin.name)
             .map(|name| serde_json::json!({"Name": name, "Enabled": true}))
             .collect();
         plugins.sort_by_key(|value| value.to_string());
@@ -691,9 +782,16 @@ impl ScratchProject {
             plugins: context
                 .engine_plugins
                 .iter()
-                .chain(context.plugins.iter().map(|p| &p.name))
-                .cloned()
+                .chain(&context.plugins)
+                .map(|p| p.name.clone())
                 .collect(),
+            engine_plugins: context
+                .engine_plugins
+                .iter()
+                .map(|p| (p.name.clone(), p.identity.clone()))
+                .collect(),
+            settings: context.settings.clone(),
+            worker: context.worker.digest().to_string(),
             libraries: receipt
                 .files
                 .iter()
@@ -723,6 +821,7 @@ impl ScratchProject {
             root,
             expected,
             receipt,
+            worker: context.worker.clone(),
         };
         project.set_read_only(true)?;
         Ok(project)
@@ -745,6 +844,40 @@ impl ScratchProject {
         self.root.join("Content")
     }
 
+    /// The session's frozen copy of the worker script, which the editor runs.
+    pub fn worker_script(&self) -> PathBuf {
+        self.session.join(WORKER_FOLDER).join(UNREAL_WORKER_SCRIPT)
+    }
+
+    /// The frozen worker folder still holds exactly the bundle's bytes, read-only.
+    pub fn verify_worker(&self) -> io::Result<()> {
+        let folder = self.session.join(WORKER_FOLDER);
+        let mut names = BTreeSet::new();
+        for entry in fs::read_dir(&folder)? {
+            let entry = entry?;
+            let name = entry.file_name().to_str().map(str::to_owned);
+            let metadata = fs::symlink_metadata(entry.path())?;
+            let expected = name.as_ref().and_then(|name| self.worker.files().get(name));
+            match expected {
+                Some(bytes)
+                    if metadata.is_file()
+                        && metadata.permissions().mode() & 0o222 == 0
+                        && fs::read(entry.path())? == *bytes => {}
+                _ => {
+                    return Err(damaged(format!(
+                        "the session's frozen worker changed: {}",
+                        entry.path().display()
+                    )));
+                }
+            }
+            names.extend(name);
+        }
+        if names.len() != self.worker.files().len() {
+            return Err(damaged("the session's frozen worker is incomplete"));
+        }
+        Ok(())
+    }
+
     /// The session's own Unreal user folder (`-UserDir`).
     pub fn user_dir(&self) -> PathBuf {
         self.session.join("user")
@@ -762,6 +895,7 @@ impl ScratchProject {
     /// the cloned trees hold nothing the receipt doesn't list, and the installed engine pak is
     /// unchanged.
     pub fn verify(&self) -> io::Result<()> {
+        self.verify_worker()?;
         let mut seen = BTreeSet::new();
         for top in ["Binaries", "Plugins"] {
             for relative in tree(&self.root.join(top))? {
@@ -860,8 +994,29 @@ impl ScratchProject {
     /// receipt; the receipt and evidence files in the session folder stay.
     pub fn remove(self) -> io::Result<()> {
         self.set_read_only(false)?;
-        fs::remove_dir_all(&self.root)
+        fs::remove_dir_all(&self.root)?;
+        let worker = self.session.join(WORKER_FOLDER);
+        fs::set_permissions(&worker, fs::Permissions::from_mode(0o755))?;
+        fs::remove_dir_all(worker)
     }
+}
+
+/// Materialize `bundle` read-only in `folder`, which must not exist yet.
+fn write_bundle(folder: &Path, bundle: &UnrealWorkerBundle) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::create_dir(folder)?;
+    for (name, bytes) in bundle.files() {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o444)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(folder.join(name))?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    fs::set_permissions(folder, fs::Permissions::from_mode(0o555))
 }
 
 /// A job's import evidence, refused when missing or malformed, or when it names a package the job
@@ -898,10 +1053,11 @@ pub fn read_import_evidence(
 /// The Unreal job loop: the installed `UnrealEditor-Cmd` on the session's scratch project, running
 /// `unreal_worker.py` through the stock `pythonscript` commandlet. The launcher appends the two
 /// protocol descriptor flags at the end, where the worker reads them from the engine command line.
+/// The script is the session's frozen copy of the worker; the worker checks the digest of the files
+/// it actually loaded again before `hello`.
 pub fn job_loop_command(
     context: &UnrealContext,
     scratch: &ScratchProject,
-    worker_script: &Path,
 ) -> io::Result<WorkerCommand> {
     context.validate()?;
     if scratch.receipt.profile != context.profile() {
@@ -909,10 +1065,14 @@ pub fn job_loop_command(
             "the scratch project was prepared for another context",
         ));
     }
+    scratch.verify_worker()?;
     let mut args = vec![
         argument(&scratch.uproject(), "the scratch descriptor")?,
         "-run=pythonscript".into(),
-        format!("-script={}", argument(worker_script, "the worker script")?),
+        format!(
+            "-script={}",
+            argument(&scratch.worker_script(), "the worker script")?
+        ),
     ];
     args.extend(UNREAL_WORKER_FLAGS.iter().map(|flag| flag.to_string()));
     args.push(format!(

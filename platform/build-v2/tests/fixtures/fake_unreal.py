@@ -8,7 +8,9 @@ module, which fails on the read-only clone, as the real editor would), then inst
 
 The fake `unreal` module models only what the worker uses: a package table (loaded, dirty, pinned),
 saved-package recording, the asset registry's view of `/Game`, console variables with their set-by
-source, failed ensures, `find_object`, and the effective cache graph built from `-DDC=` (the
+source (a forced CVar the stand-in does not register is ignored, as the editor ignores an unknown one),
+ini values from `-ini:`, saves whose writes may finish only at a flush (the plugin hashes a save's files
+after flushing), each saved file's import table, failed ensures, `find_object`, and the effective cache graph built from `-DDC=` (the
 engine's pak plus inline file-system nodes; without `-DDC=` it reports the installed default
 graph, Zen plus a shared folder, as the editor's fallback would). As in the editor, `SystemLibrary.collect_garbage` only
 schedules a collection (a commandlet script never reaches the next tick); only the plugin's
@@ -16,6 +18,7 @@ schedules a collection (a commandlet script never reaches the next tick); only t
 pin and dirty packages, set or register a CVar, fail an ensure, write a stray file and make an
 editor call raise. Real Unreal behaviour is proven only by the admitted T2 sessions.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -105,7 +108,19 @@ libraries.append(str(ENGINE / 'Engine/Binaries/Mac/libUnrealEditor-Core.dylib'))
 CONTENT = project / 'Content'
 packages = {}  # name -> {'loaded', 'dirty', 'pinned', 'imports'}
 # name -> [value, set by], as the plugin's settings_snapshot reports them.
-cvars = {'r.Existing': ['0', 'Constructor'], **{token: ['1', 'Commandline'] for token in settings}}
+cvars = {'r.Existing': ['0', 'Constructor'], 'r.GenerateMeshDistanceFields': ['1', 'Constructor']}
+config = {}  # (file, section, key) -> value
+for token in settings:
+    if token.startswith('-ForceDPCVars='):
+        for pair in token[len('-ForceDPCVars='):].split(','):
+            name, _, value = pair.partition('=')
+            if name in cvars:
+                cvars[name] = [value, 'Commandline']
+    else:
+        file, section, rest = token[len('-ini:'):].split(':', 2)
+        key, _, value = rest.partition('=')
+        config[(file, section.strip('[]'), key)] = value
+pending = {}  # path -> bytes a deferred save writes only when its writes are flushed
 registry = set()
 recording = None
 broken = set()  # editor calls a fixture op made raise
@@ -211,6 +226,7 @@ class AtelierBuildWorkerLibrary:
     def begin_save_recording():
         global recording
         recording = []
+        broken.clear()  # a fixture op breaks editor calls for its own job (and that job's reset) only
 
     @staticmethod
     def end_save_recording():
@@ -220,7 +236,7 @@ class AtelierBuildWorkerLibrary:
 
     @staticmethod
     def finish_background_work():
-        pass
+        flush(force=True)
 
     @staticmethod
     def dirty_package_names():
@@ -232,8 +248,15 @@ class AtelierBuildWorkerLibrary:
                 if name.startswith(prefix) and (entry['loaded'] or entry['pinned'])]
 
     @staticmethod
-    def package_imports(name):
-        return json.dumps(packages.get(name, {}).get('imports', []))
+    def package_imports(filename):
+        if 'imports' in broken:
+            return ''  # an unreadable import table
+        return json.dumps(packages.get(name_of(filename), {}).get('imports', []))
+
+    @staticmethod
+    def config_value(file, section, key):
+        found = (file, section, key) in config
+        return json.dumps({'found': found, 'value': config.get((file, section, key), '')})
 
     @staticmethod
     def settings_snapshot():
@@ -274,15 +297,24 @@ class AtelierFake:
         AtelierFake.save_package(name)
 
     @staticmethod
-    def save_package(name):
+    def save_package(name, deferred=False):
+        """Save `name`; a deferred save writes its bytes only when its writes are flushed."""
         entry = packages[name]
         path = file_of(name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(entry['payload'])
+        if deferred:
+            path.write_bytes(b'not yet written')
+            pending[path] = entry['payload']
+        else:
+            path.write_bytes(entry['payload'])
         entry['dirty'] = False
         registry.add(str(path.resolve()))
         if recording is not None:
-            recording.append({'package': name, 'filename': str(path)})
+            flush()  # as the plugin does before hashing a save's files
+            files = {str(other): hashlib.sha1(other.read_bytes()).hexdigest()
+                     for other in (path.with_suffix(suffix) for suffix in ('.uasset', '.umap', '.uexp', '.ubulk'))
+                     if other.is_file()}
+            recording.append({'package': name, 'filename': str(path), 'files': files})
 
     @staticmethod
     def load_package(name):
@@ -320,6 +352,15 @@ class AtelierFake:
         path = CONTENT / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+
+
+def flush(force=False):
+    """Finish pending package writes (`UPackage::WaitForAsyncFileWrites`); a broken flush leaves them to the end."""
+    if 'flush' in broken and not force:
+        return
+    for path, payload in list(pending.items()):
+        path.write_bytes(payload)
+        del pending[path]
 
 
 for value in (SystemLibrary, Paths, EditorLoadingAndSavingUtils, AssetRegistryHelpers, AtelierBuildWorkerLibrary,

@@ -2,13 +2,14 @@
 
 Started by the controller (`platform/build-v2/src/unreal.rs`) as
 
-    UnrealEditor-Cmd <scratch>/Atelier.uproject -run=pythonscript -script=unreal_worker.py \\
+    UnrealEditor-Cmd <scratch>/Atelier.uproject -run=pythonscript -script=<session>/worker/unreal_worker.py \\
         -unattended -nop4 -nosplash -stdout -AllowStdOutLogVerbosity -NullRHI -nocrashreports \\
         -UserDir=<session>/user -nowrite -NoZenAutoLaunch \\
         -DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path=<store>/unreal-ddc/<BuildId>)) \\
         [declared -ini:/-ForceDPCVars=] --request-fd N --response-fd M
 
-It speaks protocol version 1 (`protocol.py`) on the two inherited pipes, made close-on-exec at once
+The script is the session's frozen, read-only copy of this file, beside a frozen `protocol.py` it loads by
+path; the source tree is never run. It speaks protocol version 1 (`protocol.py`) on the two inherited pipes, made close-on-exec at once
 so no helper process the editor starts inherits them. Stdout and stderr are the editor's logs.
 
 **Unreal is not sandboxed.** Per-job isolation is detection only:
@@ -17,6 +18,10 @@ so no helper process the editor starts inherits them. Stdout and stderr are the 
 - the packages saved during the job must be exactly the declared output packages (a package saved
   twice to one file counts once), nothing may be left dirty, no input may change, and no ensure may
   fail (with -nocrashreports an ensure starts no crash reporter and fails the job instead);
+- every collected file must hold exactly the bytes its package's last save wrote (the plugin hashes
+  a save's files after flushing its writes), every required output must exist, nothing may be written
+  into `output/` directly, and each saved package's import evidence comes from its file's own import
+  table (an unreadable table fails the job);
 - after every job, every package it touched is unloaded, garbage is collected synchronously through
   the plugin, and each package must be gone by `find_object` (neither the unload call's result nor
   `SystemLibrary.collect_garbage`, which only schedules a collection, is trusted); no `/Game`
@@ -26,7 +31,9 @@ so no helper process the editor starts inherits them. Stdout and stderr are the 
 
 A job whose reset fails still gets its terminal reply; the worker then exits instead of serving
 another job, so the controller ends the session (a clean exit after a terminal reply is never crash
-evidence for that job). Before `hello` the worker writes the session evidence file
+evidence for that job). Once per session, before `hello`, the worker recomputes each declared engine
+plugin's identity from the folder the editor loaded it from and reads every declared `-ForceDPCVars=`
+and `-ini:` setting back from the editor. It then writes the session evidence file
 `unreal-context.json` (what it actually loaded, and the editor's effective cache graph read from the
 editor, never from the command line) and refuses to start if the context differs from
 `Atelier/expected-context.json` or the graph breaks its DDC policy: file-system nodes only inside the
@@ -43,6 +50,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import shutil
 import stat
@@ -65,6 +73,7 @@ INPUT_CONTENT = 'in/content/Game/'
 OUTPUT_CONTENT = 'content/Game/'
 PACKAGE_FILES = ('.uasset', '.umap', '.uexp', '.ubulk', '.uptnl')
 PRIMARY_FILES = ('.uasset', '.umap')
+INI_SETTING = re.compile(r'-ini:([^:\[\]]+):\[([^\]]+)\]:([^=]+)=(.*)')
 
 
 class JobRefused(Exception):
@@ -75,6 +84,43 @@ class JobRefused(Exception):
 
 class StartRefused(Exception):
     """The editor's native context or cache graph is not the declared one: no `hello`."""
+
+
+def plugin_identity(folder, name):
+    """The controller's `tree_identity` of a plugin folder: its descriptor and `Binaries/`, by relative path."""
+    folder = Path(folder)
+    binaries = folder / 'Binaries'
+    found = sorted((path.relative_to(folder) for path in binaries.rglob('*') if path.is_file()), key=lambda p: p.parts)
+    try:
+        manifest = ''.join(f'{relative}\0{sha256(folder / relative)}\n'
+                           for relative in [Path(f'{name}.uplugin'), *found])
+    except OSError as error:
+        return f'unreadable: {error}'
+    return hashlib.sha256(manifest.encode()).hexdigest()
+
+
+def worker_identity():
+    """The controller's `UnrealWorkerBundle` digest of the files actually running: this script and the protocol
+    module, which must be its sibling in the session's frozen bundle, never a source-tree copy."""
+    script, module = Path(__file__).resolve(), Path(protocol.__file__).resolve()
+    if module.parent != script.parent:
+        return f'protocol loaded from outside the bundle: {module}'
+    digests = {'protocol.py': sha256(module), script.name: sha256(script)}
+    canonical = json.dumps({'domain': 'atelier-unreal-worker', 'version': 1, 'files': digests},
+                           sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def same_value(declared, actual):
+    """A declared setting value and the editor's, equal as text or as numbers."""
+    if actual is None:
+        return False
+    if declared == actual:
+        return True
+    try:
+        return float(declared) == float(actual)
+    except ValueError:
+        return False
 
 
 def ddc_problem(policy, nodes):
@@ -99,6 +145,15 @@ def ddc_problem(policy, nodes):
 
 def log(message):
     print(f'atelier-unreal-worker: {message}', file=sys.stderr, flush=True)
+
+
+def sha1(path):
+    """Integrity only (a file still holds what its save wrote); never a key ingredient."""
+    digest = hashlib.sha1()
+    with open(path, 'rb') as stream:
+        for block in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def sha256(path):
@@ -190,6 +245,11 @@ class Editor:
         """{build_id, modules, plugins: {name: folder}, libraries: [path], rhi} from the plugin."""
         return json.loads(self.library.native_context())
 
+    def config_value(self, file, section, key):
+        """The effective value of an ini key, or None when it is not set."""
+        result = json.loads(self.library.config_value(file, section, key))
+        return result['value'] if result['found'] else None
+
     def ddc_graph(self):
         """{graph, nodes: [{kind, path}]}: the editor's effective cache stores, from the plugin."""
         graph = json.loads(self.library.ddc_graph())
@@ -206,7 +266,8 @@ class Editor:
         return self.library.ensure_count()
 
     def saved_packages(self):
-        """[{package, filename}] saved since `begin_job`."""
+        """[{package, filename, files: {path: sha1}}] saved since `begin_job`; each save's files are hashed after
+        its writes were flushed, so later plain file writes show as a mismatch."""
         return json.loads(self.library.end_save_recording())
 
     def finish_background_work(self):
@@ -218,8 +279,10 @@ class Editor:
     def loaded_game_packages(self):
         return sorted(self.library.loaded_package_names(GAME))
 
-    def imports(self, package):
-        return [list(item) for item in json.loads(self.library.package_imports(package))]
+    def imports(self, filename):
+        """[[path, class]] from the saved file's own import table, in table order; None when unreadable."""
+        text = self.library.package_imports(str(filename))
+        return [list(item) for item in json.loads(text)] if text else None
 
     def settings(self):
         """{console variable: [value, set by]}; set by "Constructor" means still at its default."""
@@ -298,8 +361,14 @@ class Worker:
                 libraries[str(path.relative_to(self.project))] = sha256(path)
             elif not path.is_relative_to(self.editor.engine_dir()):
                 libraries[str(path)] = sha256(path)  # neither project nor engine: always a mismatch
+        # Once per session: the declared engine plugins' bytes, and the declared settings as the editor holds them.
+        engine_plugins = {name: plugin_identity(native['plugins'][name], name) if name in native['plugins'] else 'not loaded'
+                          for name in expected['engine_plugins']}
+        cvars = self.editor.settings()
         loaded = {'worker_version': WORKER_VERSION, 'profile': expected['profile'], 'build_id': native['build_id'],
                   'modules': sorted(native['modules']), 'plugins': sorted(plugins), 'libraries': libraries,
+                  'engine_plugins': engine_plugins, 'worker': worker_identity(),
+                  'settings': [self.observed_setting(token, cvars) for token in expected['settings']],
                   'rhi': native['rhi'], 'ddc': expected['ddc']}
         graph = self.editor.ddc_graph()
         write_atomic(self.project.parent / CONTEXT_REPORT,
@@ -311,6 +380,22 @@ class Worker:
             raise StartRefused(f"the editor's cache graph is not the v2 graph: {problem}")
         if any(self.content.iterdir()) or self.editor.registry_game_assets():
             raise StartRefused('/Game is not empty at startup')
+
+    def observed_setting(self, token, cvars):
+        """A declared setting rebuilt from the editor's own values: equal to `token` only if the editor applied it."""
+        if token.startswith('-ForceDPCVars='):
+            pairs = []
+            for pair in token[len('-ForceDPCVars='):].split(','):
+                name, _, value = pair.partition('=')
+                actual = cvars.get(name, [None])[0]
+                pairs.append(f'{name}={value if same_value(value, actual) else actual}')
+            return '-ForceDPCVars=' + ','.join(pairs)
+        match = INI_SETTING.fullmatch(token)
+        if match:
+            file, section, key, value = match.groups()
+            actual = self.editor.config_value(file, section, key)
+            return f'-ini:{file}:[{section}]:{key}={value if same_value(value, actual) else actual}'
+        return f'unreadable {token}'
 
     def serve(self):
         """Serve jobs until `shutdown`, the end of the request stream, or a failed reset."""
@@ -409,9 +494,13 @@ class Worker:
         finally:
             if recording:
                 touched.update(item['package'] for item in self.editor.saved_packages())
-        files_of = {}
+        files_of, written = {}, {}
         for item in saved:  # a rename saves the same package twice to the same file: one save
             files_of.setdefault(item['package'], set()).add(item['filename'])
+            written[item['package']] = {str(Path(path).resolve()): digest for path, digest in item['files'].items()}
+        written = {path: digest for files in written.values() for path, digest in files.items()}
+        # The registry forgets every saved file at reset, even one the op deleted afterwards.
+        moved.extend(Path(filename) for filenames in files_of.values() for filename in filenames)
         names = set(files_of)
         touched.update(names | packages)
         split = sorted(name for name, files in files_of.items() if len(files) > 1)
@@ -422,6 +511,8 @@ class Worker:
             raise JobRefused('job', f'the editor reported {ensures} failed ensure(s) during the job')
         if names - packages:
             raise JobRefused('dependency', f'saved undeclared packages: {sorted(names - packages)}')
+        if any((job_dir / 'output').iterdir()):
+            raise JobRefused('dependency', 'the job wrote into output/ directly; only package saves produce outputs')
         if required - names:
             raise JobRefused('job', f'did not save declared packages: {sorted(required - names)}')
         dirty = sorted(name for name in self.editor.dirty_packages() if name.startswith(GAME))
@@ -442,14 +533,25 @@ class Worker:
                 if package_owning(relative, OUTPUT_CONTENT) not in names:
                     # Only the editor's package saves produce outputs, never plain file writes.
                     raise JobRefused('dependency', f'{relative} was written without saving its package')
+                if written.get(str(path.resolve())) != sha1(path):
+                    raise JobRefused('dependency', f'{relative} does not hold the bytes its package save wrote')
                 files[relative] = path
+        missing = sorted(path for path, need in declared.items() if need and path not in files)
+        if missing:
+            raise JobRefused('job', f'required outputs are missing after the job: {missing}')
+        imports = {}
+        for name in sorted(names):
+            (filename,) = files_of[name]
+            imports[name] = self.editor.imports(filename)
+            if imports[name] is None:
+                raise JobRefused('job', f'could not read the import table of {name}')
         for relative, path in files.items():
             target = job_dir / 'output' / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             moved.append(path)
             shutil.move(path, target)
         write_atomic(job_dir / IMPORT_EVIDENCE, {'version': EVIDENCE_VERSION, 'packages': [
-            {'package': name, 'imports': self.editor.imports(name)} for name in sorted(names)]})
+            {'package': name, 'imports': imports[name]} for name in sorted(names)]})
         return sorted(files)
 
     def reset(self, job, touched, moved, state):

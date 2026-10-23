@@ -68,9 +68,54 @@ fn produced(space: &Workspace) -> (PathBuf, PathBuf) {
     )
 }
 
+/// The repository's Unreal worker script.
+fn repo_worker() -> PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../studio/atelier/build_v2/unreal_worker.py")
+        .canonicalize()
+        .unwrap()
+}
+
+/// A copy of the worker and its protocol module under `worker/`, to change in a test.
+fn copied_worker(space: &Workspace) -> PathBuf {
+    let source = repo_worker();
+    let script = space.write("worker/unreal_worker.py", &fs::read(&source).unwrap());
+    space.write(
+        "worker/protocol.py",
+        &fs::read(source.with_file_name("protocol.py")).unwrap(),
+    );
+    script
+}
+
+fn c_worker_files(context: &UnrealContext) -> std::collections::BTreeMap<String, Vec<u8>> {
+    context.worker.files().clone()
+}
+
 /// The persistent DDC folder of the store at `store/` for `build_id`.
 fn ddc(space: &Workspace, build_id: &str) -> UnrealDdc {
     UnrealDdc::open(&ObjectStore::open(space.path("store")).unwrap(), build_id).unwrap()
+}
+
+/// An installed engine plugin at `Epic Games/UE/Engine/Plugins/<name>`, with its identity.
+fn engine_plugin(space: &Workspace, name: &str) -> Plugin {
+    let dir = space.path(&format!("Epic Games/UE/Engine/Plugins/{name}"));
+    if !dir.exists() {
+        space.write(
+            &format!("Epic Games/UE/Engine/Plugins/{name}/{name}.uplugin"),
+            b"{}",
+        );
+        space.write(
+            &format!(
+                "Epic Games/UE/Engine/Plugins/{name}/Binaries/Mac/libUnrealEditor-{name}.dylib"
+            ),
+            name.as_bytes(),
+        );
+    }
+    Plugin {
+        name: name.into(),
+        identity: tree_identity(&dir, Some(name)).unwrap(),
+        dir,
+    }
 }
 
 fn context(space: &Workspace) -> UnrealContext {
@@ -88,7 +133,10 @@ fn context(space: &Workspace) -> UnrealContext {
             kind: "UncookedOnly".into(),
             loading_phase: "Default".into(),
         }],
-        engine_plugins: vec!["PythonScriptPlugin".into(), "Interchange".into()],
+        engine_plugins: vec![
+            engine_plugin(space, "PythonScriptPlugin"),
+            engine_plugin(space, "Interchange"),
+        ],
         plugins: vec![Plugin {
             name: WORKER_PLUGIN.into(),
             identity: tree_identity(&plugin, Some(WORKER_PLUGIN)).unwrap(),
@@ -96,6 +144,7 @@ fn context(space: &Workspace) -> UnrealContext {
         }],
         settings: vec!["-ForceDPCVars=r.GenerateMeshDistanceFields=0".into()],
         ddc: ddc(space, "5.8-build"),
+        worker: UnrealWorkerBundle::read(repo_worker().parent().unwrap()).unwrap(),
     }
 }
 
@@ -128,14 +177,24 @@ fn the_profile_ignores_locations_and_follows_every_identity_field() {
     change(&|c| c.build_id = "5.8-other".into());
     change(&|c| c.editor.identity = "1".repeat(64));
     change(&|c| c.modules[0].loading_phase = "PostEngineInit".into());
-    change(&|c| c.engine_plugins.push("Paper2D".into()));
+    let paper = engine_plugin(&space, "Paper2D");
+    change(&|c| c.engine_plugins.push(paper.clone()));
+    change(&|c| c.engine_plugins[0].identity = "3".repeat(64));
+    let mut edited = c_worker_files(&base);
+    edited.insert("protocol.py".into(), b"# another protocol".to_vec());
+    let edited = UnrealWorkerBundle::from_files(edited).unwrap();
+    change(&|c| c.worker = edited.clone());
     change(&|c| c.plugins[0].identity = "2".repeat(64));
     change(&|c| c.settings.push("-ini:Engine:[Core.Log]:Global=Log".into()));
     let other_store = space.path("other-store/unreal-ddc/5.8-build");
     change(&|c| c.ddc.dir = other_store.clone());
     let mut profiles: BTreeSet<String> = changes.iter().map(UnrealContext::profile).collect();
     profiles.insert(base.profile());
-    assert_eq!(profiles.len(), 8, "every identity field separates sessions");
+    assert_eq!(
+        profiles.len(),
+        10,
+        "every identity field separates sessions"
+    );
     assert!(base.profile().starts_with("unreal-"));
 }
 
@@ -163,7 +222,18 @@ fn contexts_refuse_what_a_session_cannot_load_honestly() {
     refused(&|c| c.modules.clear(), "at least one");
     refused(&|c| c.modules.push(c.modules[0].clone()), "twice");
     refused(&|c| c.plugins.clear(), WORKER_PLUGIN);
-    refused(&|c| c.engine_plugins.push(WORKER_PLUGIN.into()), "repeated");
+    refused(
+        &|c| {
+            let mut worker = c.plugins[0].clone();
+            worker.dir = PathBuf::from("/engine/Plugins/AtelierBuildWorker");
+            c.engine_plugins.push(worker)
+        },
+        "repeated",
+    );
+    refused(
+        &|c| c.engine_plugins[0].identity = "not-a-digest".into(),
+        "engine plugin",
+    );
     refused(
         &|c| c.settings.push("-ExecCmds=quit".into()),
         "not a declared",
@@ -334,8 +404,8 @@ fn the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_
     let session = space.path("session");
     fs::create_dir(&session).unwrap();
     let scratch = ScratchProject::prepare(&session, &context).unwrap();
-    let script = PathBuf::from("/checkout/platform/studio/atelier/build_v2/unreal_worker.py");
-    let command = job_loop_command(&context, &scratch, &script).unwrap();
+    let script = scratch.worker_script();
+    let command = job_loop_command(&context, &scratch).unwrap();
     assert_eq!(
         command.program,
         space.path("Epic Games/UE/Engine/Binaries/Mac/UnrealEditor-Cmd")
@@ -359,19 +429,95 @@ fn the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_
         ["LC_ALL", "TZ"],
         "nothing inherited"
     );
-    assert!(
-        job_loop_command(
-            &context,
-            &scratch,
-            std::path::Path::new("/with space/worker.py")
-        )
-        .is_err()
-    );
     let mut other = context.clone();
     other.build_id = "5.8-other".into();
     other.ddc = ddc(&space, "5.8-other");
-    let error = job_loop_command(&other, &scratch, &script).unwrap_err();
+    let error = job_loop_command(&other, &scratch).unwrap_err();
     assert!(error.to_string().contains("another context"), "{error}");
+}
+
+#[cfg(target_os = "macos")] // the scratch project needs APFS clones
+#[test]
+fn each_session_runs_a_frozen_worker_bundle_whose_digest_is_session_identity() {
+    use std::os::unix::fs::PermissionsExt;
+    let space = Workspace::new();
+    let mut context = context(&space);
+    let script = copied_worker(&space);
+    let source = script.parent().unwrap().to_path_buf();
+    context.worker = UnrealWorkerBundle::read(&source).unwrap();
+    let original = fs::read(source.join("protocol.py")).unwrap();
+    assert_eq!(
+        context.worker.digest(),
+        UnrealWorkerBundle::read(repo_worker().parent().unwrap())
+            .unwrap()
+            .digest(),
+        "content, not location"
+    );
+    assert_eq!(context.identity()["worker"], context.worker.digest());
+    assert!(
+        UnrealWorkerBundle::from_files(Default::default()).is_err(),
+        "exactly the worker files"
+    );
+    let session = space.path("session");
+    fs::create_dir(&session).unwrap();
+    let scratch = ScratchProject::prepare(&session, &context).unwrap();
+    let frozen = session.join("worker");
+    assert_eq!(scratch.worker_script(), frozen.join("unreal_worker.py"));
+    for name in UNREAL_WORKER_FILES {
+        let metadata = fs::symlink_metadata(frozen.join(name)).unwrap();
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o444, "{name}");
+        assert_eq!(
+            fs::read(frozen.join(name)).unwrap(),
+            fs::read(source.join(name)).unwrap(),
+            "frozen bytes"
+        );
+    }
+    let command = job_loop_command(&context, &scratch).unwrap();
+    assert_eq!(
+        command.args[2],
+        format!("-script={}", frozen.join("unreal_worker.py").display())
+    );
+
+    // Editing or retargeting the source after setup never reaches the session.
+    fs::write(source.join("protocol.py"), b"raise SystemExit('live edit')").unwrap();
+    fs::remove_file(&script).unwrap();
+    std::os::unix::fs::symlink("/etc/hosts", &script).unwrap();
+    job_loop_command(&context, &scratch).unwrap();
+    assert_eq!(fs::read(frozen.join("protocol.py")).unwrap(), original);
+    // A bundle frozen from the edited source is a different worker, so a new session.
+    fs::remove_file(&script).unwrap();
+    fs::copy(repo_worker(), &script).unwrap();
+    let mut next = context.clone();
+    next.worker = UnrealWorkerBundle::read(&source).unwrap();
+    assert_ne!(next.worker.digest(), context.worker.digest());
+    assert_ne!(next.profile(), context.profile());
+    assert!(
+        UnrealWorkerBundle::read(&{
+            let linked = space.path("linked");
+            fs::create_dir(&linked).unwrap();
+            std::os::unix::fs::symlink(source.join("protocol.py"), linked.join("protocol.py"))
+                .unwrap();
+            fs::copy(repo_worker(), linked.join("unreal_worker.py")).unwrap();
+            linked
+        })
+        .is_err(),
+        "never freezes through a link"
+    );
+
+    // A changed frozen copy is refused before launch and by verify.
+    fs::set_permissions(&frozen, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(
+        frozen.join("protocol.py"),
+        fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    fs::write(frozen.join("protocol.py"), b"# tampered").unwrap();
+    let error = job_loop_command(&context, &scratch).unwrap_err();
+    assert!(
+        error.to_string().contains("frozen worker changed"),
+        "{error}"
+    );
+    assert!(scratch.verify().is_err());
 }
 
 #[test]
@@ -619,6 +765,8 @@ fake = unreal.AtelierFake
 
 def run(context):
     p = context.params
+    if 'break' in p:
+        fake.break_call(p['break'])
     for name, payload in p.get('create', []):
         fake.create_package(name, payload.encode(), imports=[['/Script/Engine', 'StaticMesh']])
         fake.save_package(name)
@@ -626,6 +774,16 @@ def run(context):
             fake.save_package(name)  # as a rename does: the same package to the same file again
     for name, payload in p.get('import', []):
         fake.import_package(name, payload.encode())
+    for name, payload in p.get('create_deferred', []):
+        fake.create_package(name, payload.encode(), imports=[['/Script/Engine', 'StaticMesh']])
+        fake.save_package(name, deferred=True)  # its bytes land only when the writes are flushed
+    if 'overwrite' in p:
+        relative, data = p['overwrite']
+        fake.write_file(relative, data.encode())  # plain file I/O after the save
+    if 'delete' in p:
+        (context.content_dir / p['delete']).unlink()
+    if 'direct' in p:
+        (context.job_dir / 'output' / p['direct']).write_bytes(b'not from a save')
     if 'register' in p:
         fake.register_cvar(p['register'], '0')
     if p.get('ensure'):
@@ -645,8 +803,6 @@ def run(context):
     if 'forge' in p:
         with open(context.content_dir / p['forge'], 'wb') as stream:
             stream.write(b'not a saved package')
-    if 'break' in p:
-        fake.break_call(p['break'])
     if 'raise' in p:
         raise ValueError(p['raise'])
 "#;
@@ -673,13 +829,6 @@ def run(context):
         );
     }
 
-    fn worker_script() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../studio/atelier/build_v2/unreal_worker.py")
-            .canonicalize()
-            .unwrap()
-    }
-
     struct Editor {
         process: DirectWorker,
         channel: Channel<PipeReader, PipeWriter>,
@@ -700,7 +849,7 @@ def run(context):
         let session = space.path("session");
         fs::create_dir_all(&session).unwrap();
         let scratch = ScratchProject::prepare(&session, context).unwrap();
-        let mut command = job_loop_command(context, &scratch, &worker_script()).unwrap();
+        let mut command = job_loop_command(context, &scratch).unwrap();
         edit(&mut command.args);
         let (process, pipes) = DirectChild.start(&command).unwrap();
         let channel = Channel::new(
@@ -849,7 +998,11 @@ def run(context):
         let context = context(&space);
         let mut editor = editor(&space, &context);
         editor.channel.handshake().unwrap();
-        let declared = ["content/Game/A.uasset", "content/Game/B.uasset?"];
+        let declared = [
+            "content/Game/A.uasset",
+            "content/Game/A.ubulk?",
+            "content/Game/B.uasset?",
+        ];
         let cases = [
             (
                 serde_json::json!({"create": [["/Game/A", "a"], ["/Game/Extra", "x"]]}),
@@ -884,6 +1037,37 @@ def run(context):
                 FailureKind::Dependency,
                 "without saving its package",
             ),
+            (
+                // Saved, then overwritten by plain file I/O: not the bytes the save wrote.
+                serde_json::json!({"create": [["/Game/A", "a"]], "overwrite": ["A.uasset", "forged"]}),
+                FailureKind::Dependency,
+                "bytes its package save wrote",
+            ),
+            (
+                // A declared companion file added by plain file I/O beside a saved package.
+                serde_json::json!({"create": [["/Game/A", "a"]], "overwrite": ["A.ubulk", "bulk"]}),
+                FailureKind::Dependency,
+                "bytes its package save wrote",
+            ),
+            (
+                // The save event arrives before its writes are flushed; hashing unflushed bytes
+                // would record the wrong file, so the collected bytes do not match.
+                serde_json::json!({"create_deferred": [["/Game/A", "a"]], "break": "flush"}),
+                FailureKind::Dependency,
+                "bytes its package save wrote",
+            ),
+            (
+                // Saved, then deleted: a required output is missing.
+                serde_json::json!({"create": [["/Game/A", "a"]], "delete": "A.uasset"}),
+                FailureKind::Job,
+                "required outputs are missing",
+            ),
+            (
+                // An unreadable import table fails closed, never with a guessed import list.
+                serde_json::json!({"create": [["/Game/A", "a"]], "break": "imports"}),
+                FailureKind::Job,
+                "import table",
+            ),
         ];
         for (index, (params, kind, reason)) in cases.into_iter().enumerate() {
             let request = job(&space, &format!("bad-{index}"), params, &declared, &[]);
@@ -908,6 +1092,33 @@ def run(context):
                 "case {index} left /Game files"
             );
         }
+        // A file written straight into output/ is never an output, and the job fails.
+        let direct = job(
+            &space,
+            "direct",
+            serde_json::json!({"create": [["/Game/A", "a"]], "direct": "B.uasset"}),
+            &declared,
+            &[],
+        );
+        let failure = editor.channel.run(direct).unwrap().result.unwrap_err();
+        assert_eq!(failure.kind, FailureKind::Dependency, "{}", failure.message);
+        assert!(
+            failure.message.contains("output/ directly"),
+            "{}",
+            failure.message
+        );
+        assert!(empty(&editor.scratch.content()));
+
+        // A save whose writes finish only at the flush is hashed after it: the job completes.
+        let deferred = job(
+            &space,
+            "deferred",
+            serde_json::json!({"create_deferred": [["/Game/A", "a"]]}),
+            &declared,
+            &[],
+        );
+        assert!(editor.channel.run(deferred.clone()).unwrap().result.is_ok());
+        assert_eq!(output(&deferred, "content/Game/A.uasset"), b"a");
         let good = job(
             &space,
             "good",
@@ -1019,6 +1230,103 @@ def run(context):
             error.to_string().contains("different native context"),
             "{error}"
         );
+
+        // An engine plugin whose installed bytes changed after the context was declared.
+        let space = Workspace::new();
+        fake_engine(&space, "5.8-build");
+        let declared = context(&space);
+        fs::write(
+            space.path("Epic Games/UE/Engine/Plugins/Interchange/Binaries/Mac/libUnrealEditor-Interchange.dylib"),
+            b"replaced",
+        )
+        .unwrap();
+        let mut replaced = editor(&space, &declared);
+        assert!(replaced.channel.handshake().is_err());
+        assert!(!replaced.process.wait().unwrap().success());
+        let error = replaced.scratch.verify_context_report().unwrap_err();
+        assert!(
+            error.to_string().contains("different native context"),
+            "{error}"
+        );
+
+        // The source worker is edited after setup: the session still runs the frozen bytes.
+        let space = Workspace::new();
+        fake_engine(&space, "5.8-build");
+        let mut declared = context(&space);
+        let script = copied_worker(&space);
+        declared.worker = UnrealWorkerBundle::read(script.parent().unwrap()).unwrap();
+        let mut frozen = editor_with(&space, &declared, |_| {
+            fs::write(
+                script.with_file_name("protocol.py"),
+                b"raise SystemExit('live')",
+            )
+            .unwrap();
+        });
+        frozen.channel.handshake().unwrap();
+        let request = job(
+            &space,
+            "frozen",
+            serde_json::json!({"create": [["/Game/A", "a"]]}),
+            &["content/Game/A.uasset"],
+            &[],
+        );
+        assert!(frozen.channel.run(request).unwrap().result.is_ok());
+        frozen.channel.shutdown().unwrap();
+        assert!(frozen.process.wait().unwrap().success());
+        let report = frozen.scratch.verify_context_report().unwrap();
+        assert_eq!(report.loaded.worker, declared.worker.digest());
+
+        // The frozen copy itself is changed after the command was built: the worker's own digest
+        // of the files it loaded differs, so it never says hello.
+        let space = Workspace::new();
+        fake_engine(&space, "5.8-build");
+        let declared = context(&space);
+        let mut tampered = editor_with(&space, &declared, |_| {
+            let frozen = space.path("session/worker");
+            fs::set_permissions(&frozen, fs::Permissions::from_mode(0o755)).unwrap();
+            let protocol = frozen.join("protocol.py");
+            fs::set_permissions(&protocol, fs::Permissions::from_mode(0o644)).unwrap();
+            let mut bytes = fs::read(&protocol).unwrap();
+            bytes.extend_from_slice(b"\n# tampered after launch\n");
+            fs::write(&protocol, bytes).unwrap();
+        });
+        assert!(tampered.channel.handshake().is_err());
+        assert!(!tampered.process.wait().unwrap().success());
+        let error = tampered.scratch.verify_context_report().unwrap_err();
+        assert!(
+            error.to_string().contains("different native context"),
+            "{error}"
+        );
+
+        // A declared setting the editor did not apply (an unknown CVar) never says hello; an
+        // applied ini override does.
+        for (setting, applied) in [
+            ("-ForceDPCVars=r.Unknown=1", false),
+            ("-ini:Engine:[Core.Log]:LogPython=Verbose", true),
+        ] {
+            let space = Workspace::new();
+            fake_engine(&space, "5.8-build");
+            let mut declared = context(&space);
+            declared.settings.push(setting.into());
+            let mut session = editor(&space, &declared);
+            assert_eq!(session.channel.handshake().is_ok(), applied, "{setting}");
+            if applied {
+                session.channel.shutdown().unwrap();
+                assert!(session.process.wait().unwrap().success());
+                session.scratch.verify_context_report().unwrap();
+            } else {
+                assert!(!session.process.wait().unwrap().success());
+                let report: ContextReport = serde_json::from_slice(
+                    &fs::read(session.scratch.session().join(CONTEXT_REPORT)).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    report.loaded.settings.last().unwrap(),
+                    "-ForceDPCVars=r.Unknown=None",
+                    "the editor's own value is recorded"
+                );
+            }
+        }
 
         // A library the editor wants to rebuild cannot be: the clone is read-only.
         let space = Workspace::new();

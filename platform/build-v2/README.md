@@ -729,7 +729,9 @@ pending `t0.restore-gc-race` row is retained.
 
 `unreal::UnrealContext` declares what one Unreal session loads: the engine root and BuildId, the
 editor compile (`Binaries`: a produced folder and its `tree_identity`), the project modules, the
-enabled engine plugins, the project plugins (the editor-only `AtelierBuildWorker` plugin is required)
+declared engine plugins (each with the `tree_identity` of its installed descriptor and `Binaries`;
+default-enabled engine plugins are bound only by the BuildId), the project plugins (the editor-only
+`AtelierBuildWorker` plugin is required)
 and the declared `-ini:`/`-ForceDPCVars=` settings. `identity()` drops every location, and
 `profile()` (`unreal-<sha256>`) is the scheduler's `Compatibility.profile`. The profile only groups
 sessions: semantic ini, CVars and module bytes still enter each unit's key.
@@ -752,6 +754,14 @@ The graph cannot show a pak opened for writing, so the receipt stamps the instal
 does not prove the pak stayed read-only (a named gap). The T2 probe timings came from tiny inputs and are not
 representative; real assets are measured after C3.
 
+**Frozen worker.** `UnrealWorkerBundle::read(dir)` freezes the bytes of `unreal_worker.py` and the
+`protocol.py` it loads when the context is declared. Each session writes them read-only to
+`<session>/worker/`, and the editor runs that copy, so a later source edit never reaches a session.
+`digest()` is their content identity. It is in the profile and exposed for the future D4/A9 item/op
+key binder, which must also hash the compiled project module and plugin outputs and the semantic
+settings, never the installed BuildId, editor or engine-plugin bytes, or DDC paths. The worker
+reports the digest of the files it actually loaded before `hello`.
+
 `ScratchProject::prepare(session, ctx)` builds `<session>/project/Atelier.uproject` with empty
 `Content`, `Config`, `Saved` and `Intermediate`, and a session `user/` folder. It APFS-clones only the
 editor binaries and each plugin's descriptor and `Binaries`, checks them against the declared
@@ -763,12 +773,20 @@ receipt after the session. Off macOS, `prepare` refuses with "requires macOS".
 `-run=pythonscript -script=platform/studio/atelier/build_v2/unreal_worker.py`, fixed unattended
 flags, `-NullRHI`, `-nocrashreports`, `-UserDir=<session>/user`, the DDC flags and graph, and the
 declared settings. The launcher appends the
-protocol descriptors. The worker writes `<session>/unreal-context.json` (what the editor loaded)
-before `hello`, and the controller reads it with `verify_context_report()` before the first `Run`.
+protocol descriptors. Once per session, before `hello`, the worker:
+- recomputes each declared engine plugin's identity from the folder the editor loaded it from;
+- reads every declared setting back from the editor;
+- writes `<session>/unreal-context.json` (what the editor loaded and holds).
+
+The controller reads that file with `verify_context_report()` before the first `Run`.
 Each job then:
 - gets an empty `/Game` with its input packages copied in read-only;
-- must save exactly its declared packages, which move to `output/content/Game/`;
-- leaves its import tables in `evidence/imports.json` (`read_import_evidence`).
+- must save exactly its declared packages, which move to `output/content/Game/`. Each collected
+  file must hold the bytes its last save wrote, and every required output must exist. The plugin
+  hashes a save's files with SHA1 after flushing its writes; that hash is integrity only, never a key.
+  A file written straight into `output/` fails the job;
+- leaves each saved file's own import table in `evidence/imports.json` (`read_import_evidence`). An
+  unreadable table fails the job.
 
 After each job the worker resets Python state, `/Game` and the asset registry. It unloads the
 touched packages with the plugin's synchronous garbage collection, in up to three passes, because an
@@ -782,7 +800,9 @@ enumerates. It is cloned only into scratch and micro projects, and its compiled 
 committed. Its library is the editor surface the worker uses:
 - native context;
 - the effective DDC graph;
-- save recording;
+- save recording with flushed file hashes;
+- each saved file's import table;
+- ini values;
 - ensure counting;
 - dirty and loaded packages;
 - the CVar snapshot;

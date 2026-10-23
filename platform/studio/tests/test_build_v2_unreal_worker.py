@@ -166,3 +166,28 @@ def test_the_cache_graph_may_hold_only_the_v2_folder_the_engine_pak_and_memory()
                 {'kind': 'Pak File', 'path': '/project/DerivedDataCache/DDC.ddp'},
                 {'kind': 'Http', 'path': 'https://cache'}, {'kind': '', 'path': '/store/unreal-ddc/5.8'}):
         assert 'outside the v2 DDC folder' in unreal_worker.ddc_problem(policy, [v2, bad]), bad
+
+
+def test_a_plugin_identity_covers_its_descriptor_and_binaries_by_relative_path(tmp_path):
+    import hashlib
+    plugin = tmp_path / 'Interchange'
+    (plugin / 'Binaries/Mac').mkdir(parents=True)
+    (plugin / 'Interchange.uplugin').write_bytes(b'{}')
+    (plugin / 'Binaries/Mac/libUnrealEditor-Interchange.dylib').write_bytes(b'bytes')
+    (plugin / 'Source').mkdir()
+    (plugin / 'Source/Ignored.cpp').write_bytes(b'// never covered')
+    digest = lambda data: hashlib.sha256(data).hexdigest()  # noqa: E731
+    manifest = (f'Interchange.uplugin\0{digest(b"{}")}\n'
+                f'Binaries/Mac/libUnrealEditor-Interchange.dylib\0{digest(b"bytes")}\n')
+    assert unreal_worker.plugin_identity(plugin, 'Interchange') == digest(manifest.encode())
+    (plugin / 'Binaries/Mac/libUnrealEditor-Interchange.dylib').write_bytes(b'replaced')
+    assert unreal_worker.plugin_identity(plugin, 'Interchange') != digest(manifest.encode())
+    assert unreal_worker.plugin_identity(tmp_path / 'Missing', 'Missing').startswith('unreadable')
+
+
+def test_a_declared_setting_matches_the_editor_value_as_text_or_number():
+    assert unreal_worker.same_value('0', '0')
+    assert unreal_worker.same_value('0.5', '0.500000')
+    assert not unreal_worker.same_value('1', '0')
+    assert not unreal_worker.same_value('1', None)
+    assert not unreal_worker.same_value('Log', 'Verbose')

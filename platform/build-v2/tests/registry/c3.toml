@@ -59,6 +59,11 @@ id = "c3.unreal.bad_cache_graph_refused"
 tests = ["atelier-build-v2::unreal/editor_session::a_cache_graph_with_zen_or_a_folder_outside_the_v2_ddc_never_says_hello"]
 platforms = ["darwin"]
 
+[[scenarios]]
+id = "c3.unreal.frozen_worker_bundle"
+tests = ["atelier-build-v2::unreal/each_session_runs_a_frozen_worker_bundle_whose_digest_is_session_identity"]
+platforms = ["darwin"]
+
 [[pending]]
 id = "t2.unreal-worker-purity"
 task = "C3"
