@@ -203,6 +203,69 @@ modes, staged paths, dispatch metadata, manual invalidation, source-version reus
 The broad engine scenarios in the registry remain pending until the engine/reference model exists;
 these pure tests do not claim A4/A6/A9 end-to-end execution behavior.
 
+## Failure policy (C5a)
+
+`failure_policy::JobPolicy` makes pure per-job decisions from caller-supplied monotonic times and
+controller-side `Event`s; it reads no clock, never sleeps and launches or signals nothing. Only a
+controller-observed unexpected exit on the first attempt is retry-eligible; the retry waits for
+confirmed cleanup and then asks for a fresh admission (`RequestAdmission`), launching only after
+`Admitted`. A worker's own `failed` claim, including `crash`, is never crash evidence. Job, dependency
+and protocol errors, cancellation, job-limit and overall-deadline timeouts, guard stops and cleanup
+timeouts do not retry; such a fact or a cancellation during crash cleanup withdraws the pending
+retry. The job limit starts at each admission; the optional overall deadline runs from
+submission over queue, execution, cleanup and retries. `BeginCleanup` is a request limited to the
+owned process and unpublished scratch, and an `Unconfirmed` cleanup outcome means the process may
+still be alive. Real owned-process cleanup (C5b) and capacity/guard integration (C7) remain pending.
+The decision matrix is in `tests/failure_policy.rs`.
+
+## Selected static graph (A4a)
+
+`graph::BuildGraph::validate` owns a declaration after global A2 structural checks: supported op
+slots, parameters, paths, unique owners, complete references and an acyclic graph. It does not
+require every declared source to be available. `select(targets, snapshot)` chooses explicit unit IDs,
+dot-delimited namespaces or all units, then observes sources and selectors only within that target
+closure. A missing source for an unrelated unit does not block a focused build; selecting that unit
+refuses before any dispatch. The existing public A2 `validate` still validates all sources.
+
+Both content and declared reference producers precede consumers. An external reference with no
+producer adds no invented edge. Selection exposes read-only roots, deterministic dependency-first
+order, role/item-tagged edges and the matching A2 source observations for later A3 preparation.
+Repeated or overlapping targets are a set union; an unknown or empty target selection refuses.
+No source file is opened by this API: the caller supplies the immutable snapshot.
+
+This is **A4a only**. Dynamic `plan.json` validation, stable generated children and removed-owner
+intents remain A4b, coordinated with the D2/Editor Cost plan interface. No worker dispatch, store
+lookup, materialisation, install/removal or scheduler/output-cutoff proof is implemented here.
+
+## Worker session and Python framing (C1a)
+
+`worker_session::Session` is the controller-side order of one worker conversation: `hello` with the
+expected worker version, then one job at a time (`run`, `started`, exactly one `completed`/`failed`
+with the same job ID), and `shutdown` only while idle, answered by `stopped` and a clean end of stream.
+Job IDs are unique per session. A malformed frame, wrong version or job ID, out-of-order or duplicate
+response breaks the session (`Protocol`); an end of stream or failed write outside a clean close is
+`Disconnected`; a refused controller call (`Misuse`) leaves the state unchanged. `cancel` records a
+request; only `failed` of kind `cancelled` confirms it, and a job that finished first still reports
+`completed`. `Channel` drives a session over any framed reader/writer pair. It builds each frame
+before writing, so any later write or flush error breaks the session, and it refuses a response
+record in positional array form, which `protocol::read_frame` alone would accept.
+
+Worker rule: a worker MUST send `started` for every `run` before its single terminal response,
+including a job it rejects at once and a `cancel` that arrives before it started. A `cancel` that
+arrives after the job's terminal response gets no reply.
+
+The session passes job requests through unchanged and only refuses empty IDs or worker-facing names
+that are absolute, contain `.`/`..`/empty components, backslashes or NUL. Staging and the full path
+policy (C1b, A3), execution (C2), deadlines, retries and crash classification (C5) and admission (C7)
+are not here; nor is validation of returned output paths.
+
+`platform/studio/atelier/build_v2/protocol.py` is the standard-library Python framing: the same frames,
+size limit and strict shapes, as plain dicts. It writes Rust's bytes, including serde_json's float text. [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
+holds byte vectors that both `tests/worker_session.rs` and `platform/studio/tests/test_build_v2_protocol.py`
+decode and, where canonical, re-encode byte for byte. The pipe tests start
+[tests/fixtures/fake_worker.py](tests/fixtures/fake_worker.py) with its protocol on two inherited pipe
+descriptors and logs on stdout/stderr, under a five-second watchdog; the Rust T0 job needs `python3`.
+
 ## B2 fixed-result publication and leases
 
 `ResultStore::begin(&PreparedUnit, provenance, owner, workers, upstream_keys)` persists a unique
