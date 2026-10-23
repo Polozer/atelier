@@ -49,3 +49,8 @@ platforms = ["darwin"]
 id = "b3.installs.whole_item_retirement_requires_exact_current_namespaced_receipt_authority"
 tests = ["atelier-build-v2::installs/whole_item_retirement_requires_exact_current_namespaced_receipt_authority"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.malformed_journal_and_linked_metadata_fail_closed_without_cleanup"
+tests = ["atelier-build-v2::installs/malformed_journal_and_linked_metadata_fail_closed_without_cleanup"]
+platforms = ["darwin", "linux"]

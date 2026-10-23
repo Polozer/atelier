@@ -76,7 +76,7 @@ fn opened(directory: &File, value: &str, flags: i32, mode: u32) -> io::Result<Fi
             directory.as_raw_fd(),
             value.as_ptr(),
             flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            mode as libc::mode_t,
+            mode as libc::c_uint,
         )
     };
     if descriptor < 0 {

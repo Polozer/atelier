@@ -508,3 +508,56 @@ fn whole_item_retirement_requires_exact_current_namespaced_receipt_authority() {
         CurrentStatus::Current(_)
     ));
 }
+
+#[test]
+fn malformed_journal_and_linked_metadata_fail_closed_without_cleanup() {
+    use atelier_build_v2::checkout_locks::LockError;
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, _) = fixture("first", "1");
+    let view = view("first", &graph);
+    let journal = workspace.path("build/build-v2/install/journal.json");
+    let unrelated = workspace.path("unrelated");
+    fs::write(&unrelated, b"keep").unwrap();
+    for invalid in [
+        &b"[]"[..],
+        &b"{"[..],
+        &b"{\"digest\":\"bad\",\"journal\":{}}"[..],
+    ] {
+        fs::write(&journal, invalid).unwrap();
+        assert!(installer.recover(&guard, &view).is_err());
+        assert_eq!(fs::read(&journal).unwrap(), invalid);
+        assert_eq!(fs::read(&unrelated).unwrap(), b"keep");
+        assert!(matches!(
+            installer.locks().try_read_content(),
+            Err(LockError::RecoveryRequired)
+        ));
+    }
+    fs::remove_file(&journal).unwrap();
+    std::os::unix::fs::symlink(&unrelated, &journal).unwrap();
+    assert!(installer.recover(&guard, &view).is_err());
+    assert!(
+        fs::symlink_metadata(&journal)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(fs::read(&unrelated).unwrap(), b"keep");
+    let isolated = Workspace::new();
+    let target = Workspace::new();
+    fs::write(target.path("sentinel"), b"foreign").unwrap();
+    std::os::unix::fs::symlink(&target.0, isolated.path("build")).unwrap();
+    assert!(
+        CheckoutInstaller::open(
+            &isolated.0,
+            isolated.path("cache"),
+            InstallPolicy {
+                project: namespace("first"),
+                allowed_install_roots: vec!["games/first/Content".into()]
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(target.path("sentinel")).unwrap(), b"foreign");
+}
