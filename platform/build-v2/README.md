@@ -339,10 +339,33 @@ so its results can never pass for production ones.
 The loop reports every regular file under `output/` (any group folder there is writable too) and fails
 on links or special files; membership is the controller's.
 
-Known gaps: native extension code that probes a missing undeclared path through the C library is not
-detected (an existing one is still killed), so nothing here proves undeclared absence probes cannot
-happen. Linux has no sandbox yet. The worker implementation
-digest, B3 installs, A4b group results, A6 live-edit revalidation and C3/C7 supervision are not here.
+**Scope.** Job code is trusted project code. The macOS kernel filesystem and network sandbox is the
+enforcement. The Python guard is extra detection of *accidental* undeclared dependencies, not an
+adversarial Python jail. A real bug in a supported check is still a bug to fix; this scope is not a
+blanket exception.
+
+Supported Python-level checks:
+- reads, existence checks and listings, by path or by descriptor (`dir_fd`, or a descriptor in place
+  of a path), resolved against the job folder or the descriptor's real directory;
+- writes outside `output/`;
+- refused directory changes, links, process starts, sockets and named `ctypes` libraries;
+- imports limited to installed platform modules and the declared code;
+- fixed wall clocks (`time.time`/`time_ns`, default `localtime`/`gmtime`/`ctime`/`strftime`,
+  `datetime` now/today, `clock_gettime` of realtime clocks);
+- `random` on the declared seed, including `random.seed()` and `Random()`;
+- refused Python entropy APIs (`os.urandom`, `getrandom`, `uuid1/4`, `SystemRandom`, `secrets`).
+
+Known gaps, which these checks do not intercept:
+- native extension code that probes a *missing* undeclared path through the C library (an existing
+  one is still killed by the kernel), so nothing here proves undeclared absence probes cannot happen;
+- monotonic, performance-counter and CPU-time clocks, and file timestamps, which stay real;
+- random generators in native libraries that read OS entropy themselves.
+
+Unit code MUST NOT derive outputs from real clocks, timestamps or native entropy. Clean-room and
+determinism fixtures remain required.
+
+Other open work: Linux has no sandbox yet. The worker implementation digest, B3 installs, A6 live-edit
+revalidation and C3/C7 supervision are not here.
 
 ## B2 fixed-result publication and leases
 
