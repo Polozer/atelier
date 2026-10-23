@@ -1,0 +1,51 @@
+schema_version = 1
+
+[[scenarios]]
+id = "b3.locks.checkout_build_and_content_locks_have_independent_lifetimes"
+tests = ["atelier-build-v2/checkout_locks::tests::checkout_build_and_content_locks_have_independent_lifetimes"]
+platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "b3.locks.explicit_custody_duplicate_keeps_same_description_and_cloexec"
+tests = ["atelier-build-v2/checkout_locks::tests::explicit_custody_duplicate_keeps_same_description_and_cloexec"]
+platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "b3.locks.any_journal_entry_blocks_readers_without_touching_lock_inodes"
+tests = ["atelier-build-v2/checkout_locks::tests::any_journal_entry_blocks_readers_without_touching_lock_inodes"]
+platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "b3.locks.real_process_shared_reader_excludes_checkout_writer"
+tests = ["atelier-build-v2/checkout_locks::tests::real_process_shared_reader_excludes_checkout_writer"]
+platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "b3.installs.receipt_owner_namespace_is_explicit_and_independent_of_selected_roots"
+tests = ["atelier-build-v2::installs/receipt_owner_namespace_is_explicit_and_independent_of_selected_roots"]
+platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "b3.installs.install_modes_receipts_and_clone_independence_survive_cache_removal"
+tests = ["atelier-build-v2::installs/install_modes_receipts_and_clone_independence_survive_cache_removal"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.two_projects_same_logical_item_never_overwrite_receipts_or_retire_neighbor_sidecars"
+tests = ["atelier-build-v2::installs/two_projects_same_logical_item_never_overwrite_receipts_or_retire_neighbor_sidecars"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.every_durable_install_cut_recovers_old_or_committed_named_files"
+tests = ["atelier-build-v2::installs/every_durable_install_cut_recovers_old_or_committed_named_files"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.foreign_files_busy_readers_root_failures_and_unknown_recovery_are_explicit"
+tests = ["atelier-build-v2::installs/foreign_files_busy_readers_root_failures_and_unknown_recovery_are_explicit"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.whole_item_retirement_requires_exact_current_namespaced_receipt_authority"
+tests = ["atelier-build-v2::installs/whole_item_retirement_requires_exact_current_namespaced_receipt_authority"]
+platforms = ["darwin"]

@@ -374,3 +374,15 @@ C1b still owns complete physical output reporting/sandboxing; D2 binds real reci
 schedules planners/children. D4/A5 must supply downstream installed ownership/reference views before
 B3 can preflight and apply native-package removals; prior export Items alone do not certify those deletions. No worker execution,
 install/removal, production activation or native equivalence is claimed.
+
+B3 introduces an unused checkout-install boundary in `install` and `checkout_locks`.
+A restore plan pins a validated cached result, checks the complete current ownership view,
+and installs only explicit Checkout mappings under build and exclusive content custody.
+Its journal precedes staged clones and records exact prior/new names; immutable item receipts
+are indexed by explicit project namespace plus logical item path. Recovery rolls back before
+the receipt-index commit and finishes owned cleanup afterward. Unknown leaves preserve the
+journal and block readers. Modes are replayed from result metadata; cache hits do not hash
+payloads, copy bytes, or scan output folders. Root failure after commit preserves installed
+receipts and conservative cache claims. B4/B5 root/GC policy, B7 fallback, and real C7 monitor
+custody/caller integration remain separate; the custody accessor alone is not lifecycle proof.
+Acceptance is still pending the first hosted Rust/APFS run and independent review.

@@ -63,3 +63,14 @@ External outputs MUST refuse until their typed adapter exists. Cached group toke
 only after named object checks and durable pins under the GC mutex, without plan reads, output
 tree walks or rehashing. See tests/results.rs and
 groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest.
+
+@cc [owner:fontanierh,label:correctness;safety] build-v2-checkout-install
+Checkout installs MUST hold build and exclusive content custody, pin named cache objects and
+durably journal exact old/new ownership before payload staging or mutation. They MUST use
+clone-only restoration and recorded normalized modes, without payload hashing or tree discovery.
+Receipt identity MUST include explicit stable project namespace plus logical item path, never
+selected roots or Unit.id. Foreign files, other projects and current code/sources MUST be preserved.
+Before receipt-index commit recovery MUST restore prior owned bytes; after commit it MUST finish
+only exact owned cleanup. Unknown/replaced files or malformed journals MUST retain evidence and
+block readers. Required root failure MUST preserve valid installed work and cache claims.
+See tests/installs.rs and checkout_locks::tests; macOS APFS acceptance remains mandatory.

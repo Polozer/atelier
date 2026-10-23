@@ -318,7 +318,7 @@ mod tests {
         let locks = workspace.locks();
         let build = locks.try_build_exclusive().unwrap();
         let path = locks.metadata.join("content.lock");
-        let mut child=OwnedChild(Command::new("python3").args(["-c","import fcntl,sys; f=open(sys.argv[1],'a+'); fcntl.flock(f,fcntl.LOCK_SH); print('held',flush=True); sys.stdin.readline()"])
+        let mut child=OwnedChild(Command::new("python3").args(["-c","import fcntl,signal,sys; signal.alarm(2); f=open(sys.argv[1],'a+'); fcntl.flock(f,fcntl.LOCK_SH); print('held',flush=True); sys.stdin.readline()"])
             .arg(path).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap());
         let mut output = BufReader::new(child.0.stdout.take().unwrap());
         let mut line = String::new();
