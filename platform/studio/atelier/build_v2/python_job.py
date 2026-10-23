@@ -227,10 +227,10 @@ class PathGuard:
                  'os.chflags': (0,), 'os.lchflags': (0,), 'os.setxattr': (0,), 'os.removexattr': (0,),
                  'os.mkfifo': (0,), 'os.mknod': (0,)}
     READS = {'os.listdir': (0,), 'os.scandir': (0,), 'os.chdir': (0,), 'os.listxattr': (0,),
-             'os.getxattr': (0,), 'os.startfile': (0,)}
-    REFUSED = ('os.symlink', 'os.link', 'socket.connect', 'socket.bind', 'socket.getaddrinfo',
-               'socket.gethostbyname', 'subprocess.Popen', 'os.exec', 'os.posix_spawn', 'os.spawn',
-               'os.fork', 'os.system', 'ctypes.dlopen')
+             'os.getxattr': (0,)}
+    # Links could point lexical checks elsewhere; child processes and sockets escape the guard.
+    REFUSED = ('os.symlink', 'os.link', 'socket.', 'subprocess.Popen', 'os.exec', 'os.posix_spawn',
+               'os.spawn', 'os.fork', 'os.system', 'os.startfile')
 
     def __init__(self, job_dir, subpaths, literals, report):
         self.job_dir = job_dir
@@ -282,8 +282,8 @@ class PathGuard:
                 self.check('write', args[index])
         elif event in self.READS:
             self.check('read', args[0])
-        elif event.startswith(self.REFUSED):
-            self.violation(event, '-')
+        elif event.startswith(self.REFUSED) or (event == 'ctypes.dlopen' and args[0] is not None):
+            self.violation(event, '-')  # loading a named native library is a process-level escape
 
     def wrap(self, function, access):
         def guarded(path, *args, dir_fd=None, **kwargs):

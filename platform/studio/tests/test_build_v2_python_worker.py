@@ -266,3 +266,12 @@ def test_undeclared_path_checks_fail_even_when_missing_or_caught(tmp_path, loop)
         assert 'undeclared' in failure(loop.run(job), 'dependency')
         assert list((tmp_path / f'job{index}/output').iterdir()) == []
     assert not os.path.exists(missing)
+
+
+def test_ctypes_imports_but_named_native_libraries_and_sockets_are_refused(tmp_path, loop):
+    imports = 'import ctypes\ndef run(context):\n    context.output("piece.txt").write_text("ok")\n'
+    assert loop.run(stage(tmp_path / 'imports', script=imports))['type'] == 'completed'
+    for index, body in enumerate(('ctypes.CDLL("libc.dylib")', 'socket.socketpair()',
+                                  'socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"x", ("127.0.0.1", 9))')):
+        script = f'import ctypes, socket\ndef run(context):\n    {body}\n'
+        assert 'undeclared' in failure(loop.run(stage(tmp_path / f'job{index}', script=script)), 'dependency')
