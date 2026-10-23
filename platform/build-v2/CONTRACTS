@@ -67,13 +67,17 @@ groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manif
 @cc [owner:fontanierh,label:correctness] build-v2-python-job-isolation
 Each Python job MUST run in its own child of the job loop, in its staged folder, with the declared
 environment only, loading only installed platform modules and the unit's declared code; the checkout
-MUST NOT be on its import path. On macOS the child MUST run under a deny-default sandbox, and any
-undeclared read, existence check (of a present or missing path), listing, network use or process
-start MUST fail the job as `dependency` rather than return a value; writes outside `output/` MUST
-fail. There MUST be no unsandboxed fallback except the explicit portable-test flag. Wall-clock reads
-MUST be fixed, OS entropy refused and `random` seeded from the declared seed. The loop MUST make both
-protocol descriptors non-inheritable before any job runs, and MUST report every regular file left
-under `output/` (fixed outputs and group members alike), failing on links and special files; the
-controller decides membership. Native extension code probing a missing path is a documented gap. See
+MUST NOT be on its import path. On macOS the child MUST run under a deny-default sandbox that lets
+it execute only the interpreter, and any undeclared read, Python-level existence check (of a present
+or missing path), listing, network use or process start MUST fail the job as `dependency` rather
+than return a value; writes outside `output/` MUST fail. The production loop entry MUST have no
+unsandboxed mode; the only unsandboxed loop is a test-only entry that MUST announce a distinct worker
+version, so a session keyed to the production version refuses it. Wall-clock reads MUST be fixed, OS
+entropy refused and `random` seeded from the declared seed. The loop MUST make both protocol
+descriptors non-inheritable before any job runs, and MUST report every regular file left under
+`output/` (fixed outputs and group members alike), failing on links and special files; the
+controller decides membership. Limitation: native extension code that probes a missing undeclared
+path through the C library is NOT detected (the kernel answers ENOENT with no sandbox decision), so
+these checks do not prove undeclared absence probes cannot happen. See
 platform/studio/tests/test_build_v2_python_worker.py, test_build_v2_python_sandbox.py and
 tests/staging.rs.

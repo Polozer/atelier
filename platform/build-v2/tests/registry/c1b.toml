@@ -22,5 +22,9 @@ tests = ["atelier-build-v2::staging/collected_outputs_are_every_actual_file_and_
 
 [[scenarios]]
 id = "c1b.staging.pinned_item_clones"
-tests = ["atelier-build-v2::staging/sandboxed::staging_clones_item_members_from_objects_pinned_by_a_live_transaction"]
+tests = ["atelier-build-v2::staging/sandboxed::pinned_item_clones_run_sandboxed_and_stage_into_the_result_store"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "c1b.unsandboxed-loop-refused-by-production-handshake"
+tests = ["atelier-build-v2::staging/an_unsandboxed_loop_never_passes_a_production_keyed_handshake"]

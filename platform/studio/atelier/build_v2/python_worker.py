@@ -10,12 +10,13 @@ Each job runs `python -P -s -S -B -c <python_job.py source> <config>` in the sta
 environment only. On macOS the child runs under a deny-default `sandbox-exec` profile: it may read
 only the interpreter's installed roots, a few platform files and its job folder, and write only
 `output/`. Any other read, existence check, listing or network use kills the child, which this loop
-reports as a `dependency` failure. There is no unsandboxed fallback: elsewhere a job fails, unless the
-loop was started with `--no-sandbox-portable-test`, which exists only for portable tests of the loop
-itself and proves nothing about isolation.
+reports as a `dependency` failure. The child may execute only the interpreter itself. There is no
+unsandboxed mode on this command line: elsewhere every job fails. Portable tests of the loop construct
+`Worker(..., sandboxed=False)` from a test-only entry, and such a loop announces a different worker
+version (`TEST_WORKER_VERSION`), so a controller keyed to `WORKER_VERSION` refuses its session.
 
-The loop reports every regular file the job left under `output/`; the controller decides membership. Only the standard library
-is used, so this file also runs by path without the atelier package.
+The loop reports every regular file the job left under `output/`; the controller decides membership.
+Only the standard library is used, so this file also runs by path without the atelier package.
 """
 import argparse
 import json
@@ -36,6 +37,8 @@ else:  # run by path: load the sibling module without importing the atelier pack
     _spec.loader.exec_module(protocol)
 
 WORKER_VERSION = 'atelier-python-job-1'
+# Announced only by an unsandboxed loop built for portable tests; never a keyed production identity.
+TEST_WORKER_VERSION = WORKER_VERSION + '+unsandboxed-test'
 JOB_SOURCE = Path(__file__).with_name('python_job.py').read_text(encoding='utf-8')
 JOB_ENVIRONMENT = {'LC_ALL': 'C', 'TZ': 'UTC', 'PYTHONHASHSEED': '0', 'PYTHONDONTWRITEBYTECODE': '1',
                    'PYTHONIOENCODING': 'utf-8'}
@@ -108,6 +111,16 @@ def platform_reads():
     return subpaths, list(PLATFORM_READ_LITERALS) + [sys.executable] + links
 
 
+def interpreter_executables():
+    """The interpreter binaries a job child may execute: the launched path, its links and target,
+    and a framework build's re-executed application binary."""
+    paths = [sys.executable, os.path.realpath(sys.executable)] + _links(sys.executable)
+    app = os.path.join(sys.base_prefix, 'Resources', 'Python.app', 'Contents', 'MacOS', 'Python')
+    if os.path.isfile(app):
+        paths += [app, os.path.realpath(app)] + _links(app)
+    return sorted(set(paths))
+
+
 def sandbox_profile(job_dir):
     """A deny-default profile: reads of the platform and the job folder, writes to `output/` only."""
     subpaths, literals = platform_reads()
@@ -120,7 +133,7 @@ def sandbox_profile(job_dir):
         '(deny default)',
         # Listed first so that every later allow takes precedence; what remains kills the job.
         '(deny file-read* network* (with send-signal SIGKILL))',
-        '(allow process-exec)',
+        f'(allow process-exec {" ".join(f"(literal {_quote(path)})" for path in interpreter_executables())})',
         f'(allow file-read* {subpaths} {" ".join(f"(literal {_quote(path)})" for path in literals)})',
         f'(allow file-read-metadata {" ".join(f"(literal {_quote(path)})" for path in metadata)})',
         f'(allow file-write* (subpath {_quote(os.path.join(job_dir, "output"))}) (literal "/dev/null"))',
@@ -195,6 +208,7 @@ class Worker:
         self.requests = requests
         self.responses = responses
         self.sandboxed = sandboxed
+        self.version = WORKER_VERSION if sandboxed else TEST_WORKER_VERSION
 
     def send(self, message):
         protocol.write_frame(self.responses, protocol.RESPONSE, message)
@@ -203,7 +217,7 @@ class Worker:
         self.send({'type': 'failed', 'job_id': job_id, 'failure': {'kind': kind, 'message': message}})
 
     def serve(self):
-        self.send({'type': 'hello', 'worker_version': WORKER_VERSION})
+        self.send({'type': 'hello', 'worker_version': self.version})
         while True:
             request = protocol.read_frame(self.requests, protocol.REQUEST)
             if request is None:
@@ -299,18 +313,22 @@ class Worker:
         return output_files(job_dir)
 
 
+def serve(request_fd, response_fd, sandboxed):
+    """Serve one controller over two inherited descriptors, made non-inheritable first."""
+    for fd in (request_fd, response_fd):
+        os.set_inheritable(fd, False)
+    requests = os.fdopen(request_fd, 'rb', buffering=0)
+    responses = os.fdopen(response_fd, 'wb', buffering=0)
+    Worker(requests, responses, sandboxed=sandboxed).serve()
+
+
 def main(argv=None):
+    """The production entry: always sandboxed, with no option to turn isolation off."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--request-fd', type=int, required=True)
     parser.add_argument('--response-fd', type=int, required=True)
-    parser.add_argument('--no-sandbox-portable-test', action='store_true',
-                        help='run jobs without isolation; for portable tests of the loop only')
     args = parser.parse_args(argv)
-    for fd in (args.request_fd, args.response_fd):
-        os.set_inheritable(fd, False)
-    requests = os.fdopen(args.request_fd, 'rb', buffering=0)
-    responses = os.fdopen(args.response_fd, 'wb', buffering=0)
-    Worker(requests, responses, sandboxed=not args.no_sandbox_portable_test).serve()
+    serve(args.request_fd, args.response_fd, sandboxed=True)
 
 
 if __name__ == '__main__':

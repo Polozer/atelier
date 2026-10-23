@@ -8,14 +8,14 @@ import threading
 import pytest
 
 from atelier.build_v2 import python_worker
-from test_build_v2_python_worker import Loop, failure, stage
+from test_build_v2_python_worker import WORKER, Loop, failure, stage
 
 pytestmark = [pytest.mark.macos_only]
 
 
 @pytest.fixture
 def loop():
-    worker = Loop()
+    worker = Loop(WORKER)
     yield worker
     if worker.process.poll() is None:
         worker.process.kill()
@@ -54,7 +54,7 @@ def test_job_logs_reach_the_loop_log_file_outside_the_job(tmp_path):
     script = 'import sys\ndef run(context):\n    print("job says hi")\n    print("job warns", file=sys.stderr)\n' \
              '    context.output("piece.txt").write_text("ok")\n'
     with open(tmp_path / 'worker.log', 'wb') as log:
-        worker = Loop(log=log)
+        worker = Loop(WORKER, log=log)
         assert worker.run(stage(tmp_path / 'job', script=script))['type'] == 'completed'
         worker.close()
     assert {'job says hi', 'job warns'} <= set((tmp_path / 'worker.log').read_text().splitlines())
@@ -157,6 +157,9 @@ def test_kernel_sandbox_stops_native_access_that_bypasses_the_python_guard(tmp_p
         assert status(f'import os; os.listdir({str(outside)!r})') == killed
         assert status(f'import socket; socket.create_connection(("127.0.0.1", {port}), timeout=5)') == killed
         assert status('open("new.txt", "w")') == 1  # writes outside output/ are refused, not killed
+        # Only the interpreter may be executed: any other binary is refused by the profile itself.
+        for binary in ('/bin/echo', '/usr/bin/true', '/bin/sh'):
+            assert status(f'import os; os.execv({binary!r}, [{binary!r}])') == 1
         assert not os.path.exists(os.path.join(job, 'new.txt'))
     finally:
         server.close()

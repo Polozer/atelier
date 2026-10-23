@@ -10,6 +10,8 @@ import pytest
 from atelier.build_v2 import protocol, python_worker
 
 WORKER = Path(python_worker.__file__)
+# The only unsandboxed route: a test-only entry that announces a test worker version.
+UNSANDBOXED = Path(__file__).resolve().parents[2] / 'build-v2/tests/fixtures/unsandboxed_job_loop.py'
 
 ECHO = '''
 def run(context):
@@ -46,11 +48,11 @@ def stage(root, script=ECHO, inputs=None, code=None, **job):
 class Loop:
     """A direct owned worker child over two inherited pipes, as the launcher starts it."""
 
-    def __init__(self, *flags, log=None):
+    def __init__(self, entry=UNSANDBOXED, *flags, log=None):
         request_read, self.request_write = os.pipe()
         self.response_read, response_write = os.pipe()
         self.process = subprocess.Popen(
-            [sys.executable, '-I', str(WORKER), '--request-fd', str(request_read), '--response-fd',
+            [sys.executable, '-I', str(entry), '--request-fd', str(request_read), '--response-fd',
              str(response_write), *flags], pass_fds=(request_read, response_write), stdin=subprocess.DEVNULL,
             stdout=log, stderr=log)
         # A pipe's two ends share one inode: the job must hold neither protocol pipe.
@@ -59,7 +61,8 @@ class Loop:
         os.close(response_write)
         self.requests = os.fdopen(self.request_write, 'wb', buffering=0)
         self.responses = os.fdopen(self.response_read, 'rb', buffering=0)
-        assert self.read() == {'type': 'hello', 'worker_version': 'atelier-python-job-1'}
+        version = python_worker.WORKER_VERSION if entry == WORKER else python_worker.TEST_WORKER_VERSION
+        assert self.read() == {'type': 'hello', 'worker_version': version}
 
     def send(self, message):
         protocol.write_frame(self.requests, protocol.REQUEST, message)
@@ -83,7 +86,7 @@ class Loop:
 
 @pytest.fixture
 def loop():
-    worker = Loop('--no-sandbox-portable-test')
+    worker = Loop()
     yield worker
     if worker.process.poll() is None:
         worker.process.kill()
@@ -245,7 +248,36 @@ def test_cancel_stops_the_job_and_the_loop_serves_the_next(tmp_path, loop):
     loop.close()
 
 
-def test_refuses_to_run_unsandboxed_without_the_portable_flag(tmp_path, monkeypatch):
+def test_production_entry_has_no_unsandboxed_mode(tmp_path):
+    for flags in (['--no-sandbox-portable-test'], ['--sandboxed=false'], ['--unsandboxed']):
+        run = subprocess.run([sys.executable, '-I', str(WORKER), '--request-fd', '0', '--response-fd', '1', *flags],
+                             stdin=subprocess.DEVNULL, capture_output=True, timeout=20)
+        assert run.returncode == 2 and b'unrecognized arguments' in run.stderr
+    assert python_worker.TEST_WORKER_VERSION != python_worker.WORKER_VERSION
+    # The production entry always builds a sandboxed worker that announces the production version.
+    built = []
+    original = python_worker.Worker
+
+    class Recording(original):
+        def serve(self):
+            built.append((self.sandboxed, self.version))
+
+    python_worker.Worker = Recording
+    try:
+        request_read, request_write = os.pipe()
+        response_read, response_write = os.pipe()
+        python_worker.main(['--request-fd', str(request_read), '--response-fd', str(response_write)])
+    finally:
+        python_worker.Worker = original
+        for fd in (request_read, request_write, response_read, response_write):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    assert built == [(True, python_worker.WORKER_VERSION)]
+
+
+def test_sandboxed_worker_fails_jobs_when_no_sandbox_exists(tmp_path, monkeypatch):
     monkeypatch.setattr(python_worker, 'SANDBOX_EXEC', str(tmp_path / 'missing-sandbox'))
     request_read, request_write = os.pipe()
     response_read, response_write = os.pipe()

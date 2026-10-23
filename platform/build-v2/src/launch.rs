@@ -6,7 +6,8 @@
 //! `--request-fd N --response-fd M` exactly as [`DirectChild`] does. [`DirectChild`] starts an owned
 //! child with no admission and exists for tests and local tools only.
 use crate::protocol::{FailureKind, WorkerFailure};
-use crate::staging::{ActualFile, StagedJob, collect_outputs};
+use crate::results::ActualOutput;
+use crate::staging::{StagedJob, collect_outputs};
 use crate::worker_session::{Channel, Session};
 use std::collections::BTreeMap;
 use std::io::{self, PipeReader, PipeWriter};
@@ -125,8 +126,8 @@ impl StartWorker for DirectChild {
 /// The outcome of one staged job, before B2 freezes and publishes anything.
 #[derive(Debug)]
 pub enum JobOutcome {
-    /// Every file the job produced, fixed outputs and group members alike, for B2/A4b staging.
-    Completed(Vec<ActualFile>),
+    /// Every file the job produced, fixed outputs and group members alike, for `WriteTransaction::stage_groups`.
+    Completed(Vec<ActualOutput>),
     Failed(WorkerFailure),
 }
 

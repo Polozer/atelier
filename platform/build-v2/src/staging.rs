@@ -8,7 +8,7 @@
 //! that B2 consumes.
 use crate::keys::{InputPayload, PreparedUnit};
 use crate::protocol::JobRequest;
-use crate::results::{OutputSources, WriteTransaction};
+use crate::results::{ActualOutput, OutputSources, WriteTransaction};
 use crate::schema::{InputKind, StoredFile};
 use crate::source_hashes::sha256;
 use crate::store::{ObjectDigest, ObjectStore};
@@ -272,21 +272,17 @@ fn stage_into(
     })
 }
 
-/// One file a job actually produced: its `output/`-relative path and where it lies now.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ActualFile {
-    pub path: String,
-    pub source: PathBuf,
-}
-
 /// @cc [owner:fontanierh,label:correctness] collected-output-manifest
 /// Collection MUST walk the job's `output/` tree without following links, refuse anything but
 /// regular files and directories, and require the worker's reported file list to equal the files
 /// found. It MUST return every actual file, declared or not (fixed outputs and group members alike),
-/// so the controller decides membership; [`fixed_sources`] maps a fixed-only unit's files to their
+/// as A4b's `stage_groups` requires, so the result store decides membership; [`fixed_sources`] maps a fixed-only unit's files to their
 /// items and refuses any other file. Neither hashes: B2 freezes and hashes the sources once. See
 /// tests/staging.rs.
-pub fn collect_outputs(staged: &StagedJob, reported: &[String]) -> Result<Vec<ActualFile>, String> {
+pub fn collect_outputs(
+    staged: &StagedJob,
+    reported: &[String],
+) -> Result<Vec<ActualOutput>, String> {
     let root = staged.output_dir();
     let mut found = BTreeMap::new();
     let mut pending = vec![root.clone()];
@@ -323,7 +319,7 @@ pub fn collect_outputs(staged: &StagedJob, reported: &[String]) -> Result<Vec<Ac
     }
     Ok(found
         .into_iter()
-        .map(|(path, source)| ActualFile { path, source })
+        .map(|(path, source)| ActualOutput { path, source })
         .collect())
 }
 
@@ -331,7 +327,7 @@ pub fn collect_outputs(staged: &StagedJob, reported: &[String]) -> Result<Vec<Ac
 /// declaring item. A file no fixed output declares fails; required membership is B2's check.
 pub fn fixed_sources(
     prepared: &PreparedUnit,
-    actual: &[ActualFile],
+    actual: &[ActualOutput],
 ) -> Result<OutputSources, String> {
     let mut sources = OutputSources::new();
     for file in actual {

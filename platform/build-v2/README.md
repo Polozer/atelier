@@ -290,9 +290,10 @@ and hash nothing. Staging failure removes only its own fresh folder. The request
 staged paths and drops output `install_path`s; locators, selectors and logical paths never appear.
 
 `staging::collect_outputs` walks `output/` without following links and requires the worker's reported
-files to equal the regular files found. It returns every actual file (`ActualFile`: path and source),
-declared or not, so fixed outputs and group members alike reach the result store, which holds the
-exact contracts and decides membership; nothing hashes here. `fixed_sources` maps a fixed-only unit's
+files to equal the regular files found. It returns every actual file as `results::ActualOutput` (path and
+source), declared or not, which is exactly what `WriteTransaction::stage_groups` consumes: fixed outputs
+and group members alike reach the result store, which holds the exact contracts and decides
+membership; nothing hashes here. `fixed_sources` maps a fixed-only unit's
 files to their items for B2's `WriteTransaction::stage` and refuses any other file.
 `remove_job` deletes a job folder after B2 has staged or refused its outputs.
 
@@ -323,13 +324,18 @@ kills the child, which the loop reports as `failed{dependency}` (the loop itself
 C7 sees no crash). The kernel reports a missing path as ENOENT without a sandbox decision, so a Python
 path guard (an audit hook plus checked `os.stat`/`lstat`/`access`) also ends the job, uncatchably, on
 any undeclared read, existence check, listing or write, present or missing, and on process starts,
-links and sockets. Elsewhere jobs fail with `dependency`: there is no unsandboxed fallback, except the
-explicit `--no-sandbox-portable-test` flag for portable tests of the loop, which proves no isolation.
+links and sockets. Elsewhere jobs fail with `dependency`: the production entry has no unsandboxed mode at all. The
+profile lets the child execute only the interpreter binary (and a framework build's re-executed
+`Python.app`). Portable tests reach an unsandboxed loop only through the test-only entry
+[tests/fixtures/unsandboxed_job_loop.py](tests/fixtures/unsandboxed_job_loop.py), which announces
+`atelier-python-job-1+unsandboxed-test`; a session keyed to the production worker version refuses it,
+so its results can never pass for production ones.
 The loop reports every regular file under `output/` (any group folder there is writable too) and fails
 on links or special files; membership is the controller's.
 
 Known gaps: native extension code that probes a missing undeclared path through the C library is not
-detected (an existing one is still killed). Linux has no sandbox yet. The worker implementation
+detected (an existing one is still killed), so nothing here proves undeclared absence probes cannot
+happen. Linux has no sandbox yet. The worker implementation
 digest, B3 installs, A4b group results, A6 live-edit revalidation and C3/C7 supervision are not here.
 
 ## B2 fixed-result publication and leases

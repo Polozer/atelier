@@ -48,8 +48,9 @@ import helper
 def run(context):
     mesh = context.input('mesh')
     members = sorted(str(path.relative_to(mesh)) for path in mesh.rglob('*'))
-    tool = os.access(mesh / 'bin/tool.sh', os.X_OK)
-    data = os.access(mesh / 'mesh.bin', os.X_OK)
+    # The staged mode bits, not os.access: the sandbox lets jobs execute nothing but the interpreter.
+    tool = bool(os.stat(mesh / 'bin/tool.sh').st_mode & 0o111)
+    data = bool(os.stat(mesh / 'mesh.bin').st_mode & 0o111)
     text = helper.render(context.input('shape').read_text(), (mesh / 'mesh.bin').read_text(), members, tool,
                          data, context.inputs['extra'], dict(context.params), random.random())
     context.output('piece.txt').write_text(text)
@@ -245,6 +246,7 @@ impl Fixture {
                 snapshot: &self.snapshot,
                 versions: &BTreeMap::new(),
                 produced: &self.produced,
+                produced_groups: &BTreeMap::new(),
                 staged_inputs: &self.staged,
                 worker: &identity(PYTHON_JOB_LOOP_VERSION),
                 validator: &identity("validator-1"),
@@ -463,16 +465,16 @@ fn collected_outputs_are_every_actual_file_and_fixed_mapping_refuses_others() {
     let output = job.output_dir();
     fs::write(output.join("piece.txt"), b"piece").unwrap();
     let actual = collect_outputs(&job, &["piece.txt".into()]).unwrap();
-    let piece = ActualFile {
-        path: "piece.txt".into(),
-        source: output.join("piece.txt"),
-    };
-    assert_eq!(actual, [piece.clone()]);
+    let found: Vec<_> = actual
+        .iter()
+        .map(|file| (file.path.as_str(), file.source.clone()))
+        .collect();
+    assert_eq!(found, [("piece.txt", output.join("piece.txt"))]);
     assert_eq!(
         fixed_sources(&prepared, &actual).unwrap(),
         BTreeMap::from([(
             ("piece".to_string(), "piece.txt".to_string()),
-            piece.source.clone()
+            output.join("piece.txt")
         )])
     );
     assert!(collect_outputs(&job, &[]).is_err());
@@ -506,14 +508,25 @@ fn python() -> PathBuf {
         .expect("python3 on PATH runs the job loop")
 }
 
+/// The version an unsandboxed loop announces; only test controllers ever expect it.
+const UNSANDBOXED_TEST_VERSION: &str = "atelier-python-job-1+unsandboxed-test";
+
+/// The production loop (always sandboxed), or the test-only unsandboxed entry for portable tests.
 fn job_loop(sandboxed: bool) -> WorkerCommand {
-    let script =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../studio/atelier/build_v2/python_worker.py");
-    let mut command = WorkerCommand::python_job_loop(python(), script.canonicalize().unwrap());
-    if !sandboxed {
-        command.args.push("--no-sandbox-portable-test".into());
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join(if sandboxed {
+        "../studio/atelier/build_v2/python_worker.py"
+    } else {
+        "tests/fixtures/unsandboxed_job_loop.py"
+    });
+    WorkerCommand::python_job_loop(python(), script.canonicalize().unwrap())
+}
+
+fn loop_version(sandboxed: bool) -> &'static str {
+    if sandboxed {
+        PYTHON_JOB_LOOP_VERSION
+    } else {
+        UNSANDBOXED_TEST_VERSION
     }
-    command
 }
 
 /// Stage `fixture` into `space/<name>` and run it with the real Python job loop.
@@ -530,11 +543,40 @@ fn run(space: &Workspace, fixture: &Fixture, name: &str, sandboxed: bool) -> (Jo
     let outcome = run_staged(
         &DirectChild,
         &job_loop(sandboxed),
-        PYTHON_JOB_LOOP_VERSION,
+        loop_version(sandboxed),
         &job,
     )
     .unwrap();
     (outcome, job.output_dir())
+}
+
+#[test]
+fn an_unsandboxed_loop_never_passes_a_production_keyed_handshake() {
+    let space = Workspace::new();
+    let fixture = Fixture::new("assets");
+    let prepared = fixture.prepared();
+    // The unit is keyed with the production worker version; the unsandboxed entry announces another.
+    assert_eq!(
+        prepared.ingredients().worker_version,
+        PYTHON_JOB_LOOP_VERSION
+    );
+    let job = stage(
+        &prepared,
+        &fixture.snapshot,
+        &fixture.objects,
+        &space.path("job"),
+        "job-1",
+    )
+    .unwrap();
+    let error = run_staged(
+        &DirectChild,
+        &job_loop(false),
+        PYTHON_JOB_LOOP_VERSION,
+        &job,
+    )
+    .unwrap_err();
+    assert!(error.contains(UNSANDBOXED_TEST_VERSION), "{error}");
+    assert!(fs::read_dir(job.output_dir()).unwrap().next().is_none());
 }
 
 fn completed(outcome: JobOutcome) -> BTreeSet<String> {
@@ -684,7 +726,7 @@ mod sandboxed {
     }
 
     #[test]
-    fn staging_clones_item_members_from_objects_pinned_by_a_live_transaction() {
+    fn pinned_item_clones_run_sandboxed_and_stage_into_the_result_store() {
         let space = Workspace::new();
         let mut fixture = Fixture::new("assets");
         let objects = ObjectStore::open(space.path("store")).unwrap();
@@ -736,6 +778,20 @@ mod sandboxed {
         assert_eq!(mode(&mesh.join("bin/tool.sh")), 0o555);
         let outcome =
             run_staged(&DirectChild, &job_loop(true), PYTHON_JOB_LOOP_VERSION, &job).unwrap();
-        assert_eq!(completed(outcome), piece());
+        let JobOutcome::Completed(actual) = outcome else {
+            panic!("the sandboxed job did not complete")
+        };
+        // The complete actual list is exactly what A4b's stage_groups consumes.
+        let staged = pin
+            .stage_groups(actual, |_| Ok(()), |_, _, _| Ok(()))
+            .unwrap();
+        let files: Vec<_> = staged
+            .envelope()
+            .result
+            .outputs
+            .iter()
+            .flat_map(|item| item.files.iter().map(|file| file.path.as_str()))
+            .collect();
+        assert_eq!(files, ["piece.txt"]);
     }
 }
