@@ -1,0 +1,98 @@
+schema_version = 1
+
+[[scenarios]]
+id = "b4.roots.partial_build_keeps_other_units_and_their_provenance"
+tests = ["atelier-build-v2::roots/partial_build_merges_and_keeps_other_units_with_their_own_provenance"]
+
+[[scenarios]]
+id = "b4.roots.complete_roster_prunes_only_undeclared_units"
+tests = ["atelier-build-v2::roots/complete_roster_prunes_units_that_are_no_longer_declared"]
+
+[[scenarios]]
+id = "b4.roots.release_is_a_frozen_snapshot"
+tests = ["atelier-build-v2::roots/a_release_is_a_frozen_snapshot_and_never_merges"]
+
+[[scenarios]]
+id = "b4.roots.commit_removes_only_its_own_session"
+tests = ["atelier-build-v2::roots/a_commit_removes_only_its_own_session_journal"]
+
+[[scenarios]]
+id = "b4.roots.torn_journal_tail_fails_closed"
+tests = ["atelier-build-v2::roots/a_torn_journal_tail_fails_the_commit_and_preserves_root_and_journal"]
+
+[[scenarios]]
+id = "b4.roots.middle_corruption_fails_closed_with_parseable_retention"
+tests = ["atelier-build-v2::roots/a_corrupt_middle_record_fails_closed_and_retention_counts_parseable_keys"]
+
+[[scenarios]]
+id = "b4.roots.faults_at_each_commit_boundary_keep_journal"
+tests = ["atelier-build-v2::roots/faults_at_each_commit_boundary_keep_the_journal_and_never_lose_retention"]
+
+[[scenarios]]
+id = "b4.roots.concurrent_commits_serialize"
+tests = ["atelier-build-v2::roots/concurrent_commits_to_one_target_serialize_without_losing_entries"]
+
+[[scenarios]]
+id = "b4.roots.projects_and_worktrees_are_isolated"
+tests = ["atelier-build-v2::roots/projects_and_worktrees_are_isolated"]
+
+[[scenarios]]
+id = "b4.roots.release_retention_keeps_three_sequences"
+tests = ["atelier-build-v2::roots/releases_keep_the_three_greatest_sequences_and_refuse_a_different_duplicate"]
+
+[[scenarios]]
+id = "b4.roots.pins_survive_until_explicit_drop"
+tests = ["atelier-build-v2::roots/pins_survive_trimming_until_an_exact_explicit_drop"]
+
+[[scenarios]]
+id = "b4.roots.malformed_metadata_fails_safely"
+tests = ["atelier-build-v2::roots/malformed_root_metadata_fails_reads_and_retention_reports_damage"]
+
+[[scenarios]]
+id = "b4.roots.retention_counts_roots_and_sessions"
+tests = ["atelier-build-v2::roots/retention_counts_root_and_open_session_keys"]
+
+[[scenarios]]
+id = "b4.roots.provenance_only_changes_keep_keys"
+tests = ["atelier-build-v2::roots/provenance_only_changes_keep_the_same_result_keys"]
+
+[[scenarios]]
+id = "b4.roots.keys_labels_and_targets_are_validated"
+tests = ["atelier-build-v2::roots/keys_labels_and_target_names_are_validated"]
+
+[[scenarios]]
+id = "b4.roots.snapshot_into_pin_or_release_only"
+tests = ["atelier-build-v2::roots/a_root_can_be_snapshotted_into_a_pin_but_not_into_a_mutable_root"]
+
+[[scenarios]]
+id = "b4.roots.journal_keeps_every_key_and_root_takes_the_last"
+tests = ["atelier-build-v2::roots/the_session_journal_keeps_every_key_and_the_root_takes_the_last_per_unit"]
+
+[[scenarios]]
+id = "b4.roots.records_must_live_under_their_own_target"
+tests = ["atelier-build-v2::roots/a_record_filed_under_another_target_fails_the_listing"]
+
+[[scenarios]]
+id = "b4.roots.abandon_releases_only_its_own_session"
+tests = ["atelier-build-v2::roots/abandoning_a_session_releases_only_its_own_in_flight_retention"]
+
+[[scenarios]]
+id = "b4.roots.b2_publish_and_hit_callbacks_bind_the_caller_unit"
+tests = ["atelier-build-v2::roots/b2_publication_and_hit_callbacks_record_the_caller_unit_binding"]
+
+[[scenarios]]
+id = "b4.roots.gc_retains_a_dead_custodian_until_cleanup_is_confirmed"
+tests = ["atelier-build-v2::roots/a_dead_custodian_with_unconfirmed_cleanup_is_retained"]
+
+[[scenarios]]
+id = "b4.roots.gc_reclaims_after_custodian_cleanup_is_confirmed"
+tests = ["atelier-build-v2::roots/a_dead_custodian_with_confirmed_cleanup_is_reclaimable"]
+
+[[scenarios]]
+id = "b4.roots.gc_retains_on_unreadable_custodian_records"
+tests = ["atelier-build-v2::roots/an_unreadable_custodian_or_cleanup_record_is_retained"]
+
+[[scenarios]]
+id = "b4.roots.gc_retains_live_or_unknown_identities"
+tests = ["atelier-build-v2::roots/alive_or_unknown_identities_still_retain_the_lease"]
+

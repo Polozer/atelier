@@ -24,6 +24,7 @@ pub mod plans;
 pub mod protocol;
 pub mod py_data;
 pub mod results;
+pub mod roots;
 pub mod scheduler;
 pub mod schema;
 pub mod source_hashes;

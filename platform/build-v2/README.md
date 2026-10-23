@@ -427,6 +427,46 @@ public `LeaseStore::lock()` guard; never remove that mutex file. `MetadataGuard:
 on malformed/unsupported records. B2 does not implement root selection, scope deletion, checkout
 installs, OS process probing, age-based retention or GC. Production v1 remains unchanged.
 
+## Roots, provenance and build sessions (B4)
+
+`roots::RootStore::open(store_root, project)` names one explicit project inside the trusted
+canonical store and takes the store's `metadata.lock` inode through its own `LeaseStore`
+handle. Roots live under `roots/<project>/`: `main.json`, `worktree/<id>.json`,
+`release/<sequence>.json`, `pin/<id>.json` and in-flight `session/<id>.jsonl`.
+A root is a map from the unit's scheduling label to that unit's last result key, and each entry keeps
+the provenance of the session that wrote it; `RootRecord::provenance` describes only the most
+recent merge. Roots and provenance never enter cache identity.
+
+`RootStore::begin_session(target, provenance)` creates a build session.
+`BuildSession::use_result` appends `(unit, key)` to an append-only journal and fsyncs it;
+`root_callback(unit)` is the exact `FnOnce(&ResultEnvelope) -> Result<(), String>` that
+`StagedResult::publish` and `WriteTransaction::retain_hit` accept, so a result is retained
+before B2 clears its claims. The caller names the unit: the winning envelope's `unit` may belong
+to an earlier equivalent producer. A session keeps every key it used, including retries and re-keys,
+and the commit keeps the last key per unit.
+
+`commit(declared)` merges a main or worktree root with the current one inside a single
+metadata-lock hold. Without `DeclaredRoster` nothing is pruned; with one, built only from a
+complete declaration, entries for units the declaration no longer contains are dropped. A release or
+pin is a frozen snapshot written whole; releases are ordered by an explicit sequence, a different
+record at an existing sequence is a conflict, and only the three greatest sequences are kept. Pins are
+never trimmed. `snapshot` freezes an existing root into a release or pin.
+
+A torn, unterminated or otherwise invalid journal record makes `commit` fail and leaves both
+the previous root and the journal untouched. `commit_observed` exposes the same boundaries as
+B2's publication steps for fault tests. `retention()` counts every key named by any readable
+root or session and reports unreadable records instead of guessing: B5 must retain when that list is
+not empty. B4 deletes root records only; result records, objects, leases and sessions are untouched,
+and no root is removed because a checkout directory disappeared.
+
+`may_reclaim(lease, probe, custodians, cleanup)` is the GC liveness verdict. Every owner and
+worker identity must be positively dead, and a dead registered session custodian keeps the lease
+retained as unknown liveness until C5c's cleanup record is durably confirmed. An unreadable
+correlation or cleanup record also retains, and a dead monitor process alone never proves cleanup.
+The custodian registry and confirmation are traits (`SessionCustodians`, `CustodianCleanup`)
+until C5c lands its durable store.
+
+
 ## Bounded groups and typed child expansion (A4b)
 
 `groups` reads the existing D2 schema1 plan envelope and checks complete flat membership, authored
