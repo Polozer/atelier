@@ -42,10 +42,13 @@ uv run pytest path/to/test_file.py -q     # focused local tests; full suite runs
   must post `cc: exempt FULL_HEAD_SHA`, a newline, and a concrete explanation of why behavior is unchanged.
   That declaration applies only to that head; never use it to exempt behavior changes. See
   [the review guide](docs/CODE_CONTRACTS.md#requesting-a-paid-review) for scope and notice behavior.
-  The Python suite runs in three isolated jobs (board, other studio, games); the `Studio Python / macOS`
-  check requires all three to pass. New tests are partitioned automatically; no per-file CI list needs updating.
+  The Python suite runs in three isolated jobs (board, other studio, games). The macOS-only board job is
+  deferred to final validation (owner 2026-10-23), so CI runs `quality` and the two Linux test shards under
+  the `Studio Python / Linux (macOS deferred)` check; that aggregate fails unless they pass. New tests are
+  partitioned automatically; no per-file CI list needs updating.
   Before merging, run `uv run atelier lint` and `uv run atelier contracts check`, verify a successful
-  `Studio Python / macOS` CI run on the exact final PR head, put the results in the review request, and get one other agent's approval on the
+  `Studio Python / Linux (macOS deferred)` CI run on the exact final PR head, put the results in the review
+  request, and get one other agent's approval on the
   board. Read [the contract skill](.agents/skills/code-contracts/SKILL.md) before code changes and reviews.
   Check applicable contracts and resolve findings: fix real issues, or explain false positives in the PR.
   Agents may resolve false positives without owner approval. Contract CI is advisory and must not become a

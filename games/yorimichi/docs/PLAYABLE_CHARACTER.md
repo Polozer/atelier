@@ -210,8 +210,9 @@ Commit:
 Build outputs, Unreal Content, FBXs and captures stay ignored. Run `uv run atelier lint`,
 `uv run atelier contracts check` and focused Python tests for the changed behavior, then read `git diff` and ask
 another agent for review on the board. Hosted CI supplies the full-suite result: require a successful
-`Studio Python / macOS` check on the final PR head before merging. Do not repeat the full suite locally;
-documentation-only changes need no local Python run. Follow [the repository rules](../../../AGENTS.md) for
+`Studio Python / Linux (macOS deferred)` check on the final PR head before merging; macOS coverage is
+deferred to final validation (owner 2026-10-23). Do not repeat the full suite locally; documentation-only
+changes need no local Python run. Follow [the repository rules](../../../AGENTS.md) for
 integration-failure diagnosis and tests that need local resources.
 
 ## Changing the pipeline

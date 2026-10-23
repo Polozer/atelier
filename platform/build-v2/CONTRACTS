@@ -126,7 +126,9 @@ membership. Limitations, not guarantees: native extension code that probes a mis
 through the C library is NOT detected (the kernel answers ENOENT with no sandbox decision), so these
 checks do not prove undeclared absence probes cannot happen; elapsed-time clocks (monotonic, perf
 counters, CPU time) and file timestamps are real; random generators in native libraries that read OS
-entropy themselves are not intercepted. Scope: job code is trusted project code. The kernel
+entropy themselves are not intercepted; deliberate tampering with the guard's own hooks, finders or
+patched functions is out of scope (removal of the import hook or finder is detected). Scope: job
+code is trusted project code. The kernel
 filesystem and network sandbox is the enforcement; the Python guard is additional detection of
 accidental undeclared dependencies, not an adversarial Python jail, and these checks do not intercept
 all nondeterminism or absence probes. This scope MUST NOT excuse an ordinary API bug in a supported
@@ -335,3 +337,32 @@ limitation. See tests/unreal.rs
 `a_package_left_loaded_a_changed_setting_or_a_raising_reset_retires_the_editor_after_its_reply`) and
 platform/studio/tests/test_build_v2_unreal_worker.py. The real editor's flush-then-hash order is
 proven only by the pending T2 session.
+
+@cc [owner:fontanierh,label:correctness] build-v2-blender-job-isolation
+The Blender job loop MUST run inside the installed background Blender started with
+`--factory-startup -b --threads 3 --python-exit-code 1 --disable-autoexec` before its `-P` script, so
+admission reads its threads, and MUST serve the same protocol as the Python job loop with its own
+worker version. Each job MUST run in a fresh Blender from that same binary, in its staged folder,
+with the same flags plus `--python-use-system-env`, the declared environment only, every Blender
+user folder and `HOME` pointed at a missing path inside the job folder (a job whose staged folder
+already holds that path, as a link or as declared code, MUST be refused as `protocol` before Blender
+starts), and the scene reset to an empty factory file before the op runs; no state of one job may reach another. Each job MUST run the
+Python job bootstrap, so the Python job isolation contract applies inside it with the Blender
+application bundle as its installed platform. On macOS the child MUST run under the same deny-default
+kill-on-deny sandbox that lets it execute only the Blender binary, read only the bundle, the named
+platform files and its job folder, and write only `output/`; every further kernel allowance MUST be a
+reviewed, named rule (GPU user clients, metadata of `/tmp` and the developer folder, kernel-only
+`/dev/urandom`, socket binds refused without the kill), and nothing in the home folder may be readable.
+Native Blender reads of an existing undeclared path and any other network use MUST fail the job as
+`dependency`. In Blender jobs `uuid.uuid4` MUST draw from the declared seed and every other entropy
+source stays refused; only module objects loaded by Blender's own startup are exempt from the
+undeclared-module check. The production entry MUST have no unsandboxed
+mode, and the test-only entry MUST announce a distinct worker version. The Python and Blender loop
+commands MUST refuse a non-UTF-8 script path rather than alter it, and MUST convert to the guarded
+launcher's command with the program, every argument in order, the environment and the working
+folder unchanged. Installed Blender and its
+bundled add-ons are platform, not key ingredients. The same limitations and scope as the Python job
+isolation contract apply, including native probes of missing paths. See
+platform/studio/tests/test_build_v2_blender_worker.py and tests/blender_jobs.rs, including
+job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it and
+a_loop_command_converts_to_the_guarded_launcher_command_field_for_field.
