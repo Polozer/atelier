@@ -557,6 +557,7 @@ impl RootStore {
     }
 
     pub fn roots_locked(&self, _guard: &MetadataGuard) -> Result<Vec<RootRecord>, RootError> {
+        self.check_guard(_guard)?;
         let mut records = vec![];
         let base = self.project_dir();
         let mut paths = vec![base.join("main.json")];
@@ -696,7 +697,10 @@ impl RootStore {
     /// positively dead and every registered session custodian's guard cleanup is durably
     /// confirmed. A dead custodian whose cleanup is unconfirmed or unreadable MUST count as
     /// unknown liveness and retain it; a dead monitor process alone MUST NOT prove cleanup.
-    /// Unreadable correlation records and unknown liveness always retain. See tests/roots.rs
+    /// Unreadable correlation records and unknown liveness always retain, and a correlation answer
+    /// of Ok(None) MUST mean authoritatively not a custodian: missing, unreadable or ambiguous
+    /// evidence MUST be an error that retains, and no fallback adapter may guess "ordinary".
+    /// See tests/roots.rs
     /// `a_dead_custodian_with_unconfirmed_cleanup_is_retained`,
     /// `an_owner_custodian_with_unconfirmed_cleanup_is_retained`,
     /// `a_dead_custodian_with_confirmed_cleanup_is_reclaimable`,
@@ -814,8 +818,11 @@ impl RootStore {
     /// tests/roots.rs `retention_counts_root_and_open_session_keys`,
     /// `retention_is_readable_under_the_callers_guard`,
     /// `malformed_root_metadata_fails_reads_and_retention_reports_damage` and
-    /// `missing_or_unreadable_metadata_is_damage`.
+    /// `missing_or_unreadable_metadata_is_damage`. A wrong-store guard never certifies a GC
+    /// snapshot: `retention_locked` and `roots_locked` MUST refuse it,
+    /// see `a_guard_from_another_store_is_refused`.
     pub fn retention_locked(&self, _guard: &MetadataGuard) -> Result<RetentionView, RootError> {
+        self.check_guard(_guard)?;
         let mut view = RetentionView::default();
         let roots = self.root.join("roots");
         match fs::symlink_metadata(&roots) {
@@ -1025,6 +1032,14 @@ impl RootStore {
         sync_dir(&folder)?;
         Ok(())
     }
+
+    /// A guard only certifies metadata of the store whose mutex it holds.
+    fn check_guard(&self, guard: &MetadataGuard) -> Result<(), RootError> {
+        if guard.store_root() != self.root {
+            return Err(invalid("guard belongs to another store"));
+        }
+        Ok(())
+    }
 }
 
 impl BuildSession {
@@ -1190,6 +1205,8 @@ impl BuildSession {
 
 /// C5c's durable custodian registry: which identity is a session custodian, if any.
 pub trait SessionCustodians {
+    /// Ok(None) MUST mean authoritatively not a custodian. Missing, unreadable or ambiguous
+    /// evidence MUST be Err, which retains the lease; never return Ok(None) for missing evidence.
     fn correlation(&self, identity: &ProcessIdentity) -> Result<Option<String>, String>;
 }
 

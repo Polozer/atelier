@@ -1111,6 +1111,25 @@ fn missing_or_unreadable_metadata_is_damage() {
 }
 
 #[test]
+fn a_guard_from_another_store_is_refused() {
+    let first = Workspace::new();
+    let second = Workspace::new();
+    let alpha = first.open("yorimichi");
+    let beta = second.open("yorimichi");
+    let guard = alpha.leases().lock().unwrap();
+    assert!(matches!(
+        beta.retention_locked(&guard),
+        Err(RootError::Invalid(_))
+    ));
+    assert!(matches!(
+        beta.roots_locked(&guard),
+        Err(RootError::Invalid(_))
+    ));
+    assert!(alpha.retention_locked(&guard).is_ok());
+    assert!(alpha.roots_locked(&guard).is_ok());
+}
+
+#[test]
 fn crash_temporary_file_is_swept_and_does_not_damage() {
     let workspace = Workspace::new();
     let store = workspace.open("yorimichi");

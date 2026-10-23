@@ -201,6 +201,11 @@ impl LeaseStore {
 }
 
 impl MetadataGuard {
+    /// Canonical store root this guard locks. A guard MUST only certify its own store's metadata.
+    pub(crate) fn store_root(&self) -> &Path {
+        &self.root
+    }
+
     fn path(&self, id: &str) -> PathBuf {
         self.root.join("leases").join(format!("{id}.json"))
     }
