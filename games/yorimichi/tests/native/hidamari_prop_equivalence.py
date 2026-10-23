@@ -26,7 +26,7 @@ sys.path[:0]=[str(GAME/'world'),str(GAME/'tools'),str(GAME/'tests/native'),str(G
 import yori  # noqa: E402,F401
 from atelier import mesh_ir  # noqa: E402
 from atelier.atomic_files import atomic_json  # noqa: E402
-from atomic_equivalence import artifact,canonical,fbx_counter,hull_counter,native_raw_set,require  # noqa: E402
+from atomic_equivalence import artifact,canonical,fbx_counter,hull_counter,native_raw_set,require,component_bounds  # noqa: E402
 
 STAGE=['input preflight']
 
@@ -267,6 +267,19 @@ def native_readback(spec):
     return records
 
 
+def whole_bounds(record):
+    """Whole logical exports must retain physical bounds, including single-LOD spheres."""
+    policies=record.get('component_policies')
+    require(isinstance(policies,list) and len(policies)==1,'Whole mesh needs exactly one observed component policy')
+    row=json.loads(artifact(policies[0]));physical,logical=component_bounds(row)
+    require(record.get('meshes')==[row.get('mesh')],'Whole bounds belong to a different native mesh')
+    box=row.get('mesh_bounds');values=np.asarray(box)
+    require(values.shape==(2,3) and values.dtype.kind in 'fi' and np.isfinite(values).all()
+        and np.all(values[1]>=values[0]),'Missing actual whole mesh bounds')
+    return dict(component_bounds=physical,mesh_bounds=box,bounds_scale=row['bounds_scale'],
+        lod_coordinated=row['lod_coordinated'],logical_bounds=logical)
+
+
 def compare_native(before,after,props,trees):
     """Host-only exact saved geometry/LOD/collision/material/settings comparison.
 
@@ -275,11 +288,12 @@ def compare_native(before,after,props,trees):
     """
     expected=set(members(props,trees));require(set(before)==set(after)==expected,'Incomplete/foreign native readback census')
     for key in sorted(expected):
+        require(whole_bounds(before[key])==whole_bounds(after[key]),key+' actual whole bounds differ')
         a=native_raw_set(before[key],key);b=native_raw_set(after[key],key)
         require(before[key]['policy_scope']==after[key]['policy_scope']=='fixture','Readback fixture scope is explicit')
         for field in ('source_lods','render_lods','cooked','hulls','policy','settings','source_presence'):
             require(a[field]==b[field],key+' actual native '+field+' differs')
-    return dict(native_geometry_complete=True,native_complete=False,complete=False,meshes=48,
+    return dict(native_geometry_complete=True,whole_mesh_bounds_complete=True,native_complete=False,complete=False,meshes=48,
         scope='Saved fixture geometry/LOD/cook/collision/material/bounds policy only; production runtime/probes pending')
 
 

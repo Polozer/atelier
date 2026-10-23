@@ -1,5 +1,6 @@
 """Fault injection for the independent 48-export prop proof observer."""
 import copy
+import json
 import importlib.util
 from pathlib import Path
 import sys
@@ -87,12 +88,37 @@ def test_complete_original_census_cannot_be_narrowed_or_invented(field):
 
 
 @pytest.mark.parametrize('field',['source_lods','render_lods','cooked','hulls','policy','settings','source_presence'])
-def test_native_readback_never_weakens_geometry_lods_collision_or_policy(monkeypatch,field):
+def test_native_readback_never_weakens_geometry_lods_collision_or_policy(tmp_path,monkeypatch,field):
     props=['P'+str(n) for n in range(32)];trees=['T'+str(n) for n in range(4)]
     row=dict(policy_scope='fixture',**{key:[] for key in ('source_lods','render_lods','cooked','hulls','policy','settings','source_presence')})
+    policy=whole_policy(tmp_path)
+    row.update(component_policies=[dict(path=str(policy),sha256=proof.sha(policy))],meshes=['/Game/M.M'])
     before={name:copy.deepcopy(row) for name in proof.members(props,trees)};after=copy.deepcopy(before)
     monkeypatch.setattr(proof,'native_raw_set',lambda descriptor,key:descriptor)
     accepted=proof.compare_native(before,after,props,trees)
     assert accepted['native_geometry_complete'] and not accepted['native_complete'] and not accepted['complete']
     after[props[0]][field]=['changed']
     with pytest.raises(ValueError,match='differs'):proof.compare_native(before,after,props,trees)
+
+
+def whole_policy(root):
+    path=root/'policy.json'
+    path.write_text(json.dumps(dict(mesh='/Game/M.M',component_bounds=dict(origin=[0,0,0],extent=[1,1,1],sphere_radius=1.2),
+        mesh_bounds=[[-1,-1,-1],[1,1,1]],bounds_scale=1,lod_coordinated=False)))
+    return path
+
+
+@pytest.mark.parametrize('field',['sphere','extent','mesh_bounds','scale','missing'])
+def test_whole_physical_bounds_are_never_normalized_as_spatial_pieces(tmp_path,field):
+    path=whole_policy(tmp_path)
+    def record():return dict(meshes=['/Game/M.M'],component_policies=[dict(path=str(path),sha256=proof.sha(path))])
+    before=proof.whole_bounds(record());value=json.loads(path.read_text())
+    if field=='sphere':value['component_bounds']['sphere_radius']+=.01
+    elif field=='extent':value['component_bounds']['extent'][0]+=.01
+    elif field=='mesh_bounds':value['mesh_bounds'][1][0]+=.01
+    elif field=='scale':value['bounds_scale']=1.1
+    else:value.pop('component_bounds')
+    path.write_text(json.dumps(value))
+    if field=='missing':
+        with pytest.raises(ValueError):proof.whole_bounds(record())
+    else:assert proof.whole_bounds(record())!=before
