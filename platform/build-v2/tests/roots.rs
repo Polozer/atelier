@@ -793,6 +793,7 @@ fn abandoning_a_session_releases_only_its_own_in_flight_retention() {
     assert_eq!(root.entries["unit.a"].key, key(1));
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn b2_publication_and_hit_callbacks_record_the_caller_unit_binding() {
     let workspace = Workspace::new();

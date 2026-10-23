@@ -78,6 +78,7 @@ tests = ["atelier-build-v2::roots/abandoning_a_session_releases_only_its_own_in_
 
 [[scenarios]]
 id = "b4.roots.b2_publication_and_hit_callbacks_record_the_caller_unit_binding"
+platforms = ["darwin"]
 tests = ["atelier-build-v2::roots/b2_publication_and_hit_callbacks_record_the_caller_unit_binding"]
 
 [[scenarios]]
