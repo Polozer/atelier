@@ -1,16 +1,27 @@
 //! One real guarded resident-session window for C5c slice 6 (not a test; run once by hand, under
 //! normal admission, only after review).
 //!
-//! `resident_window --python PATH --out DIR` runs the real Python job loop (the frozen
-//! `atelier/build_v2` worker files, launched by `launch::WorkerCommand::python_job_loop`) through
-//! the real bridge (`python -m atelier.build_v2.guarded_worker`), so every session goes through
-//! the existing broker admission, process and tree guards, under the no-fork job sandbox. Each
-//! case holds real B3 checkout locks (build exclusive, content shared); their custodian
+//! `resident_window --python PATH --out build/build-v2-c5c/resident-window-2` runs the real
+//! Python job loop (the frozen `atelier/build_v2` worker files, launched by
+//! `launch::WorkerCommand::python_job_loop`) through the real bridge
+//! (`python -m atelier.build_v2.guarded_worker`), so every session goes through the existing
+//! broker admission, process and tree guards, under the no-fork job sandbox. `PATH` is made
+//! absolute (never resolved through the venv link), since the loop runs with `/` as its folder.
+//!
+//! The setup sequence (worker identity and command, validation and preparation with the proof's
+//! install policy, real B3 locks and custody, both real leases) is `tests/support/resident_setup.rs`,
+//! shared with `tests/resident_window_setup.rs`, which runs it on hosted CI without any launch.
+//!
+//! Each case holds real B3 checkout locks (build exclusive, content shared); their custodian
 //! duplicates are the session's custody, so the guard pins a custody monitor that the bridge
-//! publishes once. Before every Run, the driver's `register` callback calls the production
-//! `register_python_worker` for the worker and for the monitor on both real leases (the local
-//! completion lease and the CAS write lease), then independently re-reads both lease records and
-//! the session's `custodian.json` from disk.
+//! publishes once. The driver's `register` callback calls the production `register_python_worker`
+//! for the worker and for the monitor on both real leases (the local completion lease and the CAS
+//! write lease), then independently re-reads both lease records from disk.
+//!
+//! The before-Run proof is causal: the driver sends a unit's `Run` only after its monitor's
+//! registration returns, and that registration re-reads both leases and returns an error (so no
+//! `Run`) unless both record this attempt's bound worker and this monitor. The job's first-write
+//! time against the verification times is kept as supplementary evidence only.
 //!
 //! Cases (each with its own expected outcome):
 //! - `s1-single`: A alone.
@@ -26,44 +37,39 @@
 //!   not observable: the bridge keeps its own custody descriptors until `guarded.run` returns
 //!   (guarded_worker.py) and `run_session` borrows the session custody for the whole run.
 //!
-//! Evidence is written to DIR/evidence.json; every attempt folder is kept. The result certifies
-//! only the resident session, Q3 retention and the B3 custody seam: not MAC1, orphan or GC
-//! behaviour, nor the production A9 constructor.
-use atelier_build_v2::checkout_locks::{BuildGuard, CheckoutLocks, ContentReadGuard, LockError};
-use atelier_build_v2::completion::CompletionWork;
+//! The cases run in order and stop at the first failing case. DIR/evidence.json is rewritten
+//! after every case and on any setup failure (`passed: false` with its problems); every attempt
+//! folder is kept. The 1800 s sequence deadline below is this program's own limit; the caller's
+//! outer cleanup timeout (2400 s) is a separate limit. The result certifies only the resident
+//! session, Q3 retention and the B3 custody seam: not MAC1, orphan or GC behaviour, nor the
+//! production A9 constructor.
+#[path = "../tests/support/resident_setup.rs"]
+mod setup;
+
 use atelier_build_v2::failure_policy::{End, Limits, Stop};
-use atelier_build_v2::guard_adapter::{GuardedLauncher, WorkerCommand};
-use atelier_build_v2::install::{InstallPolicy, LeaseIdentity, ProjectNamespace, ReceiptReader};
-use atelier_build_v2::keys::{ImplementationIdentity, KeyContext, PreparedUnit, prepare};
-use atelier_build_v2::launch::{self, PYTHON_JOB_LOOP_VERSION};
-use atelier_build_v2::leases::{LeaseStore, ProcessIdentity};
+use atelier_build_v2::guard_adapter::GuardedLauncher;
+use atelier_build_v2::leases::ProcessIdentity;
 use atelier_build_v2::python_backend::register_python_worker;
-use atelier_build_v2::python_worker::{PYTHON_WORKER_FILES, PythonWorkerBundle};
-use atelier_build_v2::results::{ResultStore, WriteTransaction};
-use atelier_build_v2::schema::{
-    Declaration, Destination, Item, Op, OutputFile, Provenance, SCHEMA_VERSION, Unit,
-};
 use atelier_build_v2::session_lifecycle::{SessionConfig, UnitPlan, UnitRecord};
-use atelier_build_v2::source_hashes::SourceHashCache;
-use atelier_build_v2::validate::{OpDefinition, SnapshotEntry, SourceSnapshot, validate};
 use atelier_build_v2::worker_lifecycle::{
-    CleanupCorrelation, Custody, CustodyIdentity, JobSandbox, LockScope, SessionKey, SessionSpec,
-    SessionUnit, SystemClock, cleanup_confirmed, run_session_prepared, session_channel,
+    CleanupCorrelation, Custody, SessionSpec, SessionUnit, SystemClock, cleanup_confirmed,
+    run_session_prepared, session_channel,
 };
 use serde_json::{Value, json};
+use setup::{
+    CaseSetup, MEMORY_GIB, World, case_setup, installer_busy, lease_holds, reader_admitted,
+};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::PermissionsExt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// The admission ceiling of one session: the full job profile, as in the C5b/C7 window.
-const MEMORY_GIB: u32 = 10;
-/// One enclosing deadline over the whole sequence of cases.
+/// One enclosing deadline over the whole sequence of cases (the caller's outer cleanup timeout,
+/// 2400 s, is separate).
 const SEQUENCE_DEADLINE: Duration = Duration::from_secs(1800);
 /// Per-unit limits: work, cleanup, and the unit's own deadline from submission (its queue wait
 /// included).
@@ -79,103 +85,19 @@ const QUIESCENCE: Duration = Duration::from_secs(10);
 /// S5 cancels this long after the spinning unit's worker registration.
 const CANCEL_AFTER: Duration = Duration::from_secs(2);
 
-fn arg(name: &str) -> PathBuf {
+fn arg(name: &str) -> Result<PathBuf, String> {
     let args: Vec<String> = std::env::args().collect();
-    let at = args.iter().position(|a| a == name).expect(name);
-    PathBuf::from(&args[at + 1])
-}
-
-/// The op sources: `run(context)` writes its one declared output; `spin` runs until cancelled.
-fn op_sources() -> BTreeMap<&'static str, &'static [u8]> {
-    BTreeMap::from([
-        (
-            "ops/a.py",
-            b"def run(context):\n    context.output(context.outputs[0]).write_text('A\\n')\n"
-                as &[u8],
-        ),
-        (
-            "ops/b.py",
-            b"def run(context):\n    context.output(context.outputs[0]).write_text('B\\n')\n",
-        ),
-        (
-            "ops/spin.py",
-            b"def run(context):\n    context.output(context.outputs[0]).write_text('started\\n')\n    n = 0\n    while True:\n        n += 1\n",
-        ),
-    ])
-}
-
-fn declaration() -> Declaration {
-    let unit = |id: &str| Unit {
-        id: id.into(),
-        op: Op {
-            kind: "resident-proof".into(),
-            version: "1".into(),
-        },
-        script: format!("ops/{id}.py"),
-        code: vec![format!("ops/{id}.py")],
-        inputs: vec![],
-        params: BTreeMap::new(),
-        conditional: None,
-        output_groups: vec![],
-        outputs: vec![Item {
-            id: "piece".into(),
-            logical_path: format!("/Data/resident/{id}"),
-            class: "Blob".into(),
-            destination: Destination::Store,
-            files: vec![OutputFile {
-                path: "output/piece.txt".into(),
-                install_path: None,
-                required: true,
-            }],
-        }],
-    };
-    Declaration {
-        schema_version: SCHEMA_VERSION,
-        cache_version: "resident-window-1".into(),
-        units: vec![unit("a"), unit("b"), unit("spin")],
-    }
-}
-
-/// The frozen real worker files, read once from the checkout.
-fn worker_snapshot(source: &Path) -> SourceSnapshot {
-    PYTHON_WORKER_FILES
-        .into_iter()
-        .map(|name| {
-            (
-                name.to_string(),
-                SnapshotEntry::File(fs::read(source.join(name)).expect(name)),
-            )
-        })
-        .collect()
-}
-
-/// Materialize the frozen worker bytes read-only and build the production loop command.
-fn worker_command(python: &Path, snapshot: &SourceSnapshot, folder: &Path) -> WorkerCommand {
-    fs::create_dir(folder).unwrap();
-    for (name, entry) in snapshot {
-        let SnapshotEntry::File(bytes) = entry else {
-            panic!("{name} is not a file")
-        };
-        let path = folder.join(name);
-        fs::write(&path, bytes).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
-    }
-    fs::set_permissions(folder, fs::Permissions::from_mode(0o555)).unwrap();
-    let command = launch::WorkerCommand::python_job_loop(
-        python.to_path_buf(),
-        folder.join("python_worker.py"),
-    )
-    .unwrap();
-    WorkerCommand {
-        program: command.program,
-        args: command.args.into_iter().map(Into::into).collect(),
-        env: command.env,
-        cwd: command.cwd,
-    }
+    let at = args
+        .iter()
+        .position(|a| a == name)
+        .ok_or_else(|| format!("missing {name}"))?;
+    args.get(at + 1)
+        .map(PathBuf::from)
+        .ok_or_else(|| format!("missing value for {name}"))
 }
 
 /// This controller's own identity, by the same boot and process-start scheme the guards use.
-fn own_identity(python: &Path) -> ProcessIdentity {
+fn own_identity(python: &Path) -> Result<ProcessIdentity, String> {
     let pid = std::process::id();
     let output = Command::new(python)
         .args([
@@ -185,24 +107,38 @@ fn own_identity(python: &Path) -> ProcessIdentity {
         ])
         .arg(pid.to_string())
         .output()
-        .unwrap();
-    assert!(output.status.success(), "identity helper failed");
-    let text = String::from_utf8(output.stdout).unwrap();
-    let mut lines = text.lines();
-    ProcessIdentity {
-        pid,
-        boot: lines.next().unwrap().into(),
-        started: lines.next().unwrap().into(),
+        .map_err(|error| format!("identity helper did not start: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "identity helper failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
+    let text = String::from_utf8(output.stdout).map_err(|error| error.to_string())?;
+    let mut lines = text.lines();
+    let mut next = || {
+        lines
+            .next()
+            .filter(|line| !line.is_empty())
+            .map(String::from)
+            .ok_or("identity helper printed too little")
+    };
+    Ok(ProcessIdentity {
+        pid,
+        boot: next()?,
+        started: next()?,
+    })
 }
 
 /// `(pid, fd)` of every process holding `path` open, read-only through lsof.
 fn holders(path: &Path) -> Vec<(u32, String)> {
-    let output = Command::new("/usr/sbin/lsof")
+    let Ok(output) = Command::new("/usr/sbin/lsof")
         .args(["-n", "-P", "-F", "pf", "--"])
         .arg(path)
         .output()
-        .unwrap();
+    else {
+        return vec![];
+    };
     let mut found = vec![];
     let mut pid = None;
     for line in String::from_utf8_lossy(&output.stdout).lines() {
@@ -238,16 +174,6 @@ fn read_json(path: &Path) -> Value {
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or(Value::Null)
-}
-
-fn installer_busy(checkout: &Path) -> bool {
-    let locks = CheckoutLocks::open(checkout).unwrap();
-    matches!(locks.try_build_exclusive(), Err(LockError::Busy))
-}
-
-fn reader_admitted(checkout: &Path) -> bool {
-    let locks = CheckoutLocks::open(checkout).unwrap();
-    locks.try_read_content().is_ok()
 }
 
 enum Wait {
@@ -307,13 +233,11 @@ fn cases() -> Vec<Case> {
     ]
 }
 
-/// What every case shares.
-struct World {
+/// What every case shares: the setup's world, plus this controller's interpreter and identity.
+struct Proof {
     python: PathBuf,
-    command: WorkerCommand,
     owner: ProcessIdentity,
-    prepared: BTreeMap<String, PreparedUnit>,
-    sources: BTreeMap<&'static str, &'static [u8]>,
+    world: World,
     started: Instant,
 }
 
@@ -340,120 +264,39 @@ fn epoch(at: SystemTime) -> Option<f64> {
     at.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs_f64())
 }
 
-/// The two real leases of one unit, bound before any Run.
-struct Leases {
-    local: CompletionWork,
-    cas: WriteTransaction,
-}
-
-fn lease_holds(store: &LeaseStore, id: &str, identity: &ProcessIdentity) -> Result<(), String> {
-    // Under the store's metadata mutex, as every lease reader does.
-    let records = store
-        .lock()
-        .and_then(|guard| guard.leases())
-        .map_err(|error| error.to_string())?;
-    let record = records
-        .iter()
-        .find(|record| record.id == id)
-        .ok_or_else(|| format!("lease {id} is not on disk"))?;
-    if record.workers.contains(identity) {
-        Ok(())
-    } else {
-        Err(format!("lease {id} does not record {identity:?}"))
-    }
-}
-
-fn provenance() -> Provenance {
-    Provenance {
-        checkout: "resident-window".into(),
-        branch: "resident-window".into(),
-        commit: "resident-window".into(),
-        dirty: false,
-        built_at: "resident-window".into(),
-    }
-}
-
 fn identity_json(identity: &ProcessIdentity) -> Value {
     json!({"pid": identity.pid, "started": identity.started, "boot": identity.boot})
 }
 
-fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
+/// One case. `Err` is a setup or driver failure (no case evidence beyond the error); `Ok` carries
+/// the case's evidence, which passed only if its `problems` are empty.
+fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
+    let world = &proof.world;
     let mut problems: Vec<String> = vec![];
-    let checkout = root.join("checkout");
-    let reports = root.join("reports");
-    let jobs = root.join("jobs");
-    for folder in [&checkout, &reports, &jobs] {
-        fs::create_dir_all(folder).unwrap();
-    }
-    let checkout = checkout.canonicalize().unwrap();
-    let locks = CheckoutLocks::open(&checkout).unwrap();
-    let build: BuildGuard = locks.try_build_exclusive().unwrap();
-    let read: ContentReadGuard = locks.try_read_content().unwrap();
-    let custody = vec![
-        build.duplicate_for_custodian().unwrap(),
-        read.duplicate_for_custodian().unwrap(),
-    ];
-    let custody_set: BTreeSet<CustodyIdentity> = [
-        CustodyIdentity::of(&custody[0], LockScope::Exclusive).unwrap(),
-        CustodyIdentity::of(&custody[1], LockScope::Shared).unwrap(),
-    ]
-    .into();
-    let lock_files: BTreeSet<(u64, u64)> = custody_set
+    let units_in_case: Vec<(&str, &str)> = case
+        .units
         .iter()
-        .map(|identity| (identity.device, identity.inode))
+        .map(|(unit, declared, _)| (*unit, *declared))
         .collect();
-    let lock_paths: Vec<PathBuf> = ["build.lock", "content.lock"]
-        .iter()
-        .map(|name| checkout.join("build/build-v2/install").join(name))
-        .collect();
-    let session_fds: BTreeSet<String> = custody
-        .iter()
-        .map(|file| file.as_raw_fd().to_string())
-        .collect();
-
-    let reader = ReceiptReader::open(
-        &checkout,
-        InstallPolicy {
-            project: ProjectNamespace::new("resident-window").unwrap(),
-            allowed_install_roots: vec![],
-        },
-    )
-    .unwrap();
-    let store = ResultStore::open(root.join("cache")).unwrap();
-    let local_leases = LeaseStore::open(checkout.join("build/build-v2/install/completions"));
-    let identity = || LeaseIdentity {
-        provenance: provenance(),
-        owner: world.owner.clone(),
-        workers: vec![],
-        upstream_result_keys: BTreeSet::new(),
-    };
-    // Every unit's original leases are bound before any Run.
-    let mut leases: BTreeMap<String, Leases> = BTreeMap::new();
-    for (unit, declared, _) in &case.units {
-        let prepared = &world.prepared[*declared];
-        let local = reader
-            .begin_completion(&build, prepared, identity())
-            .unwrap();
-        let cas = store
-            .begin(
-                prepared,
-                provenance(),
-                world.owner.clone(),
-                vec![],
-                BTreeSet::new(),
-            )
-            .unwrap();
-        leases.insert(unit.to_string(), Leases { local, cas });
-    }
-    let local_leases = local_leases.unwrap();
-
-    let key = SessionKey {
-        worker_version: PYTHON_JOB_LOOP_VERSION.into(),
-        command: world.command.clone(),
-        memory_gib: MEMORY_GIB,
-        sandbox: JobSandbox::NoFork,
-        custody: custody_set,
-    };
+    // Real B3 locks and custody, the proof's install policy, and every unit's two leases, all
+    // bound before any launch: the exact sequence `tests/resident_window_setup.rs` runs on CI.
+    let CaseSetup {
+        checkout,
+        reports,
+        jobs,
+        originals,
+        custody,
+        custody_set: _,
+        lock_files,
+        lock_paths,
+        session_fds,
+        store,
+        local_leases,
+        mut leases,
+        lease_ids,
+        key,
+    } = case_setup(world, &proof.owner, root, &units_in_case)?;
+    let mut originals = originals;
     let spec = SessionSpec {
         key: key.clone(),
         purpose: format!("build-v2 C5c resident window: {}", case.name),
@@ -488,23 +331,10 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
     let (handle, inbox) = session_channel();
     let (published, records) = mpsc::channel::<UnitRecord>();
     let (registered_tx, registered_rx) = mpsc::channel::<(String, bool)>();
-    let mut originals = Some((build, read));
     let mut registrations: Vec<Value> = vec![];
-    let lease_ids: BTreeMap<String, (String, String)> = leases
-        .iter()
-        .map(|(unit, leases)| {
-            (
-                unit.clone(),
-                (
-                    leases.local.lease().id.clone(),
-                    leases.cas.lease().id.clone(),
-                ),
-            )
-        })
-        .collect();
     let mut s6: Value = Value::Null;
     let mut collected: Vec<UnitRecord> = vec![];
-    let deadline = world.started + SEQUENCE_DEADLINE;
+    let deadline = proof.started + SEQUENCE_DEADLINE;
     let mut deadline_hit = false;
 
     let report = std::thread::scope(|scope| {
@@ -513,7 +343,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
             let checks: RefCell<Vec<Value>> = RefCell::new(vec![]);
             let mut launcher = GuardedLauncher {
                 bridge: vec![
-                    world.python.clone().into(),
+                    proof.python.clone().into(),
                     "-m".into(),
                     "atelier.build_v2.guarded_worker".into(),
                 ],
@@ -552,7 +382,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                         "invocation": c.invocation, "receipts": c.receipts})),
                     "local_lease": leases.local.lease().id, "cas_lease": leases.cas.lease().id,
                     "installer_busy": busy,
-                    "after_seconds": world.started.elapsed().as_secs_f64(),
+                    "after_seconds": proof.started.elapsed().as_secs_f64(),
                 }));
                 if !busy {
                     return Err("the installer was not excluded while the session lives".into());
@@ -597,7 +427,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                 }
                 // Bind this verified registration: a worker waits for its attempt's `prepare`; a
                 // monitor belongs to the attempt `prepare` last started for this unit.
-                {
+                let gate = {
                     let verified = SystemTime::now();
                     let mut bound = bound.borrow_mut();
                     let entry = bound.entry(unit.clone()).or_default();
@@ -605,19 +435,50 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                         let attempt = entry
                             .current
                             .ok_or("a monitor registered before its unit's attempt was prepared")?;
-                        entry.attempts.entry(attempt).or_default().monitor =
-                            Some((process.clone(), verified));
+                        let bound_attempt = entry.attempts.entry(attempt).or_default();
+                        bound_attempt.monitor = Some((process.clone(), verified));
+                        let worker = bound_attempt
+                            .worker
+                            .as_ref()
+                            .map(|(worker, _)| worker.clone())
+                            .ok_or("a monitor registered for an attempt with no bound worker")?;
+                        Some((attempt, worker))
                     } else {
                         entry.pending_worker = Some((process.clone(), verified));
+                        None
                     }
+                };
+                // The causal before-Run check. The driver sends this attempt's `Run` only after
+                // the monitor's registration returns Ok, so this re-read from disk precedes it:
+                // both leases must record both the attempt's bound worker and this monitor, or
+                // the registration fails and the unit never runs.
+                if let Some((attempt, worker)) = gate {
+                    let (local_id, cas_id) = (&leases.local.lease().id, &leases.cas.lease().id);
+                    let held = |identity: &ProcessIdentity| {
+                        lease_holds(&local_leases, local_id, identity)
+                            .and_then(|()| lease_holds(store.leases(), cas_id, identity))
+                    };
+                    let worker_held = held(&worker);
+                    let monitor_held = held(process);
+                    checks.borrow_mut().push(json!({
+                        "gate": "monitor registration, before Run",
+                        "unit": unit, "attempt": attempt,
+                        "worker": identity_json(&worker), "monitor": identity_json(process),
+                        "local_lease": local_id, "cas_lease": cas_id,
+                        "worker_on_both_leases": worker_held.is_ok(),
+                        "monitor_on_both_leases": monitor_held.is_ok(),
+                        "error": worker_held.as_ref().err().or(monitor_held.as_ref().err()),
+                    }));
+                    worker_held?;
+                    monitor_held?;
                 }
                 let _ = registered_tx.send((unit.clone(), monitor));
                 Ok(())
             };
             let mut prepare = |unit: &String, attempt: u32| -> Result<_, String> {
-                // Before this attempt's Run: its worker is durably on both leases, re-read from
-                // disk here. (Its monitor is registered only after `prepare`; its ordering is
-                // proven from the evidence below.)
+                // Its worker is durably on both leases, re-read from disk here. (Its monitor is
+                // registered only after `prepare`; the monitor registration then re-checks both
+                // identities on both leases before the Run.)
                 let worker = {
                     let mut bound = bound.borrow_mut();
                     let entry = bound.entry(unit.clone()).or_default();
@@ -633,6 +494,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                 let on_disk = lease_holds(&local_leases, local_id, &worker.0)
                     .and_then(|()| lease_holds(store.leases(), cas_id, &worker.0));
                 checks.borrow_mut().push(json!({
+                    "gate": "prepare",
                     "unit": unit, "attempt": attempt, "worker": identity_json(&worker.0),
                     "worker_on_both_leases": on_disk.is_ok(), "error": on_disk.as_ref().err(),
                 }));
@@ -731,23 +593,28 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                 }
             }
         }
-        driver.join().expect("the session driver panicked")
+        driver.join()
     });
     drop(registered_rx);
-    let (report, bound, prepare_checks) = report;
 
     let mut evidence = json!({"case": case.name});
     if deadline_hit {
         problems.push("the enclosing deadline passed".into());
     }
+    let Ok((report, bound, lease_checks)) = report else {
+        problems.push("the session driver panicked".into());
+        evidence["problems"] = json!(problems);
+        evidence["registrations"] = json!(registrations);
+        return Ok(evidence);
+    };
     let report = match report {
         Ok(report) => report,
         Err(error) => {
             problems.push(format!("run_session failed: {error:?}"));
             evidence["problems"] = json!(problems);
             evidence["registrations"] = json!(registrations);
-            evidence["prepare_checks"] = json!(prepare_checks);
-            return (false, evidence);
+            evidence["lease_checks"] = json!(lease_checks);
+            return Ok(evidence);
         }
     };
 
@@ -859,8 +726,10 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
             },
         }));
     }
-    // Every attempt's registrations are bound to the session that ran it, and both were verified
-    // on disk before the job's first write, which can only follow its Run.
+    // Every attempt's registrations are bound to the session that ran it, and its monitor
+    // registration's causal gate found both identities on both leases before its Run. The
+    // verification times against the job's first write are supplementary evidence only (wall
+    // clock and file times), never the proof, so they do not decide the case.
     let mut bindings = vec![];
     for record in &report.units {
         for attempt in &record.attempts {
@@ -894,10 +763,23 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                     .is_some_and(|((_, at), written)| *at < written)
             };
             let ordered = before(&worker) && before(&monitor);
-            if !(worker_is_session && monitor_is_session && ordered) {
+            let gated = lease_checks.iter().any(|check| {
+                check["gate"] == "monitor registration, before Run"
+                    && check["unit"] == record.unit.as_str()
+                    && check["attempt"] == attempt.attempt
+                    && check["worker_on_both_leases"] == true
+                    && check["monitor_on_both_leases"] == true
+                    && worker
+                        .as_ref()
+                        .is_some_and(|(w, _)| check["worker"] == identity_json(w))
+                    && monitor
+                        .as_ref()
+                        .is_some_and(|(m, _)| check["monitor"] == identity_json(m))
+            });
+            if !(worker_is_session && monitor_is_session && gated) {
                 problems.push(format!(
-                    "{} attempt {}: registrations not bound to session {} before its Run \
-                     (worker {worker_is_session}, monitor {monitor_is_session}, ordered {ordered})",
+                    "{} attempt {}: registrations not bound to session {} and gated before its \
+                     Run (worker {worker_is_session}, monitor {monitor_is_session}, gate {gated})",
                     record.unit, attempt.attempt, attempt.session
                 ));
             }
@@ -910,7 +792,8 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                 "first_output_write_at": first_write.and_then(epoch),
                 "worker_is_session_worker": worker_is_session,
                 "monitor_is_session_monitor": monitor_is_session,
-                "both_verified_before_first_write": ordered,
+                "before_run_gate_passed": gated,
+                "supplementary_both_verified_before_first_write": ordered,
             }));
         }
     }
@@ -947,7 +830,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
     evidence["units"] = json!(units_evidence);
     evidence["sessions"] = json!(sessions_evidence);
     evidence["registrations"] = json!(registrations);
-    evidence["prepare_checks"] = json!(prepare_checks);
+    evidence["lease_checks"] = json!(lease_checks);
     evidence["attempt_bindings"] = json!(bindings);
     evidence["installer_admitted_after_settlement"] = json!(installer_after);
     evidence["lock_files"] = json!(lock_files);
@@ -955,84 +838,34 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
         evidence["originals_dropped"] = s6;
     }
     evidence["problems"] = json!(problems);
-    (problems.is_empty(), evidence)
+    Ok(evidence)
 }
 
-fn main() -> ExitCode {
-    let python = arg("--python");
-    let out = arg("--out");
-    fs::create_dir(&out).expect("--out must name a new folder");
-    let out = out.canonicalize().unwrap();
+/// Everything before the first case: the shared setup's world, this controller's identity and an
+/// absolute interpreter path.
+fn prepare_proof(python: &Path, out: &Path) -> Result<Proof, String> {
+    // Absolute but never canonicalized: resolving the venv's link would lose the venv.
+    let python = std::path::absolute(python).map_err(|error| error.to_string())?;
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../studio/atelier/build_v2");
-    let snapshot = worker_snapshot(&source);
-    let bundle = PythonWorkerBundle::from_snapshot(&snapshot).unwrap();
-    let worker = bundle.identity();
-    let command = worker_command(&python, &snapshot, &out.join("worker"));
-
-    let declaration = declaration();
-    let sources = op_sources();
-    let ops: SourceSnapshot = sources
-        .iter()
-        .map(|(name, bytes)| (name.to_string(), SnapshotEntry::File(bytes.to_vec())))
-        .collect();
-    let registry = BTreeMap::from([(
-        ("resident-proof".to_string(), "1".to_string()),
-        OpDefinition {
-            inputs: BTreeMap::new(),
-            output_classes: BTreeSet::from(["Blob".to_string()]),
-            params: BTreeMap::new(),
-        },
-    )]);
-    let validated = validate(&declaration, &registry, &ops, &[]).unwrap();
-    let validator = ImplementationIdentity {
-        version: "resident-window-1".into(),
-        digest: "0".repeat(64),
-    };
-    let mut prepared = BTreeMap::new();
-    for unit in ["a", "b", "spin"] {
-        let unit_prepared = prepare(
-            &declaration,
-            &validated,
-            unit,
-            &KeyContext {
-                snapshot: &ops,
-                versions: &BTreeMap::new(),
-                produced: &BTreeMap::new(),
-                produced_groups: &BTreeMap::new(),
-                staged_inputs: &BTreeMap::new(),
-                worker: &worker,
-                validator: &validator,
-            },
-            &mut SourceHashCache::default(),
-        )
-        .unwrap();
-        prepared.insert(unit.to_string(), unit_prepared);
-    }
-    let world = World {
-        owner: own_identity(&python),
+    let world = setup::world(&python, &source, &out.join("worker"))?;
+    let owner = own_identity(&python)?;
+    Ok(Proof {
         python,
-        command,
-        prepared,
-        sources,
+        owner,
+        world,
         started: Instant::now(),
-    };
+    })
+}
 
-    let mut ok = true;
-    let mut evidence = vec![];
-    for case in cases() {
-        if world.started.elapsed() >= SEQUENCE_DEADLINE {
-            ok = false;
-            evidence.push(json!({"case": case.name, "problems": ["not started: deadline"]}));
-            continue;
-        }
-        let root = out.join(case.name);
-        fs::create_dir(&root).unwrap();
-        let (passed, case_evidence) = run_case(&world, &case, &root);
-        println!("{}: {}", case.name, if passed { "pass" } else { "FAIL" });
-        ok &= passed;
-        evidence.push(case_evidence);
-    }
-    let summary = json!({
+fn summary(proof: Option<&Proof>, problems: &[String], cases: &[Value], complete: bool) -> Value {
+    let passed = complete
+        && problems.is_empty()
+        && cases.iter().all(|case| {
+            case["problems"]
+                .as_array()
+                .is_some_and(|problems| problems.is_empty())
+        });
+    json!({
         "schema": 1,
         "certifies": "resident session reuse, Q3 retention on real leases and the B3 custody seam \
                       only; not MAC1, orphan or GC behaviour, nor the production A9 constructor",
@@ -1043,7 +876,12 @@ fn main() -> ExitCode {
             "a real Held case",
             "MAC1, orphan or GC behaviour, M1, the production A9 constructor",
         ],
-        "worker": {"version": worker.version, "digest": worker.digest},
+        "before_run_proof": "causal: each attempt's monitor registration re-reads both leases and \
+                             fails (no Run) unless both record the attempt's bound worker and \
+                             that monitor; first-write times are supplementary only",
+        "worker": proof.map(|p| json!({"version": p.world.worker.version,
+                                       "digest": p.world.worker.digest})),
+        "python": proof.map(|p| p.python.display().to_string()),
         "memory_gib": MEMORY_GIB,
         "limits": {
             "unit_job_seconds": UNIT_LIMITS.job.as_secs(),
@@ -1053,17 +891,107 @@ fn main() -> ExitCode {
             "quiescence_seconds": QUIESCENCE.as_secs(),
             "sequence_deadline_seconds": SEQUENCE_DEADLINE.as_secs(),
         },
-        "owner": identity_json(&world.owner),
-        "elapsed_seconds": world.started.elapsed().as_secs_f64(),
-        "passed": ok,
-        "cases": evidence,
-    });
-    fs::write(
-        out.join("evidence.json"),
-        serde_json::to_vec_pretty(&summary).unwrap(),
-    )
-    .unwrap();
-    if ok {
+        "owner": proof.map(|p| identity_json(&p.owner)),
+        "elapsed_seconds": proof.map(|p| p.started.elapsed().as_secs_f64()),
+        "complete": complete,
+        "passed": passed,
+        "problems": problems,
+        "cases": cases,
+    })
+}
+
+fn write_evidence(out: &Path, summary: &Value) -> bool {
+    let written = serde_json::to_vec_pretty(summary)
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| {
+            let partial = out.join("evidence.json.partial");
+            fs::write(&partial, bytes)
+                .and_then(|()| fs::rename(&partial, out.join("evidence.json")))
+                .map_err(|error| error.to_string())
+        });
+    if let Err(error) = &written {
+        eprintln!("cannot write evidence.json: {error}");
+    }
+    written.is_ok()
+}
+
+fn main() -> ExitCode {
+    let (python, out) = match (arg("--python"), arg("--out")) {
+        (Ok(python), Ok(out)) => (python, out),
+        (Err(error), _) | (_, Err(error)) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
+    // A fresh folder only: earlier evidence is never overwritten.
+    if let Err(error) = fs::create_dir(&out) {
+        eprintln!("--out must name a new folder: {error}");
+        return ExitCode::from(2);
+    }
+    let out = match out.canonicalize() {
+        Ok(out) => out,
+        Err(error) => {
+            eprintln!("cannot resolve --out: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let proof = match catch_unwind(AssertUnwindSafe(|| prepare_proof(&python, &out))) {
+        Ok(Ok(proof)) => proof,
+        Ok(Err(error)) => {
+            write_evidence(
+                &out,
+                &summary(None, &[format!("setup: {error}")], &[], false),
+            );
+            println!("setup: FAIL ({error})");
+            return ExitCode::FAILURE;
+        }
+        Err(_) => {
+            write_evidence(&out, &summary(None, &["setup panicked".into()], &[], false));
+            println!("setup: FAIL (panic)");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut cases_evidence: Vec<Value> = vec![];
+    let mut problems: Vec<String> = vec![];
+    for case in cases() {
+        if !problems.is_empty() {
+            cases_evidence.push(json!({"case": case.name,
+                                       "problems": ["not started: an earlier case failed"]}));
+            continue;
+        }
+        if proof.started.elapsed() >= SEQUENCE_DEADLINE {
+            problems.push(format!("{}: not started: deadline", case.name));
+            cases_evidence.push(json!({"case": case.name, "problems": ["not started: deadline"]}));
+            continue;
+        }
+        let root = out.join(case.name);
+        let result = fs::create_dir(&root)
+            .map_err(|error| format!("cannot create the case folder: {error}"))
+            .and_then(|()| {
+                catch_unwind(AssertUnwindSafe(|| run_case(&proof, &case, &root)))
+                    .unwrap_or_else(|_| Err("the case panicked".into()))
+            });
+        let case_evidence = match result {
+            Ok(evidence) => evidence,
+            Err(error) => json!({"case": case.name, "problems": [format!("setup: {error}")]}),
+        };
+        let passed = case_evidence["problems"]
+            .as_array()
+            .is_some_and(|problems| problems.is_empty());
+        println!("{}: {}", case.name, if passed { "pass" } else { "FAIL" });
+        if !passed {
+            problems.push(format!("{}: failed", case.name));
+        }
+        cases_evidence.push(case_evidence);
+        write_evidence(
+            &out,
+            &summary(Some(&proof), &problems, &cases_evidence, false),
+        );
+    }
+    let summary = summary(Some(&proof), &problems, &cases_evidence, true);
+    let written = write_evidence(&out, &summary);
+    if written && summary["passed"] == true {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE

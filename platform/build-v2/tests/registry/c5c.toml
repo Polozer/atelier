@@ -244,3 +244,8 @@ tier = "t1a"
 id = "c5c.session.a_resident_session_without_custody_is_refused"
 tests = ["atelier-build-v2::guard_adapter/a_resident_session_without_custody_is_refused"]
 tier = "t1a"
+
+[[scenarios]]
+id = "c5c.resident.the_resident_window_setup_binds_every_input_without_launching"
+tests = ["atelier-build-v2::resident_window_setup/the_resident_window_setup_binds_every_input_without_launching"]
+tier = "t0"
