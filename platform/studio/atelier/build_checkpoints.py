@@ -226,6 +226,7 @@ def hydration_plan(ctx, steps, store):
     Certificates are only staged: the build adopts one when its own fingerprint matches.
     """
     from .checkpoint_store import declared, declared_member, roots
+    from .checkpoint_actions import ownership as owned_outputs, trusted as trusted_stamps, unverified_member
     allowed = roots(ctx)
     outputs = declared(ctx, steps)
     expected, ownership = identity(context(ctx)), {s.name for s in steps}
@@ -240,19 +241,23 @@ def hydration_plan(ctx, steps, store):
     if not candidates:
         return None, len(summaries), 0
     _, _, key, summary = max(candidates)
-    files = json.loads((store.manifests / (key + '.json')).read_bytes())['files']
+    saved = json.loads((store.manifests / (key + '.json')).read_bytes())
+    files = saved['files']
+    trusted, inventories = trusted_stamps(ctx, steps, saved)
+    owners = owned_outputs(ctx, steps, inventories)
     missing, labels = 0, set()
     bases = {label: str(root) + '/' for label, (root, _) in allowed.items()}
     for member in files:
         label, _, name = member.partition('/')
-        if not usable(summary, label) or label == 'generated' and not declared_member(name, outputs):
+        if (not usable(summary, label) or label == 'generated' and not declared_member(name, outputs)
+                or unverified_member(member, owners)):
             continue
         labels.add(label + '/')
         if not os.path.lexists(bases[label] + name):
             missing += 1
     present = {p.stem for p in ctx.stamps.glob('*.json')} if ctx.stamps.is_dir() else set()
     staged = {p.stem for p in (ctx.out / STAGED).glob('*.json')}
-    lacking = sorted(n for n in summary['stamps'] if n not in present and n not in staged)
+    lacking = sorted(n for n in summary['stamps'] if n in trusted and n not in present and n not in staged)
     token = identity([key, missing, lacking])
     checks = ctx.out / '.state/hydration-futile.json'
     try:
@@ -261,7 +266,8 @@ def hydration_plan(ctx, steps, store):
         futile = False
     if not (missing or lacking) or futile:
         return None, len(summaries), len(candidates)
-    return (dict(key=key, units=sorted(labels), missing=missing, stamps=lacking, outputs=sorted(outputs), token=token),
+    return (dict(key=key, units=sorted(labels), missing=missing, stamps=lacking, outputs=sorted(outputs), token=token,
+                 owners=owners),
             len(summaries), len(candidates))
 
 
@@ -274,8 +280,10 @@ def hydrate(ctx, steps, store, *, echo=print, resume=None):
     from .checkpoint_store import HYDRATION_REQUEST, declared
     started = time.monotonic()
     if resume is not None:
+        from .checkpoint_actions import ownership, trusted
+        _, inventories = trusted(ctx, steps, json.loads((store.manifests / (resume['key'] + '.json')).read_bytes()))
         plan = dict(key=resume['key'], units=resume['units'], missing=None, stamps=resume.get('stamps', []),
-                    outputs=sorted(declared(ctx, steps)), token=None)
+                    outputs=sorted(declared(ctx, steps)), token=None, owners=ownership(ctx, steps, inventories))
         echo(f'Resuming checkpoint hydration from {plan["key"][:12]}')
     else:
         plan, total, scanned = hydration_plan(ctx, steps, store)
@@ -288,13 +296,15 @@ def hydrate(ctx, steps, store, *, echo=print, resume=None):
     journal = ctx.out / JOURNAL
     try:
         atomic_json(ctx.out / HYDRATION_REQUEST, dict(key=plan['key'], units=plan['units'], stamps=plan['stamps'],
-                                                      outputs=plan['outputs']))
+                                                      outputs=plan['outputs'], owners=plan['owners']))
         result = _guard(ctx, 'hydrate', plan['key'])
         pending = read_json(journal)
         if result.get('key') != plan['key'] or pending.get('key') != plan['key'] or 'units' not in pending:
             raise CheckpointError('Checkpoint hydration completion does not match its journal')
         saved = json.loads((store.manifests / (plan['key'] + '.json')).read_bytes())
-        known = {**saved['stamps'], **saved.get('incremental_stamps', {})}
+        from .checkpoint_actions import trusted
+        names, _ = trusted(ctx, steps, saved)
+        known = {n: v for n, v in {**saved['stamps'], **saved.get('incremental_stamps', {})}.items() if n in names}
         staged = ctx.out / STAGED
         for name in pending.get('stamps', []):
             if name in known and not (ctx.stamps / (name + '.json')).exists():
@@ -325,6 +335,9 @@ def staged_certificate(ctx, step, fingerprint):
     if not isinstance(value, dict) or not isinstance(value.get('stamp'), dict):
         return None
     stamp = value['stamp']
+    from .checkpoint_actions import ambient, verifiable
+    if not verifiable(ctx, step) and (ambient(step) or not stamp.get('output_inventory')):
+        return None
     return (value.get('source'), stamp) if stamp.get('fingerprint') == fingerprint and not stamp.get('touched') else None
 
 
