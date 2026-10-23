@@ -412,6 +412,10 @@ or `Hit(RestorePlan)`, preserving the original miss lease for dispatch. A pinned
 rooted via `retain_cached` without installing checkout files. The older `prepare_restore`
 wrapper conservatively drops a miss; new scheduling callers use the explicit enum. Stored-only
 planner token lookup remains B2 `lookup_groups`; no parallel graph/controller lives here.
+Current checks and install preflight share the complete owner-to-index membership validator;
+an extra indexed path cannot certify Current. Postcommit cleanup is resumable after each owned
+leaf/directory removal, including an already-removed scope parent. New scope allocation reserves
+both transaction and quarantine namespaces, including dangling entries, across PID reuse.
 
 ## Offline verification and integrity classification (B7a)
 

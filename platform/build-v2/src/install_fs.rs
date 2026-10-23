@@ -204,6 +204,28 @@ impl RootFs {
         opened(&parent, &leaf, libc::O_RDONLY | libc::O_DIRECTORY, 0)?.sync_all()
     }
 
+    pub fn occupied(&self, path: &str) -> io::Result<bool> {
+        let (parent, leaf) = self.parent(path)?;
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        let result = unsafe {
+            libc::fstatat(
+                parent.as_raw_fd(),
+                name(&leaf)?.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if result == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::NotFound {
+            Ok(false)
+        } else {
+            Err(error)
+        }
+    }
+
     pub fn file(&self, path: &str) -> io::Result<File> {
         let (parent, leaf) = self.parent(path)?;
         let file = opened(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;
@@ -277,7 +299,11 @@ impl RootFs {
     }
 
     pub fn remove_empty_directory(&self, entry: &CreatedDirectory) -> io::Result<()> {
-        let (parent, leaf) = self.parent(&entry.path)?;
+        let (parent, leaf) = match self.parent(&entry.path) {
+            Ok(value) => value,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
         let directory = match opened(&parent, &leaf, libc::O_RDONLY | libc::O_DIRECTORY, 0) {
             Ok(directory) => directory,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),

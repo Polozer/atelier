@@ -479,6 +479,36 @@ impl ReceiptReader {
         Ok(receipt)
     }
 
+    fn consistent_receipt(
+        &self,
+        index: &ReceiptIndex,
+        owner: &OwnerId,
+    ) -> Result<Option<(String, ItemReceipt)>, InstallError> {
+        let key = owner.fingerprint()?;
+        let Some(id) = index.receipts.get(&key) else {
+            return Ok(None);
+        };
+        let receipt = self.receipt(id)?;
+        if &receipt.owner != owner {
+            return Err(recovery("receipt index owner mismatch"));
+        }
+        let recorded: BTreeSet<_> = receipt
+            .files
+            .iter()
+            .map(|f| folded(&f.install_path))
+            .collect();
+        let indexed: BTreeSet<_> = index
+            .paths
+            .iter()
+            .filter(|(_, v)| *v == &key)
+            .map(|(p, _)| p.clone())
+            .collect();
+        if recorded != indexed {
+            return Err(recovery("receipt/index file membership mismatch"));
+        }
+        Ok(Some((id.clone(), receipt)))
+    }
+
     pub fn receipt_status(
         &self,
         guard: &BuildGuard,
@@ -499,10 +529,9 @@ impl ReceiptReader {
         let mut receipts = vec![];
         for item in items {
             let owner = OwnerId::new(self.policy.project.clone(), &item.logical_path)?;
-            let Some(id) = index.receipts.get(&owner.fingerprint()?) else {
+            let Some((_, receipt)) = self.consistent_receipt(&index, &owner)? else {
                 return Ok(CurrentStatus::Dirty);
             };
-            let receipt = self.receipt(id)?;
             if receipt.owner != owner
                 || receipt.result_key != unit.key()
                 || receipt.class != item.class
@@ -699,7 +728,15 @@ pub enum InstallEvent {
     NewMoved(usize),
     ReceiptsReady,
     IndexCommitted,
+    Cleanup(CleanupEvent),
     CleanupComplete,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CleanupEvent {
+    Leaf(usize),
+    Directory(usize),
+    BarrierCleared,
 }
 
 #[derive(Debug)]
@@ -715,6 +752,7 @@ pub enum RecoveryEvent {
     JournalArchived,
     ScopeQuarantined,
     ReaderBarrierCleared,
+    Cleanup(CleanupEvent),
 }
 
 /// Quarantine owns independent staging artifacts/evidence, not a successful result/root.
@@ -768,6 +806,32 @@ struct JournalRecord {
 }
 
 impl CheckoutInstaller {
+    fn reserve_scope(
+        &self,
+        mut next: impl FnMut() -> u64,
+    ) -> Result<(String, CreatedDirectory), InstallError> {
+        loop {
+            let serial = next();
+            let scope = format!(
+                "{INSTALL_METADATA}/transactions/{}-{serial}",
+                std::process::id()
+            );
+            let quarantine = format!(
+                "{INSTALL_METADATA}/quarantine/{}-{serial}",
+                std::process::id()
+            );
+            // A restarted/reused PID must not select a scope whose preserved abort
+            // destination already exists. Every occupied entry, including links, reserves it.
+            if self.fs.occupied(&quarantine)? {
+                continue;
+            }
+            match self.fs.create_directory(&scope, 0o700) {
+                Ok(directory) => return Ok((scope, directory)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
     fn journal_present(&self) -> Result<bool, InstallError> {
         match fs::symlink_metadata(self.fs.absolute(JOURNAL)) {
             Ok(_) => Ok(true),
@@ -909,36 +973,6 @@ impl CheckoutInstaller {
         Ok(journal)
     }
 
-    fn consistent_receipt(
-        &self,
-        index: &ReceiptIndex,
-        owner: &OwnerId,
-    ) -> Result<Option<(String, ItemReceipt)>, InstallError> {
-        let key = owner.fingerprint()?;
-        let Some(id) = index.receipts.get(&key) else {
-            return Ok(None);
-        };
-        let receipt = self.receipt(id)?;
-        if &receipt.owner != owner {
-            return Err(recovery("receipt index owner mismatch"));
-        }
-        let recorded: BTreeSet<_> = receipt
-            .files
-            .iter()
-            .map(|f| folded(&f.install_path))
-            .collect();
-        let indexed: BTreeSet<_> = index
-            .paths
-            .iter()
-            .filter(|(_, v)| *v == &key)
-            .map(|(p, _)| p.clone())
-            .collect();
-        if recorded != indexed {
-            return Err(recovery("receipt/index file membership mismatch"));
-        }
-        Ok(Some((id.clone(), receipt)))
-    }
-
     /// @cc [owner:fontanierh,label:correctness;safety] recover-owned-checkout-install
     /// Recovery MUST hold build and exclusive content custody. Before the receipt-index commit
     /// it MUST restore the prior owned bytes; after commit it MUST finish only exact owned cleanup.
@@ -975,7 +1009,9 @@ impl CheckoutInstaller {
         if !committed {
             self.rollback(&journal)?;
         }
-        self.cleanup_journal(&journal, committed)
+        self.cleanup_journal(&journal, committed, &mut |step| {
+            event(RecoveryEvent::Cleanup(step))
+        })
     }
 
     fn preinstall_unchanged(
@@ -1157,23 +1193,11 @@ impl CheckoutInstaller {
         &self,
         journal: &InstallJournal,
         committed: bool,
+        event: &mut impl FnMut(CleanupEvent) -> io::Result<()>,
     ) -> Result<(), InstallError> {
-        for entry in &journal.entries {
-            for (path, expected) in [
-                (&entry.stage, entry.staged.as_ref()),
-                (&entry.trash, entry.old.as_ref()),
-            ] {
-                if let Some(actual) = self.fs.observe(path)? {
-                    let expected = expected.ok_or_else(|| {
-                        recovery("unrecorded staging leaf; preserve for investigation")
-                    })?;
-                    if !actual.same_payload(expected) {
-                        return Err(recovery("cleanup leaf replaced"));
-                    }
-                    self.fs.remove_owned(path, expected)?;
-                }
-            }
-            if committed {
+        // Validate the complete committed set before retiring any prior-byte evidence.
+        if committed {
+            for entry in &journal.entries {
                 match (
                     &entry.new,
                     &entry.staged,
@@ -1185,14 +1209,36 @@ impl CheckoutInstaller {
                 }
             }
         }
-        for directory in journal.directories.iter().rev() {
+        for (i, entry) in journal.entries.iter().enumerate() {
+            for (leaf_index, (path, expected)) in [
+                (&entry.stage, entry.staged.as_ref()),
+                (&entry.trash, entry.old.as_ref()),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                if let Some(actual) = self.fs.observe(path)? {
+                    let expected = expected.ok_or_else(|| {
+                        recovery("unrecorded staging leaf; preserve for investigation")
+                    })?;
+                    if !actual.same_payload(expected) {
+                        return Err(recovery("cleanup leaf replaced"));
+                    }
+                    self.fs.remove_owned(path, expected)?;
+                    event(CleanupEvent::Leaf(i * 2 + leaf_index))?;
+                }
+            }
+        }
+        for (i, directory) in journal.directories.iter().rev().enumerate() {
             self.fs.remove_empty_directory(directory)?;
+            event(CleanupEvent::Directory(i))?;
         }
         let observation = self
             .fs
             .observe(JOURNAL)?
             .ok_or_else(|| recovery("journal disappeared"))?;
         self.fs.remove_owned(JOURNAL, &observation)?;
+        event(CleanupEvent::BarrierCleared)?;
         Ok(())
     }
 }
@@ -1307,7 +1353,9 @@ impl RestorePlan {
         event(InstallEvent::ReceiptsReady)?;
         installer.fs.replace_metadata(INDEX, &bytes(&after)?)?;
         event(InstallEvent::IndexCommitted)?;
-        installer.cleanup_journal(&journal, true)?;
+        installer.cleanup_journal(&journal, true, &mut |step| {
+            event(InstallEvent::Cleanup(step))
+        })?;
         event(InstallEvent::CleanupComplete)?;
         Ok(self.finish_root(root))
     }
@@ -1440,18 +1488,8 @@ impl RestorePlan {
             });
         }
         // Scope creation owns only a fresh private directory. No payload precedes the journal.
-        let (scope, root_directory) = loop {
-            let serial = NEXT.fetch_add(1, Ordering::Relaxed);
-            let scope = format!(
-                "{INSTALL_METADATA}/transactions/{}-{serial}",
-                std::process::id()
-            );
-            match installer.fs.create_directory(&scope, 0o700) {
-                Ok(directory) => break (scope, directory),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
-            }
-        };
+        let (scope, root_directory) =
+            installer.reserve_scope(|| NEXT.fetch_add(1, Ordering::Relaxed))?;
         let mut directories = vec![root_directory];
         directories.extend(installer.fs.mkdirs(&format!("{scope}/new"), 0o700)?);
         directories.extend(installer.fs.mkdirs(&format!("{scope}/trash"), 0o700)?);
@@ -1562,4 +1600,83 @@ fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, InstallErro
         return Err(recovery("install metadata must be an object"));
     }
     serde_json::from_slice(bytes).map_err(|error| recovery(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scope_allocator_preserves_occupied_transaction_and_quarantine_names() {
+        let mut suffix = 0;
+        let root = loop {
+            let path = std::env::temp_dir()
+                .join(format!("atelier-v2-scope-{}-{suffix}", std::process::id()));
+            suffix += 1;
+            match fs::create_dir(&path) {
+                Ok(()) => break path,
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("{error}"),
+            }
+        };
+        struct OwnedWorkspace(std::path::PathBuf);
+        impl Drop for OwnedWorkspace {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let workspace = OwnedWorkspace(root);
+        let installer = CheckoutInstaller::open(
+            &workspace.0,
+            workspace.0.join("cache"),
+            InstallPolicy {
+                project: ProjectNamespace::new("fixture").unwrap(),
+                allowed_install_roots: vec!["Content".into()],
+            },
+        )
+        .unwrap();
+        let name = |folder: &str, n: u64| {
+            workspace.0.join(format!(
+                "{INSTALL_METADATA}/{folder}/{}-{n}",
+                std::process::id()
+            ))
+        };
+        fs::create_dir(name("quarantine", 0)).unwrap();
+        fs::write(name("quarantine", 0).join("keep"), b"old evidence").unwrap();
+        std::os::unix::fs::symlink("absent", name("quarantine", 1)).unwrap();
+        fs::write(name("quarantine", 2), b"foreign namespace").unwrap();
+        fs::create_dir(name("transactions", 3)).unwrap();
+        fs::write(name("transactions", 3).join("keep"), b"another scope").unwrap();
+        let mut candidate = 0;
+        let (scope, identity) = installer
+            .reserve_scope(|| {
+                let n = candidate;
+                candidate += 1;
+                n
+            })
+            .unwrap();
+        assert_eq!(
+            scope,
+            format!("{INSTALL_METADATA}/transactions/{}-4", std::process::id())
+        );
+        assert_eq!(identity.path, scope);
+        assert!(workspace.0.join(scope).is_dir());
+        assert_eq!(
+            fs::read(name("quarantine", 0).join("keep")).unwrap(),
+            b"old evidence"
+        );
+        assert!(
+            fs::symlink_metadata(name("quarantine", 1))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read(name("quarantine", 2)).unwrap(),
+            b"foreign namespace"
+        );
+        assert_eq!(
+            fs::read(name("transactions", 3).join("keep")).unwrap(),
+            b"another scope"
+        );
+    }
 }
