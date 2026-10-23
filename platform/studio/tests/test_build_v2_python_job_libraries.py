@@ -119,6 +119,25 @@ def test_declared_libraries_follow_the_standard_library_and_nothing_else_is_adde
     assert not any(Path(entry).is_relative_to(REPO) for entry in path), 'no editable or checkout path'
 
 
+def test_a_venv_inside_a_checkout_is_reachable_but_its_editable_project_sources_are_not(tmp_path):
+    """A venv usually lives in the checkout: its site folder is importable only as an interpreter root,
+    and the editable-install `.pth` finder that would add the project sources never runs under -S."""
+    checkout = tmp_path / 'checkout'
+    venv = checkout / '.venv'
+    site = venv / 'lib/python3/site-packages'
+    package(site, 'installed_fixture', 'installed')
+    package(checkout / 'src', 'project_fixture', 'project')
+    (site / '__editable__.project-0.pth').write_text(f'{checkout / "src"}\n', encoding='utf-8')
+    (site / '__editable___project_finder.py').write_text('raise RuntimeError("editable finder ran")\n',
+                                                         encoding='utf-8')
+    (site / '__editable__.finder.pth').write_text('import __editable___project_finder\n', encoding='utf-8')
+    report, probe, logs = run_child(tmp_path, Libraries(venv, [site]), ['installed_fixture', 'project_fixture'])
+    assert report == {'status': 'ok'}, logs
+    assert probe['modules'] == {'installed_fixture': 'installed', 'project_fixture': None}
+    inside = [entry for entry in probe['path'] if Path(entry).is_relative_to(checkout)]
+    assert inside == [str(site)], 'only the declared venv folder, never the project sources'
+
+
 def test_the_loops_own_installed_libraries_reach_the_child(tmp_path):
     """The regression: under -S the child's sysconfig no longer names the loop's venv."""
     folders = python_worker.site_libraries()
@@ -127,6 +146,15 @@ def test_the_loops_own_installed_libraries_reach_the_child(tmp_path):
     assert report == {'status': 'ok'}, logs
     for folder in folders:
         assert folder in probe['path']
+    # The checkout may hold the venv: a checkout entry is allowed only under the interpreter's own roots.
+    roots = [Path(os.path.realpath(root)) for root in python_worker.interpreter_roots()]
+    for entry in probe['path'][1:]:
+        real = Path(os.path.realpath(entry))
+        if real.is_relative_to(REPO.resolve()):
+            assert any(real.is_relative_to(root) for root in roots), entry
+    for project in ('platform', 'games'):
+        assert not any(Path(os.path.realpath(entry)).is_relative_to(REPO.resolve() / project)
+                       for entry in probe['path']), project
     config = python_worker.job_config(
         {'script': 'ops/run.py', 'code': ['ops/run.py'], 'inputs': [], 'params': {}, 'outputs': []},
         str(tmp_path), 3)
