@@ -35,6 +35,7 @@ def addon_files():
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--all-coaches', action='store_true')
     args = parser.parse_args(argv); root = args.output.resolve()
     if root.exists(): raise ValueError('Preserve existing carriage control evidence')
     root.mkdir(parents=True)
@@ -48,7 +49,8 @@ def main(argv=None):
                 'games/yorimichi/assets/vehicles/belmonte-train/textures',
                 'games/yorimichi/assets/vehicles/belmonte-train/furniture',
                 'games/yorimichi/assets/vehicles/belmonte-train/source.toml',
-                'games/yorimichi/tools/gltf_subset.py', 'games/yorimichi/assets/characters').decode().splitlines()
+                'games/yorimichi/tools/gltf_subset.py', 'games/yorimichi/tools/belmonte_train_service.py',
+                'games/yorimichi/assets/characters').decode().splitlines()
     frozen = {}
     for relative in paths:
         if '/assets/characters/' in relative and not (relative.endswith(('/character.toml', '/adventure.toml'))
@@ -69,15 +71,36 @@ def main(argv=None):
                               (GAME / 'world', GAME / 'tools', REPO / 'platform/studio')),
                *(GAME / 'world/train').glob('*.py'), Path(__file__)}
     for path in sorted(closure): bind(path)
+    for path in (GAME / 'tools/train_carriage_all_source_control.py', GAME / 'tools/train_carriage_all_finish.py',
+                 GAME / 'train_carriage_build.py', GAME / 'train_carriage_products.py'):
+        if path.is_file(): bind(path)
+    if args.all_coaches:
+        for path in local_imports(GAME / 'tools/belmonte_train_service.py',
+                                  (GAME, GAME / 'world', GAME / 'world/regions', GAME / 'tools', REPO / 'platform/studio')):
+            bind(path)
+        requests = {}
+        for coach in ('locomotive', 'tender', 'baggage-van', 'restaurant', 'first-class', 'second-class', 'brake-van'):
+            path = root / 'requests' / (coach + '.json')
+            subprocess.run([sys.executable, str(GAME / 'world/train/carriage_request.py'),
+                '--coach', coach, '--output', str(path)], check=True)
+            bind(path); requests[coach] = dict(path=str(path), sha256=records[str(path)]['sha256'])
+    bind(Path(engine.blender()).resolve())
     addon = addon_files()
     for path in addon.values(): bind(path)
     authority = dict(schema=1, original=ORIGINAL, current_head=head, frozen=frozen, files=records,
                      addon={key: records[str(path)]['sha256'] for key, path in addon.items()})
+    if args.all_coaches: authority['requests'] = requests
     authority_path = root / 'authority.json'; authority_path.write_text(json.dumps(authority, indent=2) + '\n')
     result = run([engine.blender(), '--factory-startup', '-b', '--threads', '3', '--python-exit-code', '1', '--python',
-        str(GAME / 'tools/train_carriage_source_control.py'), '--', '--authority', str(authority_path),
-        '--output', str(root / 'result.json')], root / 'source.guard', timeout=1800, queue_seconds=1800,
-        purpose='immutable original three carriage constructors/atlases and bounded service GLB bytes')
+        str(GAME / 'tools' / ('train_carriage_all_source_control.py' if args.all_coaches else 'train_carriage_source_control.py')),
+        '--', '--authority', str(authority_path),
+        '--output', str(root / ('source-stage.json' if args.all_coaches else 'result.json'))], root / 'source.guard', timeout=1800, queue_seconds=1800,
+        purpose=('all seven normal coach sources and immutable service-byte controls' if args.all_coaches else
+                 'immutable original three carriage constructors/atlases and bounded service GLB bytes'))
+    if result == 0 and args.all_coaches:
+        sys.path.insert(0, str(GAME / 'tools'))
+        from train_carriage_all_finish import finish
+        finish(root)
     if git('rev-parse', 'HEAD').decode().strip() != head or git('status', '--short') != status:
         raise ValueError('Current source checkout changed during carriage control')
     for path, before in records.items():
