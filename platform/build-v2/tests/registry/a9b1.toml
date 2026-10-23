@@ -131,3 +131,9 @@ id = "a9b1.renamed_unit_roots_current_scheduling_name_with_old_winner_label"
 tier = "t1a"
 tests = ["atelier-build-v2/python_backend::tests::renamed_unit_roots_current_scheduling_name_with_old_winner_label"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.failed_submission_keeps_abort_reason_without_claiming_user_cancellation"
+tier = "t0"
+tests = ["atelier-build-v2/python_backend::tests::failed_submission_keeps_abort_reason_without_claiming_user_cancellation"]
+platforms = ["darwin"]

@@ -221,6 +221,7 @@ fn graph(space: &Space, declaration: Declaration) -> (BuildGraph, SourceSnapshot
 #[derive(Clone, Copy)]
 enum StoreMode {
     Ready,
+    ReadyWithMissingBridge,
     Unavailable,
     UnavailableAndChangeCurrent,
     UnavailableAndChangeLaterCurrent,
@@ -333,7 +334,7 @@ fn run_graph(
             if matches!(mode, StoreMode::UnavailableAndChangeLaterCurrent) {
                 fs::write(space.path("checkout/Game/c.bin"), b"changed later origin").unwrap();
             }
-            if !matches!(mode, StoreMode::Ready) {
+            if !matches!(mode, StoreMode::Ready | StoreMode::ReadyWithMissingBridge) {
                 return Err(InstallError::Cache(ResultError::Io(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
                     "fixture cache deliberately unavailable",
@@ -380,11 +381,15 @@ fn run_graph(
     );
     let bridge = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_bridge.py");
     let launcher = GuardedLauncher {
-        bridge: vec![
-            interpreter().into_os_string(),
-            bridge.into_os_string(),
-            "normal".into(),
-        ],
+        bridge: if matches!(mode, StoreMode::ReadyWithMissingBridge) {
+            vec![space.path("missing-admission-bridge").into_os_string()]
+        } else {
+            vec![
+                interpreter().into_os_string(),
+                bridge.into_os_string(),
+                "normal".into(),
+            ]
+        },
     };
     let config = PythonExecution {
         interpreter: interpreter(),
@@ -406,6 +411,14 @@ fn run_graph(
         &mut SourceHashCache::default(),
     )
     .unwrap();
+    if report.states.values().any(|state| {
+        matches!(
+            state,
+            State::Failed(_) | State::InputRefused(_) | State::Cancelled
+        )
+    }) {
+        eprintln!("static Python report: {report:?}; I/O: {:?}", backend.io());
+    }
     let mut items = BTreeMap::new();
     let mut fresh_bytes = BTreeMap::new();
     // Observation only: no source capability is reconstructed from this archive. Cached/recorded
@@ -472,6 +485,34 @@ fn observations(root: &Path) -> ObservedFiles {
     let mut output = BTreeMap::new();
     visit(root, &mut output);
     output
+}
+
+#[test]
+fn failed_submission_keeps_abort_reason_without_claiming_user_cancellation() {
+    let space = Space::new();
+    space.set("ops/a.py", A.as_bytes());
+    space.set("data/raw", b"not executed");
+    let mut declaration = chain(None);
+    declaration.units.truncate(1);
+    let result = build(
+        &space,
+        declaration,
+        &["a"],
+        StoreMode::ReadyWithMissingBridge,
+    );
+    assert!(result.report.fatal.is_none());
+    assert!(
+        matches!(&result.report.states["a"], State::Failed(reason)
+        if reason.starts_with("launch failed:") && reason.len() > "launch failed:".len()),
+        "{:?}",
+        result.report.states
+    );
+    assert_eq!(result.io.launches, 0);
+    assert_eq!(result.io.worker_files_written, 3);
+    assert_eq!(result.io.publications, 0);
+    assert_eq!(result.io.installs, 0);
+    assert!(!space.path("checkout/Game/a.bin").exists());
+    assert!(result.rooted_units.is_empty());
 }
 
 #[test]

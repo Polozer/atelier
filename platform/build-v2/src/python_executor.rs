@@ -50,7 +50,11 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
     /// Dispatch MUST use C5b run_job and register the actual worker idempotently on both leases
     /// before Run. Unconfirmed cleanup or any non-Released attempt MUST be fatal before publishing
     /// or starting more work. Cancellation MUST go through the existing lifecycle channel; every
-    /// submitted handle MUST get a terminal event. Production MUST refuse missing custodian
+    /// submitted handle MUST get a terminal event. Each leased guard report parent MUST be
+    /// reserved before submission, and lifecycle abort diagnostics MUST remain failures rather
+    /// than appear as user cancellation. See failed_submission_keeps_abort_reason_without_claiming_user_cancellation
+    /// and actual_python_first_build_and_current_noop_have_real_zero_launch_and_write_evidence.
+    /// Production MUST refuse missing custodian
     /// registration until C5c slice5 supplies it. Scripted fixture execution proves sandbox/I/O
     /// only, never actual admission/monitor custody. See python_backend::tests (T1a pending).
     fn batch(
@@ -90,6 +94,14 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
             }
             let job_dir = work.inputs().staged.job_dir();
             let scope = job_dir.parent().ok_or("job has no leased parent")?;
+            let report_root = scope.join("guard");
+            if let Err(error) = std::fs::create_dir(&report_root) {
+                stopped |= emit(Event::Failed {
+                    work,
+                    reason: format!("cannot reserve leased guard report parent: {error}"),
+                }) == Flow::Stop;
+                continue;
+            }
             let command = match self.config.bundle.command(&self.config.interpreter, scope) {
                 Ok(command) => command,
                 Err(reason) => {
@@ -106,7 +118,7 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
                 purpose: "build-v2 static Python unit".into(),
                 memory_gib: self.config.memory_gib,
                 limits: self.config.limits,
-                report_root: scope.join("guard"),
+                report_root,
                 custody: vec![], // Inputs are independent; no checkout read guard survives staging.
             };
             let (cancel, inbox) = worker_lifecycle::job_channel();
@@ -148,6 +160,10 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
                             .iter()
                             .all(|attempt| attempt.custody == Custody::Released) =>
                 {
+                    if let Some(reason) = report.abort {
+                        stopped |= emit(Event::Failed { work, reason }) == Flow::Stop;
+                        continue;
+                    }
                     match report.outcome.end {
                         End::Completed => match report.outputs {
                             Some(outputs) => Event::Completed {
