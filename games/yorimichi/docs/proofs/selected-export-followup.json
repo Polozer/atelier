@@ -44,6 +44,14 @@
       "production_runtime_complete": false,
       "normal_native_reuse": false,
       "distance_fields_and_mesh_cards": "disabled in this fixture; runtime behavior not certified"
+    },
+    "producer_guard_marker_revalidation": {
+      "source_and_export_guards": 204,
+      "source_keys": 102,
+      "metadata_and_log_bindings_unchanged": 628,
+      "ordered_action_completion_batch_markers": true,
+      "producer_or_native_rerun": false,
+      "collection_proof_is_native_reuse": false
     }
   },
   "track": {
@@ -150,7 +158,8 @@
     "track_seven_query_host": "b818fb4b5a7869c3c7b74ca430a7fac19738f8cc4e1003261c3eb4e73a395ced",
     "carriage_paired_revalidation": "d22e649d225f8602fd0e6a71ec301c1085d3644626238b2d141438157afaaf6c",
     "authored_source_lod_metadata_observation": "14116775efbbb4682452996adfed81fe5f33210e84b4d1085e5784600735955a",
-    "authored_source_lod_predicate_replay": "44b90188b7352499a415a9ce16eb2b4e52256aa62bbccbf60c2b40b487ea0026"
+    "authored_source_lod_predicate_replay": "44b90188b7352499a415a9ce16eb2b4e52256aa62bbccbf60c2b40b487ea0026",
+    "foliage_producer_guard_marker_revalidation": "ca5114ae31c79f04b218d730f1c9a9c95b719c4795460b9111e12f9931ae93b6"
   },
   "not_certified": [
     "Independent current paired Track native equivalence; original whole remains failed",
