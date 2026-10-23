@@ -298,7 +298,11 @@ impl RootFs {
         parent.sync_all()
     }
 
-    pub fn remove_empty_directory(&self, entry: &CreatedDirectory) -> io::Result<()> {
+    pub fn remove_empty_directory(
+        &self,
+        entry: &CreatedDirectory,
+        allow_nonempty: bool,
+    ) -> io::Result<()> {
         let (parent, leaf) = match self.parent(&entry.path) {
             Ok(value) => value,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -322,7 +326,7 @@ impl RootFs {
         } != 0
         {
             let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::DirectoryNotEmpty {
+            if allow_nonempty && error.kind() == io::ErrorKind::DirectoryNotEmpty {
                 return Ok(());
             }
             return Err(error);

@@ -128,3 +128,8 @@ check. Unit code MUST NOT derive outputs from real clocks, file timestamps or na
 clean-room and determinism fixtures remain required. See
 platform/studio/tests/test_build_v2_python_worker.py, test_build_v2_python_sandbox.py and
 tests/staging.rs.
+
+Private transaction directories MUST actually be empty before cleanup clears the journal;
+unknown private leaves MUST preserve the active barrier and evidence. Only checkout output-parent
+directories MAY remain populated. See unknown_private_cleanup_leaves_preserve_journal_and_block_readers
+in tests/installs.rs.

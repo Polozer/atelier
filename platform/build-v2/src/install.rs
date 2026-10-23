@@ -1230,7 +1230,20 @@ impl CheckoutInstaller {
             }
         }
         for (i, directory) in journal.directories.iter().rev().enumerate() {
-            self.fs.remove_empty_directory(directory)?;
+            let private = directory.path == journal.scope
+                || directory.path.starts_with(&(journal.scope.clone() + "/"));
+            // Output parents legitimately contain installed/foreign neighbors. An owned
+            // private scope must actually be empty before its sole journal barrier clears.
+            match self.fs.remove_empty_directory(directory, !private) {
+                Ok(()) => {}
+                Err(error) if private && error.kind() == io::ErrorKind::DirectoryNotEmpty => {
+                    return Err(recovery(format!(
+                        "private transaction directory {} contains unknown leaves",
+                        directory.path
+                    )));
+                }
+                Err(error) => return Err(error.into()),
+            }
             event(CleanupEvent::Directory(i))?;
         }
         let observation = self

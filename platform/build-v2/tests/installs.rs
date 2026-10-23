@@ -1091,3 +1091,78 @@ fn extra_owner_index_membership_refuses_current_and_restore_without_mutation() {
             .exists()
     );
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn unknown_private_cleanup_leaves_preserve_journal_and_block_readers() {
+    use atelier_build_v2::checkout_locks::LockError;
+    for committed in [false, true] {
+        for location in ["new", "trash", ""] {
+            let workspace = Workspace::new();
+            let installer = workspace.installer("first");
+            let guard = installer.locks().try_build_exclusive().unwrap();
+            let (g1, u1) = fixture("first", "1");
+            publish(&workspace, &u1, b"old", None, 0o644);
+            restore(&installer, &guard, &u1, &view("first", &g1));
+            let (g2, u2) = fixture("first", "2");
+            let view = view("first", &g2);
+            publish(&workspace, &u2, b"new", None, 0o644);
+            let mut plan = installer
+                .prepare_restore(&guard, &u2, identity(), &view, vec![])
+                .unwrap()
+                .unwrap();
+            assert!(
+                plan.commit_with(
+                    &guard,
+                    |event| if event
+                        == if committed {
+                            InstallEvent::IndexCommitted
+                        } else {
+                            InstallEvent::Ready
+                        } {
+                        Err(std::io::Error::other("before cleanup"))
+                    } else {
+                        Ok(())
+                    },
+                    |_| Ok(())
+                )
+                .is_err()
+            );
+            let journal_path = workspace.path("build/build-v2/install/journal.json");
+            let evidence = fs::read(&journal_path).unwrap();
+            let journal: serde_json::Value = serde_json::from_slice(&evidence).unwrap();
+            let scope = workspace.path(journal["journal"]["scope"].as_str().unwrap());
+            let unknown = scope.join(location).join("unknown-evidence");
+            fs::write(&unknown, b"foreign keep").unwrap();
+            assert!(
+                matches!(
+                    installer.recover(&guard, &view),
+                    Err(InstallError::RecoveryRequired(_))
+                ),
+                "{location}"
+            );
+            assert!(
+                matches!(
+                    installer.recover(&guard, &view),
+                    Err(InstallError::RecoveryRequired(_))
+                ),
+                "{location}"
+            );
+            assert_eq!(fs::read(&unknown).unwrap(), b"foreign keep");
+            assert_eq!(fs::read(&journal_path).unwrap(), evidence);
+            assert_eq!(
+                fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+                if committed { &b"new"[..] } else { &b"old"[..] }
+            );
+            assert!(matches!(
+                installer.locks().try_read_content(),
+                Err(LockError::RecoveryRequired)
+            ));
+            let store = ResultStore::open(workspace.path("cache")).unwrap();
+            let mutex = store.leases().lock().unwrap();
+            assert!(mutex.leases().unwrap().iter().any(|lease| !lease.rooted
+                && lease.result_keys.contains(u2.key())
+                && !lease.object_digests.is_empty()));
+        }
+    }
+}

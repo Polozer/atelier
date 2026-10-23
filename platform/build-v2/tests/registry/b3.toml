@@ -94,3 +94,8 @@ platforms = ["darwin"]
 id = "b3.installs.scope_allocator_preserves_occupied_transaction_and_quarantine_names"
 tests = ["atelier-build-v2/install::tests::scope_allocator_preserves_occupied_transaction_and_quarantine_names"]
 platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "b3.installs.unknown_private_cleanup_leaves_preserve_journal_and_block_readers"
+tests = ["atelier-build-v2::installs/unknown_private_cleanup_leaves_preserve_journal_and_block_readers"]
+platforms = ["darwin"]

@@ -509,6 +509,8 @@ Current checks and install preflight share the complete owner-to-index membershi
 an extra indexed path cannot certify Current. Postcommit cleanup is resumable after each owned
 leaf/directory removal, including an already-removed scope parent. New scope allocation reserves
 both transaction and quarantine namespaces, including dangling entries, across PID reuse.
+Unknown private cleanup leaves keep the active journal and reader barrier; populated checkout
+output parents are preserved without requiring them to be empty.
 
 ## Offline verification and integrity classification (B7a)
 
