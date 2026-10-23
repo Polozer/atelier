@@ -455,3 +455,37 @@ fn target_materialization_is_explicit_and_current_does_not_rewrite() {
     let bad = build(&f, &["b"], &demands, &mut fake, &mut jobs, &Never);
     assert!(matches!(&bad.states["b"],State::Failed(s) if s.contains("Current settlement")));
 }
+
+#[test]
+fn incompatible_profiles_split_batches_and_publication_failure_preserves_sibling() {
+    let mut f = fixture(false);
+    f.runtimes.get_mut("c").unwrap().profile = "other-admission-custody".into();
+    let trace = Trace::default();
+    let mut fake = Fake::new(trace.clone());
+    let mut jobs = Jobs::new(trace);
+    fake.fail_publish.insert("a".into());
+    let demands = BTreeMap::from([("a".into(), Demand::Stored), ("c".into(), Demand::Stored)]);
+    let report = build(&f, &["a", "c"], &demands, &mut fake, &mut jobs, &Never);
+    assert_eq!(report.batches, vec![vec!["a"], vec!["c"]]);
+    assert!(matches!(report.states["a"], State::Failed(_)));
+    assert!(matches!(report.states["c"], State::Executed(_)));
+    assert_eq!(report.publications, vec!["c"]);
+    assert!(fake.cache.contains_key(&report.keys["c"]));
+}
+
+#[test]
+fn missing_executor_terminal_is_failure_and_never_unlocks_dependents() {
+    let f = fixture(false);
+    let trace = Trace::default();
+    let mut fake = Fake::new(trace.clone());
+    let mut jobs = Jobs::new(trace);
+    jobs.omit = true;
+    let demands = BTreeMap::from([("b".into(), Demand::Checkout)]);
+    let report = build(&f, &["b"], &demands, &mut fake, &mut jobs, &Never);
+    assert!(
+        matches!(&report.states["a"],State::Failed(reason) if reason.contains("omitted terminal"))
+    );
+    assert_eq!(report.states["b"], State::Blocked(vec!["a".into()]));
+    assert!(!report.keys.contains_key("b"));
+    assert!(fake.cache.is_empty());
+}

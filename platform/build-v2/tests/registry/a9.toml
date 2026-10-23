@@ -39,3 +39,11 @@ tests = ["atelier-build-v2::scheduler_harness/independent_model_and_clean_oracle
 [[scenarios]]
 id = "a9a.harness-negative"
 tests = ["atelier-build-v2::scheduler_harness/independent_model_rejects_faulty_scheduler_adapter_overbuild"]
+
+[[scenarios]]
+id = "a9a.compatibility-and-publication-failure"
+tests = ["atelier-build-v2::scheduler/incompatible_profiles_split_batches_and_publication_failure_preserves_sibling"]
+
+[[scenarios]]
+id = "a9a.missing-terminal"
+tests = ["atelier-build-v2::scheduler/missing_executor_terminal_is_failure_and_never_unlocks_dependents"]

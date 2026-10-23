@@ -6,11 +6,7 @@ use atelier_build_v2::{
     source_hashes::*, validate::*,
 };
 use sha2::{Digest, Sha256};
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use support::{
     adapter::{AdapterError, BuildAdapter, BuildOutcome, BuildRequest, FakeAdapter, Observation},
     check::{Scenario, Step, run_scenario},
@@ -187,9 +183,9 @@ impl Executor<String, BTreeMap<String, ProducedItem>> for Jobs<'_> {
         Ok(())
     }
 }
-fn error(message: impl Into<String>) -> AdapterError {
+fn error(message: impl ToString) -> AdapterError {
     AdapterError {
-        message: message.into(),
+        message: message.to_string(),
     }
 }
 impl BuildAdapter for Adapter {
