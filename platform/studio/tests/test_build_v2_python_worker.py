@@ -315,3 +315,92 @@ def test_ctypes_imports_but_named_native_libraries_and_sockets_are_refused(tmp_p
                                   'socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b"x", ("127.0.0.1", 9))')):
         script = f'import ctypes, socket\ndef run(context):\n    {body}\n'
         assert 'undeclared' in failure(loop.run(stage(tmp_path / f'job{index}', script=script)), 'dependency')
+
+
+def test_descriptor_relative_access_is_checked_against_the_real_directory(tmp_path, loop):
+    # Paid review: os.stat(name, dir_fd=fd) on a descriptor for '/' probed undeclared absence.
+    for index, body in enumerate(('fd = os.open("/", os.O_RDONLY)',
+                                  'fd = os.open("ops", os.O_RDONLY); os.stat("../../never-created", dir_fd=fd)',
+                                  'fd = os.open("ops", os.O_RDONLY); os.open("../../x", os.O_RDONLY, dir_fd=fd)',
+                                  'fd = os.open("output", os.O_RDONLY); os.mkdir("../../made", dir_fd=fd)',
+                                  'fd = os.open("in", os.O_RDONLY); os.open("new", os.O_CREAT | os.O_WRONLY, dir_fd=fd)')):
+        script = (f'import os\ndef run(context):\n    try:\n        {body}\n    except BaseException:\n        pass\n'
+                  '    context.output("piece.txt").write_text("ran")\n')
+        assert 'undeclared' in failure(loop.run(stage(tmp_path / f'job{index}', script=script)), 'dependency')
+    assert not (tmp_path / 'made').exists()
+    # Descriptor-relative access inside the declared view still works, including shutil.rmtree.
+    inside = '''
+import os, shutil
+def run(context):
+    fd = os.open('in', os.O_RDONLY)
+    seen = [os.path.exists('shape.bin') or 'x', sorted(os.listdir(fd)), os.stat('shape.bin', dir_fd=fd).st_size]
+    try:
+        os.stat('absent.bin', dir_fd=fd)
+    except FileNotFoundError:
+        seen.append('absent')
+    os.makedirs('output/tmp/a')
+    open('output/tmp/a/f', 'w').write('x')
+    shutil.rmtree('output/tmp')
+    context.output('piece.txt').write_text(repr(seen))
+'''
+    assert loop.run(stage(tmp_path / 'inside', script=inside))['type'] == 'completed'
+    assert (tmp_path / 'inside/output/piece.txt').read_text() == "['x', ['shape.bin'], 2, 'absent']"
+
+
+def test_realtime_clocks_and_module_level_reseeding_are_fixed(tmp_path, loop):
+    # Paid review: time.clock_gettime(CLOCK_REALTIME) and random.seed() escaped the fixes.
+    script = '''
+import random, time
+def run(context):
+    first = random.random()
+    random.seed()
+    reseeded = random.random()
+    random.seed(7)
+    explicit = random.random()
+    clocks = [time.clock_gettime(time.CLOCK_REALTIME), time.clock_gettime_ns(time.CLOCK_REALTIME)]
+    time.monotonic()  # elapsed-time clocks still run; they must not shape output
+    context.output('piece.txt').write_text(repr([reseeded == explicit, random.Random().random() == explicit,
+                                                 clocks, first]))
+'''
+    texts = []
+    for index in range(2):
+        job = stage(tmp_path / f'job{index}', script=script, params={'scale': 1, 'seed': 7})
+        assert loop.run(job)['type'] == 'completed'
+        texts.append((tmp_path / f'job{index}/output/piece.txt').read_text())
+    assert texts[0] == texts[1]
+    assert texts[0].startswith('[True, True, [946684800.0, 946684800000000000], ')
+
+
+def test_large_valid_requests_run_and_launch_failures_still_get_a_terminal_reply(tmp_path, loop, monkeypatch):
+    # Paid review: a one-MiB parameter overflowed argv (E2BIG) and the loop sent no terminal reply.
+    script = 'def run(context):\n    context.output("piece.txt").write_text(str(len(context.params["blob"])))\n'
+    job = stage(tmp_path / 'large', script=script, params={'scale': 1, 'blob': 'x' * (4 << 20)})
+    assert loop.run(job)['type'] == 'completed'
+    assert (tmp_path / 'large/output/piece.txt').read_text() == str(4 << 20)
+
+    def refuse(*args, **kwargs):
+        raise OSError(7, 'Argument list too long')
+
+    monkeypatch.setattr(python_worker.subprocess, 'Popen', refuse)
+    request_read, request_write = os.pipe()
+    response_read, response_write = os.pipe()
+    with os.fdopen(request_write, 'wb') as requests:
+        protocol.write_frame(requests, protocol.REQUEST, {'type': 'run', 'job': stage(tmp_path / 'refused')})
+        protocol.write_frame(requests, protocol.REQUEST, {'type': 'shutdown'})
+    with os.fdopen(request_read, 'rb') as requests, os.fdopen(response_write, 'wb') as responses:
+        python_worker.Worker(requests, responses, sandboxed=False).serve()
+    with os.fdopen(response_read, 'rb') as responses:
+        replies = [protocol.read_frame(responses, protocol.RESPONSE) for _ in range(4)]
+    assert replies[1] == {'type': 'started', 'job_id': 'job-1'}
+    assert 'cannot start the job process' in failure(replies[2], 'dependency')
+    assert replies[3] == {'type': 'stopped'}
+
+
+def test_directory_changes_are_refused_so_relative_checks_stay_anchored(tmp_path, loop):
+    # Paid review: after os.chdir('/'), relative existence checks were resolved against the job folder.
+    for index, body in enumerate(('os.chdir("/"); os.path.exists("never-created")',
+                                  'os.chdir("ops"); os.path.exists("never-created")',
+                                  'fd = os.open("ops", os.O_RDONLY); os.fchdir(fd)')):
+        script = (f'import os\ndef run(context):\n    try:\n        {body}\n    except BaseException:\n        pass\n'
+                  '    context.output("piece.txt").write_text("ran")\n')
+        assert 'os.chdir' in failure(loop.run(stage(tmp_path / f'job{index}', script=script)), 'dependency')

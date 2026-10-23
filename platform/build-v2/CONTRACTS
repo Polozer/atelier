@@ -72,12 +72,20 @@ it execute only the interpreter, and any undeclared read, Python-level existence
 or missing path), listing, network use or process start MUST fail the job as `dependency` rather
 than return a value; writes outside `output/` MUST fail. The production loop entry MUST have no
 unsandboxed mode; the only unsandboxed loop is a test-only entry that MUST announce a distinct worker
-version, so a session keyed to the production version refuses it. Wall-clock reads MUST be fixed, OS
-entropy refused and `random` seeded from the declared seed. The loop MUST make both protocol
-descriptors non-inheritable before any job runs, and MUST report every regular file left under
-`output/` (fixed outputs and group members alike), failing on links and special files; the
-controller decides membership. Limitation: native extension code that probes a missing undeclared
-path through the C library is NOT detected (the kernel answers ENOENT with no sandbox decision), so
-these checks do not prove undeclared absence probes cannot happen. See
+version, so a session keyed to the production version refuses it. Path checks MUST resolve
+descriptor-relative (`dir_fd`) and descriptor-named access against the descriptor's real directory,
+and directory changes MUST be refused so relative paths always resolve against the job folder.
+Every Python wall-clock read (`time.time`/`time_ns`, default `localtime`/`gmtime`/`ctime`/`strftime`,
+`datetime` now/today, `clock_gettime` of realtime clocks) MUST return the fixed instant; `random`
+(module functions, `Random()` and argument-less reseeding) MUST use the declared seed; Python OS
+entropy APIs MUST raise. The job configuration MUST travel off argv, and a failure to start the job
+process MUST still yield its one terminal response. The loop MUST make both protocol descriptors
+non-inheritable before any job runs, and MUST report every regular file left under `output/` (fixed
+outputs and group members alike), failing on links and special files; the controller decides
+membership. Limitations, not guarantees: native extension code that probes a missing undeclared path
+through the C library is NOT detected (the kernel answers ENOENT with no sandbox decision), so these
+checks do not prove undeclared absence probes cannot happen; elapsed-time clocks (monotonic, perf
+counters, CPU time) and file timestamps are real; random generators in native libraries that read OS
+entropy themselves are not intercepted. Outputs MUST NOT depend on any of these. See
 platform/studio/tests/test_build_v2_python_worker.py, test_build_v2_python_sandbox.py and
 tests/staging.rs.

@@ -1,6 +1,6 @@
 """Bootstrap for one build-v2 Python job, run inside its own sandboxed child process.
 
-The outer job loop (`python_worker.py`) starts `python -P -s -S -B -c <this source> <config>` with the staged
+The outer job loop (`python_worker.py`) starts `python -P -s -S -B -c <this source>`, configuration on stdin, with the staged
 job folder as its working directory, a declared environment only and, on macOS, a deny-default
 sandbox. This file is passed as source text: the child never reads the checkout.
 
@@ -24,20 +24,24 @@ sandbox. This file is passed as source text: the child never reads the checkout.
 
 Job IDs, the job folder, the unit label and every source locator are control metadata and are not
 in the context. Helper modules are imported from the entry script's directory, and only files in
-the unit's declared code closure load. Wall-clock time reads a fixed instant; entropy sources raise
+the unit's declared code closure load. Wall-clock time (including `clock_gettime` of realtime clocks)
+reads a fixed instant; `random` always uses the declared seed; Python entropy sources raise
 `DeterminismError`. These patches make ordinary scripts reproducible; they do not make the process
-deterministic at the OS level, so authors still must not depend on timing, threads or addresses.
+deterministic at the OS level, so authors still must not depend on elapsed time, file timestamps,
+native-library random generators, threads or addresses.
 
 Only the standard library is used.
 """
 import importlib.abc
 import importlib.machinery
+import fcntl
 import importlib.util
 import json
 import os
 from pathlib import Path
 import sys
 import sysconfig
+import threading
 import traceback
 from types import MappingProxyType
 
@@ -123,6 +127,14 @@ def fix_clock_and_entropy(seed):
     time.gmtime = lambda secs=None: original_gmtime(FIXED_EPOCH if secs is None else secs)
     time.ctime = lambda secs=None: original_ctime(FIXED_EPOCH if secs is None else secs)
     time.strftime = lambda fmt, t=None: original_strftime(fmt, original_localtime(FIXED_EPOCH) if t is None else t)
+    # Wall clocks reachable through clock_gettime read the fixed instant too. Elapsed-time clocks
+    # (monotonic, perf_counter, process and thread CPU time) still measure real durations.
+    wall = {getattr(time, name) for name in ('CLOCK_REALTIME', 'CLOCK_REALTIME_COARSE', 'CLOCK_TAI')
+            if hasattr(time, name)}
+    original_clock, original_clock_ns = time.clock_gettime, time.clock_gettime_ns
+    time.clock_gettime = lambda clock: float(FIXED_EPOCH) if clock in wall else original_clock(clock)
+    time.clock_gettime_ns = lambda clock: (FIXED_EPOCH * 1_000_000_000 if clock in wall
+                                           else original_clock_ns(clock))
 
     class FixedDatetime(datetime.datetime):
         @classmethod
@@ -152,6 +164,8 @@ def fix_clock_and_entropy(seed):
         return original_seed(self, a, version)
 
     random.Random.seed = seed_method
+    # Module-level functions are methods bound at import; rebind seed so random.seed() is fixed too.
+    random.seed = random._inst.seed
     random.seed(seed)
     random.SystemRandom = _refuse('random.SystemRandom')
     os.urandom = _refuse('os.urandom')
@@ -226,19 +240,31 @@ class PathGuard:
                  'os.truncate': (0,), 'os.utime': (0,), 'os.chmod': (0,), 'os.chown': (0,),
                  'os.chflags': (0,), 'os.lchflags': (0,), 'os.setxattr': (0,), 'os.removexattr': (0,),
                  'os.mkfifo': (0,), 'os.mknod': (0,)}
-    READS = {'os.listdir': (0,), 'os.scandir': (0,), 'os.chdir': (0,), 'os.listxattr': (0,),
-             'os.getxattr': (0,)}
+    READS = {'os.listdir': (0,), 'os.scandir': (0,), 'os.listxattr': (0,), 'os.getxattr': (0,)}
     # Links could point lexical checks elsewhere; child processes and sockets escape the guard.
-    REFUSED = ('os.symlink', 'os.link', 'socket.', 'subprocess.Popen', 'os.exec', 'os.posix_spawn',
-               'os.spawn', 'os.fork', 'os.system', 'os.startfile')
+    # Directory changes are refused so relative paths always resolve against the job folder.
+    REFUSED = ('os.symlink', 'os.link', 'os.chdir', 'socket.', 'subprocess.Popen', 'os.exec',
+               'os.posix_spawn', 'os.spawn', 'os.fork', 'os.system', 'os.startfile')
+
+    # os functions taking `dir_fd` or a descriptor in place of a path, with their access kind. Their
+    # audit events (if any) omit `dir_fd`, so these wrappers resolve the descriptor's real path.
+    DESCRIPTOR_CALLS = {'stat': 'metadata', 'lstat': 'metadata', 'access': 'metadata', 'readlink': 'metadata',
+                        'statvfs': 'metadata', 'pathconf': 'metadata', 'open': None, 'listdir': 'read',
+                        'scandir': 'read', 'mkdir': 'write', 'rmdir': 'write', 'remove': 'write',
+                        'unlink': 'write', 'chmod': 'write', 'chown': 'write', 'utime': 'write',
+                        'mkfifo': 'write', 'mknod': 'write', 'rename': 'write', 'replace': 'write'}
 
     def __init__(self, job_dir, subpaths, literals, report):
         self.job_dir = job_dir
         self.reads = [job_dir] + [os.path.normpath(path) for path in subpaths]
-        self.literals = {os.path.normpath(path) for path in literals}
-        self.metadata = {ancestor for path in self.reads + sorted(self.literals) for ancestor in _ancestors(path)}
+        # Directory literals ('/', '/etc', ...) are kernel startup needs, not readable here: opening
+        # one would give a descriptor for probing undeclared names relative to it.
+        self.literals = {os.path.normpath(path) for path in literals if not os.path.isdir(path)}
+        self.metadata = {ancestor for path in self.reads + sorted(literals) for ancestor in _ancestors(path)}
+        self.metadata |= {os.path.normpath(path) for path in literals}
         self.writes = os.path.join(job_dir, 'output')
         self.report = report
+        self.checked = threading.local()
 
     def violation(self, access, path):
         print(f'build-v2 job stopped: undeclared {access} of {path}', file=sys.stderr, flush=True)
@@ -258,20 +284,46 @@ class PathGuard:
             return True
         return access == 'metadata' and path in self.metadata
 
+    def descriptor_path(self, fd):
+        """The real path an open descriptor names, or None (pipes, sockets)."""
+        try:
+            if hasattr(fcntl, 'F_GETPATH'):
+                raw = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024))
+                return os.fsdecode(raw.split(b'\0', 1)[0])
+            return self.original_readlink(f'/proc/self/fd/{fd}')
+        except OSError:
+            return None
+
     def check(self, access, path, dir_fd=None):
         if path is None:
             path = '.'
         if isinstance(path, int):
-            return  # an already-open descriptor was checked when it was opened
+            # A descriptor in place of a path: check what it names. A non-file (pipe) has no path.
+            named = self.descriptor_path(path)
+            if named is None:
+                if access != 'metadata':
+                    self.violation(access, f'descriptor {path}')
+                return
+            if not self.allowed(access, os.path.normpath(named)):
+                self.violation(access, named)
+            return
         text = os.fsdecode(path)
         if dir_fd is not None and not text.startswith('/'):
-            if '..' in text.split('/'):
+            base = self.descriptor_path(dir_fd)
+            if base is None:
                 self.violation(access, text)
-            return  # relative to a descriptor whose open was checked
+            text = os.path.join(base, text)
         if not self.allowed(access, self.resolve(text)):
             self.violation(access, text)
 
     def audit(self, event, args):
+        if event.startswith(self.REFUSED) or (event == 'ctypes.dlopen' and args[0] is not None):
+            self.violation(event, '-')  # loading a named native library is a process-level escape
+        if getattr(self.checked, 'skip', False):
+            self.checked.skip = False  # this call's wrapper already checked it with its dir_fd
+            return
+        if args and isinstance(args[0], int):
+            return  # an existing descriptor (fdopen); descriptor-taking os calls are checked by wrappers
         if event == 'open':
             path, mode, flags = args
             writes = (isinstance(mode, str) and any(char in mode for char in 'wax+')) or (
@@ -282,22 +334,40 @@ class PathGuard:
                 self.check('write', args[index])
         elif event in self.READS:
             self.check('read', args[0])
-        elif event.startswith(self.REFUSED) or (event == 'ctypes.dlopen' and args[0] is not None):
-            self.violation(event, '-')  # loading a named native library is a process-level escape
 
-    def wrap(self, function, access):
-        def guarded(path, *args, dir_fd=None, **kwargs):
-            self.check(access, path, dir_fd)
+    def wrap(self, name, function, access):
+        def guarded(path=_NO_PATH, *args, dir_fd=None, **kwargs):
+            if path is _NO_PATH:  # os.listdir() / os.scandir(): the working folder
+                self.check(access, '.')
+                return function()
+            kind = access
+            if name == 'open':
+                flags = args[0] if args else kwargs.get('flags', 0)
+                kind = 'write' if flags & self.WRITE_FLAGS else 'read'
+            if name in ('rename', 'replace'):
+                self.check('write', path, kwargs.get('src_dir_fd'))
+                self.check('write', args[0] if args else kwargs['dst'], kwargs.get('dst_dir_fd'))
+            else:
+                self.check(kind, path, dir_fd)
             if dir_fd is not None:
                 kwargs['dir_fd'] = dir_fd
-            return function(path, *args, **kwargs)
+            if dir_fd is not None or kwargs.get('src_dir_fd') is not None or kwargs.get('dst_dir_fd') is not None:
+                self.checked.skip = True
+            try:
+                return function(path, *args, **kwargs)
+            finally:
+                self.checked.skip = False
         return guarded
 
     def install(self):
+        self.original_readlink = os.readlink
         sys.addaudithook(self.audit)
-        for name in ('stat', 'lstat', 'access', 'readlink', 'statvfs', 'pathconf'):
+        for name, access in self.DESCRIPTOR_CALLS.items():
             if hasattr(os, name):
-                setattr(os, name, self.wrap(getattr(os, name), 'metadata'))
+                setattr(os, name, self.wrap(name, getattr(os, name), access))
+
+
+_NO_PATH = object()
 
 
 def _ancestors(path):
@@ -361,5 +431,9 @@ def _report_to(fd):
 
 
 if __name__ == '__main__':
-    _config = json.loads(sys.argv[1])
+    # The configuration arrives on stdin, not argv, so no valid request can exceed argument limits.
+    _config = json.loads(sys.stdin.buffer.read())
+    _null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(_null, 0)
+    os.close(_null)
     main(_config, _report_to(_config['result_fd']))

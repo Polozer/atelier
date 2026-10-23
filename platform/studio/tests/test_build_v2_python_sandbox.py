@@ -163,3 +163,22 @@ def test_kernel_sandbox_stops_native_access_that_bypasses_the_python_guard(tmp_p
         assert not os.path.exists(os.path.join(job, 'new.txt'))
     finally:
         server.close()
+
+
+def test_sandboxed_descriptor_checks_clocks_seed_and_large_requests(tmp_path, loop):
+    script = '''
+import os, random, time
+def run(context):
+    fd = os.open('in', os.O_RDONLY)
+    seen = [sorted(os.listdir(fd)), os.stat('shape.bin', dir_fd=fd).st_size,
+            time.clock_gettime(time.CLOCK_REALTIME), len(context.params['blob'])]
+    random.seed()
+    seen.append(random.random() == random.Random(7).random())
+    context.output('piece.txt').write_text(repr(seen))
+'''
+    job = stage(tmp_path / 'job', script=script, params={'scale': 1, 'seed': 7, 'blob': 'x' * (2 << 20)})
+    assert loop.run(job)['type'] == 'completed'
+    assert (tmp_path / 'job/output/piece.txt').read_text() == f"[['shape.bin'], 2, 946684800.0, {2 << 20}, True]"
+    probe = ('import os\ndef run(context):\n    fd = os.open("ops", os.O_RDONLY)\n'
+             '    os.stat("../../never-created", dir_fd=fd)\n')
+    assert 'undeclared' in failure(loop.run(stage(tmp_path / 'probe', script=probe)), 'dependency')

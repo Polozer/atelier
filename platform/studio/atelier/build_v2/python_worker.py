@@ -6,7 +6,7 @@ are made non-inheritable at once so no job or descendant can reach the protocol 
 stderr are logs. The loop sends `hello`, then for each `run` sends `started` and exactly one terminal
 response; a `cancel` stops that job's child and is answered by a `cancelled` failure.
 
-Each job runs `python -P -s -S -B -c <python_job.py source> <config>` in the staged job folder with a declared
+Each job runs `python -P -s -S -B -c <python_job.py source>` with its configuration on stdin, in the staged job folder with a declared
 environment only. On macOS the child runs under a deny-default `sandbox-exec` profile: it may read
 only the interpreter's installed roots, a few platform files and its job folder, and write only
 `output/`. Any other read, existence check, listing or network use kills the child, which this loop
@@ -236,6 +236,9 @@ class Worker:
             files = self.execute(job)
         except JobRefused as refusal:
             return self.fail(job_id, refusal.kind, str(refusal))
+        except OSError as error:
+            # Whatever happens to the job's process or folder, the controller gets its one terminal reply.
+            return self.fail(job_id, 'dependency', f'the job loop could not run the job: {error}')
         if files is not None:
             self.send({'type': 'completed', 'job_id': job_id, 'outputs': {'files': files}})
 
@@ -248,19 +251,32 @@ class Worker:
             raise JobRefused('protocol', 'output/ is not empty before the job')
         if self.sandboxed and not os.access(SANDBOX_EXEC, os.X_OK):
             raise JobRefused('dependency', 'no supported job sandbox on this platform')
+        command = [sys.executable, *CHILD_FLAGS, '-c', JOB_SOURCE]
+        if self.sandboxed:
+            command = [SANDBOX_EXEC, '-p', sandbox_profile(job_dir)] + command
         result_read, result_write = os.pipe()
         try:
-            command = [sys.executable, *CHILD_FLAGS, '-c', JOB_SOURCE,
-                       json.dumps(job_config(job, job_dir, result_write))]
-            if self.sandboxed:
-                command = [SANDBOX_EXEC, '-p', sandbox_profile(job_dir)] + command
-            # The child gets its own log pipe: inherited stdout/stderr files would be undeclared
-            # paths to the sandbox. The loop forwards those logs to its own stderr. It stays in the
-            # loop's process group, so a guard that stops the worker stops the job too.
-            child = subprocess.Popen(command, cwd=job_dir, env=dict(JOB_ENVIRONMENT), stdin=subprocess.DEVNULL,
+            # The configuration travels on the child's stdin, never argv, so no valid request can hit
+            # argument limits. The child gets its own log pipe: inherited stdout/stderr files would be
+            # undeclared paths to the sandbox; the loop forwards those logs to its own stderr. It stays
+            # in the loop's process group, so a guard that stops the worker stops the job too.
+            config = json.dumps(job_config(job, job_dir, result_write)).encode('utf-8')
+            child = subprocess.Popen(command, cwd=job_dir, env=dict(JOB_ENVIRONMENT), stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(result_write,))
+        except OSError as error:
+            os.close(result_read)
+            raise JobRefused('dependency', f'cannot start the job process: {error.strerror or error}') from None
         finally:
             os.close(result_write)
+        try:
+            child.stdin.write(config)
+        except BrokenPipeError:
+            pass  # the child ended before reading; its exit status decides the failure below
+        finally:
+            try:
+                child.stdin.close()
+            except BrokenPipeError:
+                pass
         with os.fdopen(result_read, 'rb') as results, child.stdout as logs, \
                 selectors.DefaultSelector() as selector:
             for stream in (results, logs, self.requests):
