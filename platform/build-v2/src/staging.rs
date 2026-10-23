@@ -122,6 +122,12 @@ impl ObjectSource for PinnedObjects<'_> {
     }
 }
 
+impl ObjectSource for crate::results::SelectedItems<'_> {
+    fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError> {
+        self.clone_to(digest, destination)
+    }
+}
+
 /// A staged job folder and the request that names it. Only [`stage`] builds one.
 #[derive(Debug)]
 pub struct StagedJob {
