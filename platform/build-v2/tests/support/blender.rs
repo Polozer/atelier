@@ -93,8 +93,12 @@ impl Drop for Workspace {
 /// This unit has no item inputs, so staging never clones an object.
 pub struct NoObjects;
 impl ObjectSource for NoObjects {
-    fn clone_object(&self, _: &ObjectDigest, _: &Path) -> Result<(), String> {
-        Err("the Blender fixture has no item inputs".into())
+    fn clone_object(&self, digest: &ObjectDigest, _: &Path) -> Result<(), SourceError> {
+        Err(SourceError {
+            kind: SourceErrorKind::Unavailable,
+            digest: digest.clone(),
+            message: "the Blender fixture has no item inputs".into(),
+        })
     }
 }
 
