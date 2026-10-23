@@ -131,7 +131,7 @@ def _finite_bounds(value):
 
 
 def validate_export_receipt(receipt_bytes, primary_bytes, *, asset,
-                            primary_digest, payload_digest, facts):
+                            primary_digest, payload_digest, facts, primary_name=None):
     """Validate in-job receipt binding and binary framing, not native FBX geometry fidelity.
 
     The producer supplies the just-written bytes and their computed digests. The caller checks
@@ -139,6 +139,10 @@ def validate_export_receipt(receipt_bytes, primary_bytes, *, asset,
     T1b compares real FBX geometry; this receipt/framing check is not that proof.
     """
     asset = name(asset)
+    primary_name = primary_name or asset + '.fbx'
+    if type(primary_name) is not str or not primary_name.endswith('.fbx'):
+        raise ValueError('Invalid declared FBX primary')
+    name(primary_name[:-4])
     if (type(primary_digest) is not str or len(primary_digest) != 64
             or any(c not in '0123456789abcdef' for c in primary_digest)
             or type(payload_digest) is not str or len(payload_digest) != 64
@@ -151,7 +155,7 @@ def validate_export_receipt(receipt_bytes, primary_bytes, *, asset,
     if (not isinstance(receipt, dict)
             or set(receipt) != {'schema', 'asset', 'primary', 'triangles', 'bounds', 'sha256', 'metadata'}
             or type(receipt['schema']) is not int or receipt['schema'] != 1
-            or receipt['asset'] != asset or receipt['primary'] != asset + '.fbx'
+            or receipt['asset'] != asset or receipt['primary'] != primary_name
             or type(receipt['triangles']) is not int or not 0 < receipt['triangles'] <= TRIANGLE_LIMIT
             or not _finite_bounds(receipt['bounds']) or receipt['sha256'] != primary_digest):
         raise ValueError('Invalid or foreign FBX receipt')

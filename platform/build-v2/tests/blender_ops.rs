@@ -23,13 +23,13 @@ fn group() -> OutputGroupContract {
 }
 fn output(id: &str) -> Item {
     Item {
-        id: id.into(),
+        id: "asset".into(),
         logical_path: format!("/Sources/{id}"),
         class: MESH_EXPORT_CLASS.into(),
         destination: Destination::Store,
         files: vec![
             OutputFile {
-                path: format!("{id}.fbx"),
+                path: "asset.fbx".into(),
                 install_path: None,
                 required: true,
             },
@@ -366,9 +366,11 @@ fn receipt_binding_uses_selected_output_content_digest_and_complete_fixed_owners
     let item = output("A");
     let primary = sha256(b"FBX bytes");
     let payload = sha256(b"selected geometry");
-    let value = serde_json::json!({"schema":1,"asset":"A","primary":"A.fbx","triangles":1,"bounds":[[0,0,0],[1,1,0]],
+    let value = serde_json::json!({"schema":1,"asset":"A","primary":"asset.fbx","triangles":1,"bounds":[[0,0,0],[1,1,0]],
         "sha256":primary,"metadata":{"geometry_sha256":payload,"slots":["One"],"polygons":1,"collision_hulls":0,"uv_channels":[]}});
-    validate_receipt_metadata(&value, &item, &primary, &payload).unwrap();
+    validate_receipt_metadata(&value, &item, "A", &primary, &payload).unwrap();
+    assert_eq!(item.id, "asset"); // existing A4b template's stable local output slot
+    assert!(validate_receipt_metadata(&value, &item, "AnotherPiece", &primary, &payload).is_err());
     let raw = serde_json::to_vec(&value).unwrap();
     assert_eq!(parse_export_receipt(&raw).unwrap(), value);
     let duplicate =
@@ -380,8 +382,8 @@ fn receipt_binding_uses_selected_output_content_digest_and_complete_fixed_owners
 
     let mut wrong = value.clone();
     wrong["sha256"] = sha256(b"producer input key").into();
-    assert!(validate_receipt_metadata(&wrong, &item, &primary, &payload).is_err());
+    assert!(validate_receipt_metadata(&wrong, &item, "A", &primary, &payload).is_err());
     wrong = value;
     wrong["metadata"]["foreign"] = "unowned metadata".into();
-    assert!(validate_receipt_metadata(&wrong, &item, &primary, &payload).is_err());
+    assert!(validate_receipt_metadata(&wrong, &item, "A", &primary, &payload).is_err());
 }

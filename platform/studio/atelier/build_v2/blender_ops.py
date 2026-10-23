@@ -188,21 +188,25 @@ def run_export_piece(context):
     original = payload_path.read_bytes()
     meta, piece, facts = decode_mesh_payload(original)
     asset = name(meta['asset'])
-    if member != asset + '.npz' or set(context.outputs) != {asset + '.fbx', 'export.json'}:
+    primary_names = [path for path in context.outputs if path.endswith('.fbx')]
+    if (member != asset + '.npz' or len(context.outputs) != 2 or len(primary_names) != 1
+            or set(context.outputs) != {primary_names[0], 'export.json'}):
         raise ValueError('Selected member and complete export outputs differ')
+    primary_name = _member(primary_names[0])
+    name(primary_name[:-4])
     options = export_options(meta['options'], context.params.get('options', {}))
-    _export_mesh(asset, meta, piece, context.output(asset + '.fbx'), options)
-    verify_emitted_fbx(context.output(asset + '.fbx'), expected_meshes=1 + len(meta['collisions']))
-    primary = context.output(asset + '.fbx').read_bytes()
+    _export_mesh(asset, meta, piece, context.output(primary_name), options)
+    verify_emitted_fbx(context.output(primary_name), expected_meshes=1 + len(meta['collisions']))
+    primary = context.output(primary_name).read_bytes()
     primary_digest = hashlib.sha256(primary).hexdigest()
     payload_digest = hashlib.sha256(original).hexdigest()
-    receipt = dict(schema=1, asset=asset, primary=asset + '.fbx', triangles=facts['triangles'],
+    receipt = dict(schema=1, asset=asset, primary=primary_name, triangles=facts['triangles'],
                    bounds=[facts['min'], facts['max']], sha256=primary_digest,
                    metadata=dict(geometry_sha256=payload_digest, slots=meta['slots'], polygons=len(piece['faces']),
                                  collision_hulls=len(meta['collisions']), uv_channels=facts['uv_channels']))
     raw = json.dumps(receipt, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
     validate_export_receipt(raw, primary, asset=asset, primary_digest=primary_digest,
-                            payload_digest=payload_digest, facts=facts)
+                            payload_digest=payload_digest, facts=facts, primary_name=primary_name)
     if len(raw) > MAX_RECEIPT_BYTES:
         raise ValueError('Export receipt exceeds its fixed bound')
     context.output('export.json').write_bytes(raw)

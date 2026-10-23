@@ -159,14 +159,19 @@ def test_real_serializer_parse_refusal_prevents_receipt_success(tmp_path, monkey
     out.mkdir()
     context = SimpleNamespace(params=dict(format='fbx', payload_encoding='mesh_ir', payload_role='geometry',
                                           payload_member='Whole_A.npz'), inputs={'payload': root},
-                              outputs=['Whole_A.fbx', 'export.json'], output=lambda name: out / name)
+                              outputs=['asset.fbx', 'export.json'], output=lambda name: out / name)
     # Failure injection only: no stand-in serializer success or native-fidelity claim.
-    monkeypatch.setattr(ops, '_export_mesh', lambda _a, _m, _p, path, _o: path.write_bytes(b'truncated'))
+    selected = []
+    def failed_serializer(asset, _meta, _piece, path, _options):
+        selected.append((asset, path.name))
+        path.write_bytes(b'truncated')
+    monkeypatch.setattr(ops, '_export_mesh', failed_serializer)
     def refused(_path, **_kwargs):
         raise ValueError('existing FBX parser refused serialization')
     monkeypatch.setattr(ops, 'verify_emitted_fbx', refused)
     with pytest.raises(ValueError, match='parser refused'):
         ops.run_export_piece(context)
+    assert selected == [('Whole_A', 'asset.fbx')]
     assert not (out / 'export.json').exists()
 
 
@@ -179,6 +184,9 @@ def test_receipt_and_binary_framing_check_never_claims_native_fidelity():
                    sha256=digest, metadata=dict(geometry_sha256=source_digest, slots=['Material'], polygons=1,
                                                collision_hulls=0, uv_channels=['UVMap', 'Piece1']))
     raw = json.dumps(receipt).encode()
+    generic = dict(receipt, primary='asset.fbx')
+    assert validate_export_receipt(json.dumps(generic).encode(), primary, asset='Part', primary_name='asset.fbx',
+                                   primary_digest=digest, payload_digest=source_digest, facts=facts) == generic
     assert validate_export_receipt(raw, primary, asset='Part', primary_digest=digest,
                                     payload_digest=source_digest, facts=facts) == receipt
     for broken in [b'{}', raw[:-1], raw.replace(b'"Part.fbx"', b'"Other.fbx"')]:

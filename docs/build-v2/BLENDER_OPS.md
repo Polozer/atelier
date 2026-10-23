@@ -26,8 +26,11 @@ contract and declaring its actually used helper closure.
 The piece entry script calls `blender_ops.run_export_piece(context)`. Its sole content input is
 `payload`, a selected one-file `GeometryPayload` Item. Keyed parameters are `payload_member`,
 `payload_encoding=mesh_ir`, `payload_role=geometry`, `format=fbx`, and optional per-piece `options`
-and `seed`. Declare one store-only `StaticMeshSource` Item named for the payload asset, with
-exactly required `<asset>.fbx` and `export.json`. Selection, format and fixed ownership options
+and `seed`. Declare one store-only `StaticMeshSource` Item with exactly one required flat FBX primary and `export.json`. The A4b template's local
+Item id stays `asset`; a fixed primary such as `asset.fbx` is independent of the selected piece
+name. The native mesh/UCX and receipt asset names bind the selected payload asset, while receipt
+primary binds the exact declared filename. Any later file-only assembly maps that declared
+primary to its owned destination explicitly. Selection, format and fixed ownership options
 cannot be overridden. Manifest and member fields are closed, with duplicate-field refusal over
 the exact frozen manifest bytes. Payload and per-piece FBX settings use a small typed allowlist;
 unknown keys, nested option objects, nonfinite values, invalid enums and non-boolean flags refuse

@@ -281,7 +281,7 @@ impl BlenderExportSpec {
             .and_then(|v| v.as_str())
             .ok_or("missing selected payload member")?;
         crate::paths::relative_path(member, false)?;
-        if !member.ends_with(".npz") {
+        if !member.ends_with(".npz") || member.contains('/') {
             return Err("MeshIR payload member must be .npz".into());
         }
         if ingredients.logical_outputs.len() != 1 {
@@ -291,30 +291,48 @@ impl BlenderExportSpec {
     }
 }
 
-pub fn validate_export_item(item: &Item) -> Result<(), String> {
-    if item.destination != Destination::Store || item.class != MESH_EXPORT_CLASS {
-        return Err("piece exports are store-only StaticMeshSource items".into());
-    }
-    if item.id.is_empty()
-        || !item.id.chars().enumerate().all(|(i, c)| {
+fn atomic_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().enumerate().all(|(i, c)| {
             (i > 0 && (c.is_ascii_digit() || c == '_' || c == '-')) || c.is_ascii_alphabetic()
         })
-    {
-        return Err("piece identity must use the existing atomic export name policy".into());
-    }
-    let expected = BTreeSet::from([format!("{}.fbx", item.id), "export.json".into()]);
-    let actual: BTreeSet<_> = item.files.iter().map(|f| f.path.clone()).collect();
-    if actual != expected
-        || item.files.len() != 2
+}
+
+fn export_primary_path(item: &Item) -> Result<&str, String> {
+    if item.files.len() != 2
         || item
             .files
             .iter()
             .any(|f| !f.required || f.install_path.is_some())
+        || item
+            .files
+            .iter()
+            .filter(|f| f.path == "export.json")
+            .count()
+            != 1
     {
-        return Err(
-            "piece export must declare its exact required FBX and export.json inventory".into(),
-        );
+        return Err("piece export must own exactly one required FBX and export.json".into());
     }
+    let primary = item
+        .files
+        .iter()
+        .find(|f| f.path != "export.json")
+        .ok_or("missing FBX primary")?;
+    let stem = primary
+        .path
+        .strip_suffix(".fbx")
+        .ok_or("primary must be FBX")?;
+    if !atomic_name(stem) {
+        return Err("FBX primary must be one canonical flat filename".into());
+    }
+    Ok(&primary.path)
+}
+
+pub fn validate_export_item(item: &Item) -> Result<(), String> {
+    if item.destination != Destination::Store || item.class != MESH_EXPORT_CLASS {
+        return Err("piece exports are store-only StaticMeshSource items".into());
+    }
+    export_primary_path(item)?;
     Ok(())
 }
 
@@ -673,6 +691,7 @@ pub fn parse_export_receipt(raw: &[u8]) -> Result<Value, String> {
 pub fn validate_receipt_metadata(
     receipt: &Value,
     item: &Item,
+    selected_asset: &str,
     primary_digest: &str,
     payload_digest: &str,
 ) -> Result<(), String> {
@@ -690,8 +709,9 @@ pub fn validate_receipt_metadata(
             "metadata",
         ])
         || unsigned(receipt, "schema")? != 1
-        || receipt["asset"] != item.id
-        || receipt["primary"] != format!("{}.fbx", item.id)
+        || !atomic_name(selected_asset)
+        || receipt["asset"] != selected_asset
+        || receipt["primary"] != export_primary_path(item)?
         || receipt["sha256"] != primary_digest
         || !valid_digest(primary_digest)
         || !valid_digest(payload_digest)
@@ -761,7 +781,7 @@ pub fn validate_blender_export_outputs(
     {
         return Err("incomplete or foreign frozen export set".into());
     }
-    let primary_name = format!("{}.fbx", item.id);
+    let primary_name = export_primary_path(item)?;
     let primary = outputs
         .iter()
         .find(|o| o.path == primary_name)
@@ -788,6 +808,10 @@ pub fn validate_blender_export_outputs(
     validate_receipt_metadata(
         &value,
         item,
+        payload
+            .path
+            .strip_suffix(".npz")
+            .ok_or("selected payload must be MeshIR")?,
         primary.object.digest().as_hex(),
         &payload.digest,
     )?;
