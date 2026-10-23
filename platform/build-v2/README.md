@@ -608,3 +608,20 @@ retirement and native materialization proof remain separate acceptance work. The
 executor owns admission, sessions, retry, deadlines and cleanup. This slice resolves
 identity closure before target lookup; it does not claim target-first cold discovery
 or activate production v1.
+
+## Plain-Python data op (D1)
+
+`py_data::PyDataSpec` converts unit-family input slot, output class and parameter schemas into a
+validated `validate::OpDefinition` for `op = "py_data"` (version 1). Because `py_data` is a generic
+host-data op, every content input slot, reference slot and parameter name must be declared explicitly;
+allowed output classes are restricted to data classes (`data`, `json_data`, `route_data` and
+`runtime_data`), rejecting mesh and material classes. `py_data_validator_identity` and
+`py_data_worker_identity` bind `PY_DATA_VALIDATOR_VERSION = "atelier-py-data-validator-1"` and the
+real `python_worker.py`/`python_job.py`/helper closure into A3 unit keys.
+
+`py_data::validate_py_data_unit_outputs` validates already frozen `results::StagedSource` snapshots
+(or pre-staged output files via `validate_py_data_outputs`) against the unit's `PreparedUnit`
+contract before B2 publication. It checks validator identity, enforces required vs optional output
+completeness and unexpected-file rejection, verifies that reported file digests and sizes match the
+frozen bytes, and dispatches payload format validation strictly on the declared `OutputClass`
+(`JsonData`, `RouteData`, `RuntimeData` `ATRT\x01` binary tables, and non-empty `Data`).
