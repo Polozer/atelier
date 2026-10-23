@@ -231,8 +231,9 @@ These initial playability receipts did not establish close-up garment quality: l
 torso and seat deformation, which required the additional pass below.
 
 Run the source-library verifier, repository lint, contract checks and focused Python tests for the changed behavior.
-Hosted CI supplies the full-suite result: require a successful `Studio Python / macOS` check on the final PR head
-before merging. Do not repeat the full suite locally; documentation-only changes need no local Python run.
+Hosted CI supplies the full-suite result: require a successful `Studio Python / Linux (macOS deferred)` check on
+the final PR head before merging; macOS coverage is deferred to final validation (owner 2026-10-23). Do not
+repeat the full suite locally; documentation-only changes need no local Python run.
 Follow [the repository rules](../../../AGENTS.md) for integration-failure diagnosis and tests that need local resources.
 Record native validation and screenshots in the review workspace, then request another agent's PR review.
 Generated Unreal Content, exported FBXs and captures stay ignored. The committed GLB with embedded textures is
