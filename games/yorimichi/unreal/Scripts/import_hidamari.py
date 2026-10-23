@@ -19,11 +19,10 @@ only={a for a in asked if not a.endswith('*')}|{n for n in manifest for a in ask
 assert only or not asked,('no Hidamari assets match',sorted(asked))
 north=globals().get('NORTH',True)
 # Hidamari owns the final harbour package. Every world reimport uses the same audited rail opening.
-harbor_source=None
-if 'HD_Harbor' in manifest and (not only or 'HD_Harbor' in only):
-    from regions.hidamari.ferry_source import validated_harbor
-    harbor_source=validated_harbor(yori.OUT,yori.REPO)
-mat=unreal.EditorAssetLibrary.load_asset('/Game/Japan/Materials/M_Village') or material()
+from regions.hidamari.logical_catalogue import ASSETS as ATOMIC_CITY_PARENTS
+assert set(manifest)==set(ATOMIC_CITY_PARENTS),'Incomplete logical city material metadata'
+mat=unreal.EditorAssetLibrary.load_asset('/Game/Japan/Materials/M_Village')
+assert mat,'Build the Village material owner before Hidamari receiving'
 arcade_mat=arcade_material() if not only or any(n.startswith(('HD_Arcade','HD_Plaza','HD_Shop_')) or n in ['HD_ClockHall','HD_Square','HD_Station','HD_Shrine','HD_Park','HD_Streets','HD_CivicGardens'] for n in only) else None
 paving_mat=arcade_material(paving=True) if not only or only & {'HD_ArcadeFloor','HD_PlazaFloor'} else None
 plaza_paving=paving_material() if not only or 'HD_PlazaFloor' in only else None
@@ -119,9 +118,9 @@ for name,entry in manifest.items():
     if (only and name not in only) or (not north and name.startswith('HD_North')):continue
     # Bounded city pieces own these complete surfaces, including collision.
     # Their importer retires old parents only after all pieces have validated.
-    if name in ('HD_Terrain', 'HD_Streets', 'HD_Square', 'HD_CivicGardens', 'HD_Park', 'HD_Harbor'):
+    if name in ATOMIC_CITY_PARENTS:
         continue
-    source=harbor_source if name=='HD_Harbor' else OUT/'assets'/f'{name}.fbx'
+    source=OUT/'assets'/f'{name}.fbx'
     mesh=import_mesh(source,'/Game/Japan/Assets',name,fresh_slots='slots' in entry)
     if name=='HD_NorthGate': selected=gate_mat
     elif name.startswith('HD_NorthRock'): selected=rock_mat
@@ -185,23 +184,6 @@ if (OUT/'props'/'props.json').exists() and (not only or any(n.startswith('HD_P_'
         unreal.EditorAssetLibrary.save_loaded_asset(mesh)
         report[key]={'imported':True,'triangles':props[key]['triangles'],'material':mi.get_path_name()}
         if lods:report[key]['lods']=lods
-if not only or os.environ.get('HIDAMARI_TERRAIN')=='1':
-    from forest_ground import coast_instance,coast_rock_instance
-    coast_rock_instance()
-    # Fresh slots: setup_project's Interchange import is migrated through the village seed, whose one slot
-    # (VillagePalette) would otherwise stay; the terrain's slots are its own (Ground, Road, Sand, ...).
-    mesh=import_mesh(ROOT/'terrain.fbx','/Game/Japan','Terrain',fresh_slots=True)
-    from import_southwest import sand_material
-    sand_material()   # the beach slot; this city pass writes MI_Sand for unreal.world
-    coast_instance()
-    materials=[]
-    for slot in mesh.static_materials:
-        key=str(slot.get_editor_property('imported_material_slot_name')).split('.')[0]
-        mat=unreal.EditorAssetLibrary.load_asset('/Game/Japan/Materials/MI_'+key)
-        assert mat,key
-        materials.append(mat)
-    assign_materials(mesh,materials)
-    mesh.get_editor_property('body_setup').set_editor_property('collision_trace_flag',unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
-    unreal.EditorAssetLibrary.save_loaded_asset(mesh)
+# unreal.island owns terrain/sea receiving and the replacement Slice map.
 (OUT/'import-report.json').write_text(json.dumps(report,indent=2)+'\n')
 unreal.log('HIDAMARI IMPORT COMPLETE')

@@ -6,24 +6,21 @@ other's version and the pair stays local forever. This table names the producer 
 every package that more than one import used to save. The other imports may load
 those packages but must not save them.
 
-`unreal.world` owns all seven. Its city pass imports `terrain.fbx` with fresh slots,
-calls `sand_material` and `coast_instance`, writes `M_Village` through the village
-import, and calls `sea_plane` for the sea plane and `M_Sea`. `unreal.southwest` now
-only places its props with the village material it loads, and `unreal.lake` only
-places the lake's own meshes.
+`unreal.island` owns the final coast, sand, forest-ground and sea shaders.
+`unreal.village` owns its shared village material. The original Terrain and Sea
+mesh parents have been replaced by independently owned island pieces and are
+not current package producers. Other region imports only read these materials.
 
 `duplicate_writers` is the checker the game test runs over this table, so a second
 producer is a test failure rather than a silently shared package.
 """
 
 PRODUCERS = (
-    ('unreal.world', ('/Game/Japan/Terrain',
-                      '/Game/Japan/Assets/Sea',
-                      '/Game/Japan/Materials/MI_Coast',
-                      '/Game/Japan/Materials/MI_Sand',
-                      '/Game/Japan/Materials/M_ForestGround',
-                      '/Game/Japan/Materials/M_Sea',
-                      '/Game/Japan/Materials/M_Village')),
+    ('unreal.island', ('/Game/Japan/Materials/MI_Coast',
+                       '/Game/Japan/Materials/MI_Sand',
+                       '/Game/Japan/Materials/M_ForestGround',
+                       '/Game/Japan/Materials/M_Sea')),
+    ('unreal.village', ('/Game/Japan/Materials/M_Village',)),
 )
 
 

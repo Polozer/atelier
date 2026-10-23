@@ -1,0 +1,123 @@
+"""Production graph declarations keep logical planners and each export independently owned."""
+import importlib.util
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from atelier import build, paths
+
+GAME = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('region_atomic_graph', GAME / 'region_exports.py')
+graph = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(graph)
+
+
+def logical(key='One'):
+    return graph.LogicalAsset(key, GAME / 'world/regions/hidamari/plan_asset.py',
+                              args=('--asset', key, '--city', 'city.json'))
+
+
+def write_plan(out, key, pieces):
+    root = out / 'planned_exports/fixture' / key
+    root.mkdir(parents=True)
+    value = dict(schema=1, parent=key, complete=True, triangle_limit=32768,
+                 source_triangles=sum(count for _, count in pieces),
+                 pieces=[dict(name=name, payload=name + '.npz', triangles=count) for name, count in pieces])
+    (root / 'plan.json').write_text(json.dumps(value))
+    return root
+
+
+def test_cold_recipe_contains_required_planners_not_successful_empty_region(tmp_path):
+    ctx = SimpleNamespace(out=tmp_path)
+    steps = graph.steps(ctx, region='fixture', assets=[logical(), logical('Two')])
+    assert [s.name for s in steps] == ['world.fixture.geometry.One', 'world.fixture.geometry.Two',
+                                       'world.fixture.geometry', 'world.fixture.assembled']
+    assert all(not s.replan and s.cache and s.commands[0].factory_startup and s.commands[0].threads == 3
+               for s in steps[:2])
+    assert steps[-2].replan and steps[-1].needs == ['world.fixture.geometry']
+    assert steps[-2].reads == [s.products[0].name for s in steps[:2]]
+    with pytest.raises(ValueError, match='Missing logical geometry'):
+        steps[-1].commands[0].fn(ctx, None)
+    assert not (tmp_path / 'atomic_regions').exists()
+
+
+def platform_controller(path, checkout):
+    return path.name == 'build.py' and path.is_relative_to(checkout / 'platform/studio/atelier')
+
+
+@pytest.mark.parametrize('checkout_name', ['atelier', 'atomic-worktree'])
+def test_controller_scope_does_not_confuse_checkout_name_with_platform_namespace(tmp_path, checkout_name):
+    checkout = tmp_path / checkout_name
+    assert platform_controller(checkout / 'platform/studio/atelier/build.py', checkout)
+    assert not platform_controller(checkout / 'games/yorimichi/world/regions/hidamari_stable/build.py', checkout)
+
+
+def test_material_capture_and_export_code_are_in_actual_consumers_input_closure(tmp_path):
+    from atelier import mesh_materials
+    helper=Path(mesh_materials.__file__)
+    script=GAME/'world/regions/hidamari_stable/plan_asset.py'
+    write_plan(tmp_path,'One',[('One',12)])
+    steps=graph.steps(SimpleNamespace(out=tmp_path),region='fixture',assets=[graph.LogicalAsset('One',script,suffix='.glb')])
+    planner=next(step for step in steps if step.name=='world.fixture.geometry.One')
+    exporter=next(step for step in steps if step.name=='world.fixture.export.One')
+    assert helper in planner.inputs and helper in exporter.inputs
+    assert not any(platform_controller(path, paths.REPO) for path in planner.inputs)
+
+
+def test_completed_plan_discovers_per_piece_payloads_without_sibling_inputs(tmp_path):
+    write_plan(tmp_path, 'One', [('One_cell_0_0', 12), ('One_cell_1_0', 24)])
+    write_plan(tmp_path, 'Two', [('Two', 6)])
+    ctx = SimpleNamespace(out=tmp_path)
+    steps = graph.steps(ctx, region='fixture', assets=[logical(), logical('Two')])
+    exports = [s for s in steps if '.export.' in s.name]
+    assert len(exports) == 3
+    for step in exports:
+        assert step.cache and len(step.products) == 1
+        payloads = [p for p in step.inputs if p.suffix == '.npz']
+        assert len(payloads) == 1 and payloads[0].stem == step.name.split('.')[-1]
+        assert not step.needs and not step.reads
+        assert step.after == ['world.fixture.geometry']
+    assert steps[-1].reads == [*[s.products[0].name for s in exports], 'fixture.geometry.One', 'fixture.geometry.Two']
+    build.check_modules(steps)
+
+
+@pytest.mark.parametrize('pieces', [[('One', 32769)], [('One', 0)], [('One', 12), ('ONE', 12)]])
+def test_bad_inventory_cannot_admit_unbounded_or_duplicate_exports(tmp_path, pieces):
+    root = write_plan(tmp_path, 'One', pieces)
+    with pytest.raises(ValueError): graph.inventory(root, 'One')
+
+
+def test_changed_inventory_never_silently_assembles_the_old_roster(tmp_path):
+    root = write_plan(tmp_path, 'One', [('One', 12)])
+    ctx = SimpleNamespace(out=tmp_path)
+    steps = graph.steps(ctx, region='fixture', assets=[logical()])
+    value = json.loads((root / 'plan.json').read_text())
+    value['pieces'][0].update(name='New', payload='New.npz')
+    (root / 'plan.json').write_text(json.dumps(value))
+    with pytest.raises(ValueError, match='roster changed'):
+        steps[-1].commands[0].fn(ctx, None)
+    assert not (tmp_path / 'atomic_regions').exists()
+
+
+def test_cold_recipe_does_not_follow_a_link_or_certify_its_missing_plan(tmp_path):
+    target = tmp_path / 'real'; target.mkdir()
+    alias = tmp_path / 'alias'; alias.symlink_to(target, target_is_directory=True)
+    ctx = SimpleNamespace(out=alias)
+    steps = graph.steps(ctx, region='fixture', assets=[logical()])
+    assert not steps[0].verify()
+    assert list(target.iterdir()) == []
+    root = write_plan(target, 'One', [('One', 12)])
+    with pytest.raises(ValueError, match='real directories'):
+        graph.inventory(alias / root.relative_to(target), 'One')
+
+
+def test_logical_constructor_owns_its_complete_auxiliary_terrain_products(tmp_path):
+    product = build.Product('fixture.terrain.final', (tmp_path / 'terrain/One/final.npz',))
+    asset = graph.LogicalAsset('One', GAME / 'world/regions/hidamari/plan_asset.py',
+                              args=('--asset', 'One'), products=(product,))
+    steps = graph.steps(SimpleNamespace(out=tmp_path), region='fixture', assets=[asset])
+    assert steps[0].products[1] == product
+    assert steps[0].products[0].name == 'fixture.geometry.One'
+    build.check_modules(steps)

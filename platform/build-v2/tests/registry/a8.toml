@@ -3,3 +3,43 @@ schema_version = 1
 [[pending]]
 id = "t0.mixed-history"
 task = "A8"
+
+[[scenarios]]
+id = "a8.harness.hand_written_model_adapter_and_clean_rebuild_agree"
+tests = ["atelier-build-v2::harness/hand_written_model_and_adapter_agree_and_clean_rebuild_matches_targets"]
+
+[[scenarios]]
+id = "a8.harness.faulty_adapters_are_caught"
+tests = ["atelier-build-v2::harness/deliberately_faulty_adapters_are_caught"]
+
+[[scenarios]]
+id = "a8.harness.sources_do_not_use_production_decisions"
+tests = ["atelier-build-v2::harness/support_sources_do_not_reference_production_decision_code"]
+
+[[scenarios]]
+id = "a8.harness.identity_is_semantic"
+tests = ["atelier-build-v2::harness/identity_is_semantic_and_does_not_mirror_a_production_byte_format"]
+
+[[scenarios]]
+id = "a8.harness.seeded_sequences_reproduce"
+tests = ["atelier-build-v2::harness/seeded_sequences_match_the_model_and_keep_reproduction_data"]
+
+[[scenarios]]
+id = "h1.model.optional_absence_is_distinct_from_empty"
+tests = ["atelier-build-v2::harness/absent_and_empty_optional_inputs_are_distinct"]
+
+[[scenarios]]
+id = "h1.model.plan_add_and_remove"
+tests = ["atelier-build-v2::harness/plan_add_and_remove_changes_selection_and_removal_intent"]
+
+[[scenarios]]
+id = "h1.model.raw_source_mode_is_ambient_item_mode_is_identity"
+tests = ["atelier-build-v2::harness/raw_source_mode_is_ambient_but_item_member_mode_is_identity"]
+
+[[scenarios]]
+id = "h1.model.planner_roster_preserves_stable_member"
+tests = ["atelier-build-v2::harness/planner_roster_change_preserves_the_stable_member_and_removes_only_dropped_work"]
+
+[[scenarios]]
+id = "h2.snapshot.frozen_inputs_cover_binary_untracked_ignored_and_absent"
+tests = ["atelier-build-v2::harness/snapshot_owns_binary_untracked_ignored_and_absent_inputs"]

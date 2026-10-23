@@ -54,18 +54,24 @@ def registry_build(tmp_path, monkeypatch):
     monkeypatch.setattr(RECIPE, 'WORLD', world)
     out = tmp_path / 'build'
     selector = RECIPE.brinecove_source_step(out)
-    real = RECIPE.brinecove_steps(out)[0]
+    atomic = RECIPE._load_helper_module('registry_fixture_brinecove', RECIPE.GAME / 'brinecove_atomic_build.py')
+    real = next(step for step in atomic.steps(SimpleNamespace(out=out))
+                if step.name == 'world.brinecove.placements')
+    outputs = [path for product in real.products for path in product.paths]
+    model_root = RECIPE.GAME / 'assets/brinecove/models'
+    inputs = [helper if path == original_helper else path for path in real.inputs
+              if not path.is_relative_to(model_root)] + [helper, model, provenance]
     executed = []
 
     def consume(ctx, log):
         # The real launcher passes exactly this declared file, rather than reopening the global library.
         executed.append(json.loads(selector.outputs[0].read_text()))
-        real.outputs[0].parent.mkdir(parents=True, exist_ok=True)
-        for output in real.outputs:
+        outputs[0].parent.mkdir(parents=True, exist_ok=True)
+        for output in outputs:
             output.write_text('consumer output')
 
-    consumer = build.Step(real.name, [build.Call('stand-in export', consume)], inputs=real.inputs,
-                          needs=real.needs, outputs=real.outputs)
+    consumer = build.Step(real.name, [build.Call('stand-in export', consume)], inputs=inputs,
+                          needs=real.needs, outputs=outputs)
     ctx = SimpleNamespace(game='yorimichi', out=out, logs=out / 'logs', stamps=out / 'stamps', uproject=None)
     monkeypatch.setattr(build, 'Context', lambda game: ctx)
     monkeypatch.setattr(build, 'load_recipe', lambda game: SimpleNamespace(steps=lambda context: [selector, consumer]))
@@ -147,8 +153,8 @@ def test_output_identical_craterpark_source_edit_keeps_downstream_fingerprints_a
     steps = {s.name: s for s in RECIPE.steps(ctx)}
     geometry = steps['world.craterpark_geometry']
     assert geometry.cutoff
-    dependents = ('world.hidamari', 'world.layout', 'world.farhills', 'world.map',
-                  'world.craterpark_layout', 'world.craterpark', 'world.gondola_site')
+    dependents = ('world.hidamari.layout_data', 'world.layout', 'world.farhills', 'world.map',
+                  'world.craterpark_layout', 'world.craterpark.inputs', 'world.gondola_site')
     for name in dependents:
         assert 'world.craterpark_geometry' in steps[name].needs, name
 
@@ -201,10 +207,14 @@ def test_output_identical_craterpark_source_edit_keeps_downstream_fingerprints_a
                 != build.fingerprint(step, done_after_changed, _input_bytes=edited_bytes, _tool_identity='fixture')), name
 
 
-def test_megapark_forest_and_plants_inputs_are_narrowed_to_actual_importers(tmp_path):
+def test_legacy_megapark_forest_and_plants_inputs_are_narrowed_to_actual_importers(tmp_path):
     ctx = SimpleNamespace(game='yorimichi', out=tmp_path, uproject=tmp_path / 'Yorimichi.uproject')
     steps = RECIPE.steps(ctx)
     forest = RECIPE.REGIONS / 'megapark' / 'forest.py'
     plants = RECIPE.REGIONS / 'megapark' / 'plants.py'
-    assert {s.name for s in steps if forest in s.inputs} == {'world.layout', 'world.hidamari'}
-    assert {s.name for s in steps if plants in s.inputs} == {'world.megapark', 'world.hidamari'}
+    # Atomic constructors separately declare their complete query implementation
+    # closures. Preserve those declarations while checking the legacy source owners
+    # to which the import filtering applies.
+    legacy = {'world.layout', 'world.hidamari', 'world.megapark'}
+    assert {s.name for s in steps if s.name in legacy and forest in s.inputs} == {'world.layout'}
+    assert {s.name for s in steps if s.name in legacy and plants in s.inputs} == {'world.megapark'}

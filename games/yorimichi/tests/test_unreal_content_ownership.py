@@ -28,9 +28,11 @@ def test_no_shared_package_has_two_writers():
 
 
 def test_the_check_catches_a_second_writer():
-    second = (*owned.PRODUCERS, ('unreal.southwest', ('/Game/Japan/Terrain',)))
-    assert owned.duplicate_writers(second) == {'/Game/Japan/Terrain': ['unreal.world', 'unreal.southwest']}
-    assert owned.writers()['/Game/Japan/Terrain'] == ['unreal.world']
+    second = (*owned.PRODUCERS, ('unreal.southwest', ('/Game/Japan/Materials/M_Sea',)))
+    assert owned.duplicate_writers(second) == {'/Game/Japan/Materials/M_Sea': ['unreal.island', 'unreal.southwest']}
+    assert owned.writers()['/Game/Japan/Materials/M_Sea'] == ['unreal.island']
+    assert owned.owner('/Game/Japan/Terrain') is None
+    assert owned.owner('/Game/Japan/Assets/Sea') is None
 
 
 def test_every_producer_is_a_declared_unreal_step():
@@ -42,13 +44,11 @@ def test_every_producer_is_a_declared_unreal_step():
 def test_the_owner_scripts_write_the_declared_packages():
     """The table follows the code: each package is still created by its declared step."""
     needles = {
-        '/Game/Japan/Terrain': ('import_hidamari.py', "import_mesh(ROOT/'terrain.fbx'"),
-        '/Game/Japan/Assets/Sea': ('setup_project.py', '{"SEA_ONLY": True}'),
-        '/Game/Japan/Materials/MI_Coast': ('import_hidamari.py', 'coast_instance()'),
-        '/Game/Japan/Materials/MI_Sand': ('import_hidamari.py', 'sand_material()'),
-        '/Game/Japan/Materials/M_ForestGround': ('import_hidamari.py', 'coast_instance()'),
-        '/Game/Japan/Materials/M_Sea': ('import_southwest.py', 'sea_material()'),
-        '/Game/Japan/Materials/M_Village': ('setup_project.py', 'import_village.main(terrain=False)'),
+        '/Game/Japan/Materials/MI_Coast': ('import_island_world.py', 'coast_instance(forest)'),
+        '/Game/Japan/Materials/MI_Sand': ('import_island_world.py', 'sand_material()'),
+        '/Game/Japan/Materials/M_ForestGround': ('import_island_world.py', 'forest=material()'),
+        '/Game/Japan/Materials/M_Sea': ('import_island_world.py', 'sea_material()'),
+        '/Game/Japan/Materials/M_Village': ('import_village.py', "path='/Game/Japan/Materials/M_Village'"),
     }
     assert set(needles) == set(owned.writers()), 'the table and these checks must cover the same packages'
     for path, (script, needle) in needles.items():

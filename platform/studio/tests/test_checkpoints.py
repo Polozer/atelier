@@ -231,5 +231,3 @@ def inventoried(ctx, files):
     stamp = dict(fingerprint=build.fingerprint(step, {}), seconds=30., time=1., output_inventory=inventory)
     atomic_json(ctx.stamps / 'world.json', stamp)
     return step
-
-

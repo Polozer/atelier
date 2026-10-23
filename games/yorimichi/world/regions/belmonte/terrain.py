@@ -4,11 +4,12 @@ from functools import lru_cache
 
 import numpy as np
 from belmonte import layout as L, source
+from belmonte.ground_names import VALLEY_CARVED_TILES
+from belmonte.terrain_bounds import OUTER
 from hidamari import layout as H
 from hippodrome.build import Mesh
 import shorelines
 
-OUTER = (L.BOUNDS[0] - L.APRON, L.SOUTH_JOIN, L.BOUNDS[2] + L.APRON, L.BOUNDS[3] + L.APRON)
 # The country runs out to sea NORTH_SHIFT metres further north than it first did, keeping its distance from the valley.
 SEA = 6500. + L.NORTH_SHIFT
 COUNTRY = (-3200., L.SOUTH_JOIN, 3200., SEA)
@@ -73,10 +74,11 @@ def old_backdrop(grid, x, y):
     return result
 
 
-def collar():
+def collar(surface=None):
     """Four stitched strips: every imported rim vertex and outer grid knot retained."""
     mesh = Mesh()
-    points = source.terrain(natural=True).faces.reshape(-1, 3) + L.ORIGIN
+    surface=source.terrain(natural=True) if surface is None else surface
+    points = surface.faces.reshape(-1, 3) + L.ORIGIN
     xs, ys, _ = country_grid()
     inner, outer = L.BOUNDS, OUTER
     # Orient each strip counter-clockwise round the hole; its outward rows then
@@ -95,7 +97,7 @@ def collar():
                                    (knots - olo) / (ohi - olo), np.linspace(0., 1., int(abs(hi - lo) / 10.) + 2)], 0., 1.))
         ix, iy = (lo + u * (hi - lo), np.full_like(u, edge)) if along == 0 else (np.full_like(u, edge), lo + u * (hi - lo))
         ox, oy = (olo + u * (ohi - olo), np.full_like(u, rim)) if along == 0 else (np.full_like(u, rim), olo + u * (ohi - olo))
-        iz = source.terrain(natural=True).height(ix - L.ORIGIN[0], iy - L.ORIGIN[1]) + L.ORIGIN[2]
+        iz = surface.height(ix - L.ORIGIN[0], iy - L.ORIGIN[1]) + L.ORIGIN[2]
         oz = H.north_height(ox, oy, carved=False) if across == 1 and edge == inner[1] else country_profile_height(ox, oy)
         assert np.isfinite(iz).all() and np.isfinite(oz).all(), 'Open Belmonte collar edge'
         previous = None
@@ -133,8 +135,6 @@ def country():
 
 # --- Belmonte valley railway & station tile carving (generated into build/yorimichi/belmonte/glb/) -------------------
 
-VALLEY_CARVED_TILES = frozenset({'SM_BM_BT_Terrain_4_3', 'SM_BM_BT_Terrain_5_2',
-                                 'SM_BM_BT_Terrain_5_3', 'SM_BM_BT_Terrain_6_2'})
 VALLEY_SUBDIV = 3           # 3x3 barycentric split (~1.5 m edges) on non-planar carved triangles
 WALL_FINE = .85             # metres along the overbridge walls and deck ends
 FORECOURT_FINE = .75        # metres along the station forecourt edges
@@ -174,7 +174,7 @@ def _encode_colour(colour):
     return np.column_stack([rgb, 65535 - rgb.sum(1)]).astype('<u2')
 
 
-def _write_glb(path, doc, position, normal, uv, colour, faces):
+def encoded_tile(doc, position, normal, uv, colour, faces):
     blobs, views, accessors = [], [], []
 
     def add(array, component, kind, target, normalized=False, bounds=False):
@@ -201,7 +201,11 @@ def _write_glb(path, doc, position, normal, uv, colour, faces):
     doc['bufferViews'], doc['accessors'] = views, accessors
     binary = b''.join(blobs)
     doc['buffers'] = [dict(byteLength=len(binary))]
-    path.write_bytes(source.glb_pack(doc, binary))
+    return source.glb_pack(doc, binary)
+
+
+def _write_glb(path, doc, position, normal, uv, colour, faces):
+    path.write_bytes(encoded_tile(doc,position,normal,uv,colour,faces))
 
 
 def _repaint(colour, x, y, z, z0, ln):
@@ -474,3 +478,11 @@ def write_carved_valley_tile(source_path, dest_path):
     verts = local_pos.astype(float) @ source.FRAME.T
     lo, hi = verts.min(0), verts.max(0)
     return int(len(faces)), [[float(c) for c in lo], [float(c) for c in hi]], report
+
+
+def carved_valley_data(source_path):
+    """The same final terrain bytes and bounds, before any render mesh export."""
+    doc,local_pos,local_norm,uv,colour,faces,report=carve_valley_tile(source_path)
+    data=encoded_tile(doc,local_pos,local_norm,uv,colour,faces)
+    verts=local_pos.astype(float)@source.FRAME.T
+    return data,int(len(faces)),[verts.min(0).tolist(),verts.max(0).tolist()],report
