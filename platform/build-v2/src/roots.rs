@@ -1000,7 +1000,9 @@ impl RootStore {
     /// `retention_is_readable_under_the_callers_guard`,
     /// `malformed_root_metadata_fails_reads_and_retention_reports_damage` and
     /// `missing_or_unreadable_metadata_is_damage`, including the selected project's own directory
-    /// (`retention_reports_a_missing_selected_project`). A wrong-store guard never certifies a
+    /// (`retention_reports_a_missing_selected_project`) and every other registered project
+    /// (`retention_reports_a_missing_unselected_project`), because a vanished project would hide
+    /// its keys from a store-wide view. A wrong-store guard never certifies a
     /// GC snapshot: `retention_locked` and `roots_locked` MUST refuse it,
     /// see `a_guard_from_another_store_is_refused`.
     pub fn retention_locked(&self, _guard: &MetadataGuard) -> Result<RetentionView, RootError> {
@@ -1018,6 +1020,34 @@ impl RootStore {
         match fs::symlink_metadata(&selected) {
             Ok(metadata) if metadata.is_dir() => {}
             _ => view.damaged.push(selected.display().to_string()),
+        }
+        // A project that was initialized but whose directory is gone hides every key it retained.
+        match read_registry(&self.root) {
+            Ok(Some(registry)) => {
+                for name in registry.projects.keys() {
+                    let path = roots.join(name);
+                    match fs::symlink_metadata(&path) {
+                        Ok(metadata) if metadata.is_dir() => {}
+                        _ => view.damaged.push(path.display().to_string()),
+                    }
+                }
+            }
+            Ok(None) => {
+                let mut any = false;
+                for entry in fs::read_dir(&roots)? {
+                    if entry.is_ok() {
+                        any = true;
+                        break;
+                    }
+                }
+                if any {
+                    view.damaged
+                        .push(registry_path(&self.root).display().to_string());
+                }
+            }
+            Err(_) => view
+                .damaged
+                .push(registry_path(&self.root).display().to_string()),
         }
         for project in fs::read_dir(&roots)? {
             let project = match project {

@@ -1164,6 +1164,23 @@ fn retention_reports_a_missing_selected_project() {
 }
 
 #[test]
+fn retention_reports_a_missing_unselected_project() {
+    let workspace = Workspace::new();
+    let alpha = workspace.open("alpha");
+    let beta = workspace.open("beta");
+    let mut session = begin(&beta, RootKind::Main, "beta", 1);
+    session.use_result("unit.beta", &key(2)).unwrap();
+    session.commit(None).unwrap();
+    fs::remove_dir_all(workspace.project_dir("beta")).unwrap();
+
+    let view = alpha.retention().unwrap();
+    assert!(
+        !view.damaged.is_empty(),
+        "another project's lost directory must not certify a clean store-wide view"
+    );
+}
+
+#[test]
 fn a_fresh_open_of_a_deleted_project_is_damage() {
     let workspace = Workspace::new();
     let store = workspace.open("yorimichi");

@@ -172,6 +172,11 @@ tests = ["atelier-build-v2::roots/a_fresh_open_of_a_deleted_project_is_damage"]
 tier = "t0"
 
 [[scenarios]]
+id = "b4.roots.retention_reports_a_missing_unselected_project"
+tests = ["atelier-build-v2::roots/retention_reports_a_missing_unselected_project"]
+tier = "t0"
+
+[[scenarios]]
 id = "b4.roots.a_fresh_open_after_roots_is_deleted_is_damage"
 tests = ["atelier-build-v2::roots/a_fresh_open_after_roots_is_deleted_is_damage"]
 tier = "t0"
