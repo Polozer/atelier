@@ -28,7 +28,11 @@ The piece entry script calls `blender_ops.run_export_piece(context)`. Its sole c
 `payload_encoding=mesh_ir`, `payload_role=geometry`, `format=fbx`, and optional per-piece `options`
 and `seed`. Declare one store-only `StaticMeshSource` Item named for the payload asset, with
 exactly required `<asset>.fbx` and `export.json`. Selection, format and fixed ownership options
-cannot be overridden. Scene batching or copied media is refused. Consumer decoding restores
+cannot be overridden. Manifest and member fields are closed, with duplicate-field refusal over
+the exact frozen manifest bytes. Payload and per-piece FBX settings use a small typed allowlist;
+unknown keys, nested option objects, nonfinite values, invalid enums and non-boolean flags refuse
+before native creation/export or producer completion. `global_scale` is explicitly bounded to
+0.001–1000; captured world color must be three finite values within 0–1. Scene batching or copied media is refused. Consumer decoding restores
 ordered topology, corner normals, all UV/color channels and roles, material tables, transforms
 and explicit collision through the existing decoder/mesh helpers and deterministic FBX exporter.
 No sibling, planner input key, roster, source history or absolute checkout path enters this child.

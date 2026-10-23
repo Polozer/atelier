@@ -285,15 +285,41 @@ fn piece_contract_refuses_broad_extra_inputs_wrong_roles_formats_and_incomplete_
 }
 
 fn plan_metadata() -> serde_json::Value {
-    serde_json::json!({"source_polygons":2,"source_collision_hulls":1,"collision_owner":"Whole_A","partition":"logical",
-        "parent":"Whole","slots":["One","Two"],"matrix":[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
-        "pieces":[{"name":"Whole_A","polygons":1,"source_faces":[0],"slots":["One"],"source_material_indices":[0],"min":[0,0,0],"max":[1,1,0]},
-                  {"name":"Whole_B","polygons":1,"source_faces":[1],"slots":["Two"],"source_material_indices":[1],"min":[2,0,0],"max":[3,1,0]}]})
+    serde_json::json!({"schema":1,"parent":"Whole","complete":true,"triangle_limit":32768,"source_triangles":2,
+        "source_polygons":2,"source_collision_hulls":1,"collision_owner":"Whole_A","partition":"logical",
+        "slots":["One","Two"],"matrix":[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+        "pieces":[{"name":"Whole_A","payload":"Whole_A.npz","sha256":sha256(b"A"),"triangles":1,"collision_hulls":1,
+            "polygons":1,"source_faces":[0],"slots":["One"],"source_material_indices":[0],"min":[0,0,0],"max":[1,1,0]},
+            {"name":"Whole_B","payload":"Whole_B.npz","sha256":sha256(b"B"),"triangles":1,"collision_hulls":0,
+            "polygons":1,"source_faces":[1],"slots":["Two"],"source_material_indices":[1],"min":[2,0,0],"max":[3,1,0]}]})
 }
 
 #[test]
 fn frozen_metadata_conserves_faces_material_mapping_collision_owner_and_finite_bounds() {
     let value = plan_metadata();
+    let raw = serde_json::to_vec(&value).unwrap();
+    parse_blender_plan_metadata(&raw, 1024 * 1024).unwrap();
+    let text = String::from_utf8(raw).unwrap();
+    for (from, to) in [
+        ("\"schema\":1", "\"schema\":1,\"schema\":1"),
+        (
+            "\"name\":\"Whole_A\"",
+            "\"name\":\"Whole_A\",\"name\":\"Whole_A\"",
+        ),
+    ] {
+        assert!(
+            parse_blender_plan_metadata(text.replacen(from, to, 1).as_bytes(), 1024 * 1024)
+                .is_err()
+        );
+    }
+    for field in ["unknown", "role"] {
+        let mut bad = value.clone();
+        bad["pieces"][0][field] = "collision".into();
+        assert!(validate_plan_metadata(&bad).is_err());
+    }
+    let mut bad = value.clone();
+    bad["unknown_policy"] = true.into();
+    assert!(validate_plan_metadata(&bad).is_err());
     validate_plan_metadata(&value).unwrap();
     for fault in 0..5 {
         let mut broken = value.clone();

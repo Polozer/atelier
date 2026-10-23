@@ -18,6 +18,48 @@ MAX_RECEIPT_BYTES = 1024 * 1024
 FBX_HEADER = b'Kaydara FBX Binary  \x00\x1a\x00'
 
 
+PLAN_FIELDS = frozenset(('schema', 'parent', 'complete', 'triangle_limit', 'partition',
+                         'source_triangles', 'source_polygons', 'source_collision_hulls',
+                         'collision_owner', 'slots', 'matrix', 'pieces'))
+MEMBER_FIELDS = frozenset(('name', 'payload', 'sha256', 'triangles', 'polygons', 'source_faces',
+                           'min', 'max', 'collision_hulls', 'slots', 'source_material_indices'))
+OPTION_BOOLEANS = frozenset(('apply_unit_scale', 'use_space_transform', 'bake_space_transform',
+                            'use_mesh_modifiers', 'use_mesh_modifiers_render', 'use_subsurf',
+                            'use_mesh_edges', 'use_tspace', 'use_triangles', 'use_custom_props'))
+OPTION_ENUMS = dict(apply_scale_options={'FBX_SCALE_NONE', 'FBX_SCALE_UNITS', 'FBX_SCALE_CUSTOM', 'FBX_SCALE_ALL'},
+                    axis_forward={'X', 'Y', 'Z', '-X', '-Y', '-Z'}, axis_up={'X', 'Y', 'Z', '-X', '-Y', '-Z'},
+                    mesh_smooth_type={'OFF', 'FACE', 'EDGE'}, colors_type={'NONE', 'SRGB', 'LINEAR'},
+                    path_mode={'RELATIVE'}, batch_mode={'OFF'})
+
+
+def validate_mesh_options(options):
+    """Admit only this route's typed finite settings before producer completion/native work."""
+    if not hasattr(options, 'items'):
+        raise ValueError('Export options must be an explicit object')
+    result = dict(options)
+    for key, value in result.items():
+        if key in OPTION_BOOLEANS:
+            valid = type(value) is bool
+        elif key in OPTION_ENUMS:
+            valid = type(value) is str and value in OPTION_ENUMS[key]
+        elif key == 'global_scale':
+            valid = type(value) in (int, float) and 0.001 <= value <= 1000 and math.isfinite(value)
+        elif key == 'triangle_limit':
+            valid = type(value) is int and 1 <= value <= TRIANGLE_LIMIT
+        elif key == 'scene_world_color':
+            valid = (isinstance(value, (list, tuple)) and len(value) == 3
+                     and all(type(v) in (int, float) and 0 <= v <= 1 and math.isfinite(v) for v in value))
+        elif key == 'use_batch_own_dir':
+            valid = value is False
+        else:
+            valid = False
+        if not valid:
+            raise ValueError('Unsupported, mistyped or nonfinite export option: ' + str(key))
+    if 'axis_forward' in result and 'axis_up' in result and result['axis_forward'][-1] == result['axis_up'][-1]:
+        raise ValueError('Export forward/up axes must be independent')
+    return result
+
+
 def mesh_facts(payload, *, expected_asset=None):
     """Decode the existing MeshIR, including its collision/material/channel validation.
 
@@ -32,6 +74,7 @@ def decode_mesh_payload(payload, *, expected_asset=None):
     meta, piece = mesh_ir.decode(payload)
     if meta['schema'] != 2:
         raise ValueError('This FBX slice refuses material-graph payloads; their GLB route is pending')
+    validate_mesh_options(meta['options'])
     if expected_asset is not None and meta['asset'] != name(expected_asset):
         raise ValueError('Selected payload belongs to another piece')
     positions = piece['positions'] @ np.asarray(meta['matrix'])[:3, :3].T + np.asarray(meta['matrix'])[:3, 3]

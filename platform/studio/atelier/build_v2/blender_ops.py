@@ -6,11 +6,12 @@ GLB routes are explicitly pending. Nothing here imports a v1 build/cache control
 """
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 
 from atelier import mesh_ir, mesh_collision
 from atelier.export_manifest import TRIANGLE_LIMIT, name
-from .blender_validate import MAX_RECEIPT_BYTES, decode_mesh_payload, mesh_facts, validate_member_row, validate_export_receipt
+from .blender_validate import MAX_RECEIPT_BYTES, PLAN_FIELDS, MEMBER_FIELDS, decode_mesh_payload, mesh_facts, validate_member_row, validate_export_receipt, validate_mesh_options
 
 
 def _json(raw):
@@ -48,11 +49,21 @@ def verify_plan(root, *, parent, limits):
     if not manifest_path.is_file() or manifest_path.stat().st_size > limits['max_manifest_bytes']:
         raise ValueError('Missing or oversized plan manifest')
     manifest = _json(manifest_path.read_bytes())
-    if (type(manifest) is not dict or type(manifest.get('schema')) is not int or manifest['schema'] != 1
+    if (type(manifest) is not dict or set(manifest) != PLAN_FIELDS or type(manifest.get('schema')) is not int or manifest['schema'] != 1
             or 'kind' in manifest or manifest.get('complete') is not True
             or manifest.get('parent') != name(parent) or manifest.get('triangle_limit') != TRIANGLE_LIMIT
             or manifest.get('partition') not in ('whole', 'spatial', 'logical')):
         raise ValueError('Unsupported or incomplete MeshIR plan')
+    if (type(manifest['source_triangles']) is not int or manifest['source_triangles'] <= 0
+            or type(manifest['source_collision_hulls']) is not int or manifest['source_collision_hulls'] < 0
+            or (manifest['collision_owner'] is not None and type(manifest['collision_owner']) is not str)
+            or not isinstance(manifest['slots'], list) or not manifest['slots']
+            or any(type(slot) is not str or not slot for slot in manifest['slots'])
+            or not isinstance(manifest['matrix'], list) or len(manifest['matrix']) != 4
+            or any(not isinstance(row, list) or len(row) != 4
+                   or any(type(v) not in (int, float) or not math.isfinite(v) for v in row)
+                   for row in manifest['matrix'])):
+        raise ValueError('Mistyped source plan metadata')
     rows = manifest.get('pieces')
     if not isinstance(rows, list) or not 0 < len(rows) <= limits['max_pieces']:
         raise ValueError('Invalid plan piece count')
@@ -63,8 +74,17 @@ def verify_plan(root, *, parent, limits):
     if type(source_polygons) is not int or source_polygons <= 0:
         raise ValueError('Missing complete source polygon inventory')
     for row in rows:
-        if type(row) is not dict:
+        if type(row) is not dict or set(row) != MEMBER_FIELDS:
             raise ValueError('Invalid plan member')
+        if (any(type(row[field]) is not int or row[field] < minimum
+                for field, minimum in [('triangles', 1), ('polygons', 1), ('collision_hulls', 0)])
+                or any(not isinstance(row[field], list) or len(row[field]) != 3
+                       or any(type(v) not in (int, float) or not math.isfinite(v) for v in row[field])
+                       for field in ('min', 'max'))
+                or not isinstance(row['slots'], list) or not row['slots']
+                or any(type(slot) is not str or not slot for slot in row['slots'])
+                or not isinstance(row['source_material_indices'], list)):
+            raise ValueError('Mistyped piece metadata')
         asset = name(row.get('name'))
         if asset.casefold() in names:
             raise ValueError('Aliased plan identity')
@@ -170,7 +190,8 @@ def run_export_piece(context):
     asset = name(meta['asset'])
     if member != asset + '.npz' or set(context.outputs) != {asset + '.fbx', 'export.json'}:
         raise ValueError('Selected member and complete export outputs differ')
-    _export_mesh(asset, meta, piece, context.output(asset + '.fbx'), context.params.get('options', {}))
+    options = export_options(meta['options'], context.params.get('options', {}))
+    _export_mesh(asset, meta, piece, context.output(asset + '.fbx'), options)
     verify_emitted_fbx(context.output(asset + '.fbx'), expected_meshes=1 + len(meta['collisions']))
     primary = context.output(asset + '.fbx').read_bytes()
     primary_digest = hashlib.sha256(primary).hexdigest()
@@ -254,11 +275,11 @@ def export_options(payload_options, declared_options):
     """Per-piece settings may not widen the fixed export ownership or enable another format."""
     if not hasattr(payload_options, 'items') or not hasattr(declared_options, 'items'):
         raise ValueError('Export options must be explicit objects')
-    actual = dict(payload_options)
-    actual.update(dict(declared_options))
+    actual = validate_mesh_options(payload_options)
+    actual.update(validate_mesh_options(declared_options))
     if any(key in actual for key in ('filepath', 'use_selection', 'object_types', 'bake_anim')):
         raise ValueError('Export options cannot override fixed selected-mesh ownership')
     if (actual.get('path_mode', 'RELATIVE') != 'RELATIVE'
             or actual.get('batch_mode', 'OFF') != 'OFF' or actual.get('use_batch_own_dir', False) is not False):
         raise ValueError('This FBX slice supports one relative-media primary, not batched/copied resources')
-    return actual
+    return validate_mesh_options(actual)

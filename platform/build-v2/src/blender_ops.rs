@@ -381,8 +381,96 @@ fn strings(value: &Value) -> bool {
     })
 }
 
+const PLAN_FIELDS: [&str; 12] = [
+    "schema",
+    "parent",
+    "complete",
+    "triangle_limit",
+    "partition",
+    "source_triangles",
+    "source_polygons",
+    "source_collision_hulls",
+    "collision_owner",
+    "slots",
+    "matrix",
+    "pieces",
+];
+const MEMBER_FIELDS: [&str; 11] = [
+    "name",
+    "payload",
+    "sha256",
+    "triangles",
+    "polygons",
+    "source_faces",
+    "min",
+    "max",
+    "collision_hulls",
+    "slots",
+    "source_material_indices",
+];
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct PlanWire {
+    schema: u32,
+    parent: String,
+    complete: bool,
+    triangle_limit: u64,
+    partition: String,
+    source_triangles: u64,
+    source_polygons: u64,
+    source_collision_hulls: u64,
+    collision_owner: Option<String>,
+    slots: Vec<String>,
+    matrix: [[f64; 4]; 4],
+    pieces: Vec<PlanMemberWire>,
+}
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct PlanMemberWire {
+    name: String,
+    payload: String,
+    sha256: String,
+    triangles: u64,
+    polygons: u64,
+    source_faces: Vec<u64>,
+    min: [f64; 3],
+    max: [f64; 3],
+    collision_hulls: u64,
+    slots: Vec<String>,
+    source_material_indices: Vec<u64>,
+}
+
+/// D2's closed metadata schema and duplicate-field refusal over exact frozen manifest bytes.
+/// This parses discovery metadata only, not another mesh IR or payload decoder.
+pub fn parse_blender_plan_metadata(raw: &[u8], max_bytes: u64) -> Result<Value, String> {
+    if raw.len() as u64 > max_bytes {
+        return Err("plan manifest byte bound exceeded".into());
+    }
+    let value: Value = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
+    validate_plan_metadata(&value)?;
+    let _: PlanWire = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
+    Ok(value)
+}
+
 /// Metadata checks only. Geometry semantics are verified by the keyed in-job producer/consumer.
 pub fn validate_plan_metadata(raw: &Value) -> Result<(), String> {
+    let fields: BTreeSet<_> = raw
+        .as_object()
+        .ok_or("plan must be an object")?
+        .keys()
+        .map(String::as_str)
+        .collect();
+    if fields != BTreeSet::from(PLAN_FIELDS)
+        || unsigned(raw, "schema")? != 1
+        || raw["complete"] != true
+        || unsigned(raw, "triangle_limit")? != 32768
+        || unsigned(raw, "source_triangles")? == 0
+    {
+        return Err("unknown, missing or unsupported D2 plan fields".into());
+    }
     let polygons = unsigned(raw, "source_polygons")?;
     if polygons == 0
         || !strings(&raw["slots"])
@@ -399,6 +487,18 @@ pub fn validate_plan_metadata(raw: &Value) -> Result<(), String> {
     let mut owned = BTreeSet::new();
     let mut total = 0u64;
     for row in rows {
+        let fields: BTreeSet<_> = row
+            .as_object()
+            .ok_or("member must be an object")?
+            .keys()
+            .map(String::as_str)
+            .collect();
+        if fields != BTreeSet::from(MEMBER_FIELDS)
+            || unsigned(row, "triangles")? == 0
+            || unsigned(row, "collision_hulls").is_err()
+        {
+            return Err("unknown, missing or unsupported D2 member fields/role".into());
+        }
         if !vector(&row["min"], 3)
             || !vector(&row["max"], 3)
             || row["min"]
@@ -487,7 +587,24 @@ pub fn validate_blender_plan_outputs(
         {
             return Err("plan data members must not be executable".into());
         }
-        validate_plan_metadata(roster.raw())
+        let manifest = objects
+            .get(&spec.group.manifest)
+            .ok_or("missing frozen manifest")?;
+        let mut bytes = Vec::new();
+        manifest
+            .reader()
+            .map_err(|e| e.to_string())?
+            .take(spec.group.max_manifest_bytes)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() as u64 != manifest.size() {
+            return Err("frozen manifest size differs".into());
+        }
+        let strict = parse_blender_plan_metadata(&bytes, spec.group.max_manifest_bytes)?;
+        if &strict != roster.raw() {
+            return Err("frozen metadata views differ".into());
+        }
+        Ok(())
     })
 }
 

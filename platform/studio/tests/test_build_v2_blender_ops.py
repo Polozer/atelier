@@ -1,5 +1,6 @@
 """Portable D2 decoder/ownership/failure checks; no Blender export fidelity claim."""
 import hashlib
+import io
 import json
 import os
 import runpy
@@ -242,3 +243,72 @@ def test_plan_refuses_hardlinked_owned_names(tmp_path):
     with pytest.raises(ValueError, match='link'):
         ops.verify_plan(root, parent='Whole', limits=LIMITS)
     assert outside.read_bytes() == (root / 'Whole_A.npz').read_bytes()
+
+
+@pytest.mark.parametrize('fault', ['unknown_envelope', 'unknown_member', 'role', 'duplicate_envelope', 'duplicate_member', 'mistyped_member', 'mistyped_frame'])
+def test_producer_closes_metadata_schema_and_refuses_duplicate_keys(tmp_path, fault):
+    root, manifest = planned(tmp_path)
+    if fault == 'unknown_envelope':
+        manifest['new_policy'] = True
+    elif fault in ('unknown_member', 'role'):
+        manifest['pieces'][0]['role' if fault == 'role' else 'new_policy'] = 'collision'
+    elif fault == 'mistyped_member':
+        manifest['pieces'][0]['triangles'] = True
+    elif fault == 'mistyped_frame':
+        manifest['matrix'][0][0] = True
+    raw = json.dumps(manifest, separators=(',', ':'))
+    if fault == 'duplicate_envelope':
+        raw = raw.replace('"schema":1', '"schema":1,"schema":1', 1)
+    elif fault == 'duplicate_member':
+        raw = raw.replace('"name":"Whole_A"', '"name":"Whole_A","name":"Whole_A"', 1)
+    (root / 'plan.json').write_text(raw)
+    with pytest.raises(ValueError):
+        ops.verify_plan(root, parent='Whole', limits=LIMITS)
+
+
+@pytest.mark.parametrize('literal', ['NaN', 'Infinity', '-Infinity', '1e999', '{}', '[]', 'true', '"bad"'])
+def test_payload_options_refuse_before_producer_completion_or_consumer_export(tmp_path, monkeypatch, literal):
+    root, manifest = planned(tmp_path)
+    with np.load(io.BytesIO((root / 'Whole_A.npz').read_bytes()), allow_pickle=False) as saved:
+        arrays = {key: saved[key] for key in saved.files}
+    meta = json.loads(arrays['metadata'].tobytes())
+    meta['options'] = dict(global_scale=0)
+    raw_meta = json.dumps(meta).replace('"global_scale": 0', '"global_scale": ' + literal)
+    arrays['metadata'] = np.frombuffer(raw_meta.encode(), dtype=np.uint8)
+    stream = io.BytesIO()
+    np.savez_compressed(stream, **arrays)
+    raw = stream.getvalue()
+    (root / 'Whole_A.npz').write_bytes(raw)
+    manifest['pieces'][0]['sha256'] = hashlib.sha256(raw).hexdigest()
+    (root / 'plan.json').write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match='option'):
+        ops.verify_plan(root, parent='Whole', limits=LIMITS)
+    (root / 'Whole_B.npz').unlink()
+    (root / 'plan.json').unlink()
+    calls = []
+    monkeypatch.setattr(ops, '_export_mesh', lambda *_args, **_kwargs: calls.append('export'))
+    context = SimpleNamespace(params=dict(format='fbx', payload_encoding='mesh_ir', payload_role='geometry',
+                                          payload_member='Whole_A.npz'), inputs={'payload': root},
+                              outputs=['Whole_A.fbx', 'export.json'], output=lambda name: tmp_path / name)
+    with pytest.raises(ValueError, match='option'):
+        ops.run_export_piece(context)
+    assert calls == [] and not (tmp_path / 'export.json').exists()
+
+
+def test_declared_piece_options_refuse_before_exporter_and_have_finite_typed_bounds(tmp_path, monkeypatch):
+    root, _manifest = planned(tmp_path)
+    (root / 'Whole_B.npz').unlink()
+    (root / 'plan.json').unlink()
+    calls = []
+    monkeypatch.setattr(ops, '_export_mesh', lambda *_args, **_kwargs: calls.append('export'))
+    context = SimpleNamespace(params=dict(format='fbx', payload_encoding='mesh_ir', payload_role='geometry',
+                                          payload_member='Whole_A.npz'), inputs={'payload': root},
+                              outputs=['Whole_A.fbx', 'export.json'], output=lambda name: tmp_path / name)
+    for options in [dict(global_scale=float('nan')), dict(global_scale=float('inf')), dict(global_scale=1e300),
+                    dict(global_scale=10**1000), dict(apply_unit_scale=1), dict(global_scale=True),
+                    dict(new_export_policy={}), dict(scene_world_color=[0, 0, float('inf')])]:
+        context.params['options'] = options
+        with pytest.raises(ValueError, match='option'):
+            ops.run_export_piece(context)
+    assert calls == []
+    assert ops.export_options(dict(global_scale=1), dict(global_scale=0.001))['global_scale'] == 0.001
