@@ -717,5 +717,27 @@ and dependencies remain platform context. `python_executor` uses C5b's existing 
 production dispatch until actual custodian registration is available; its scripted-bridge constructor
 exists only in test builds. Scripted admission cannot prove real guarded batching or cleanup custody.
 
-This unused checkpoint includes real sandbox/I/O T1a cases and independent-harness integration. Dynamic cold targets, conditional regeneration of unavailable recorded payloads,
+This unused checkpoint includes real sandbox/I/O T1a cases and independent-harness integration.
+Dynamic cold targets, conditional regeneration of unavailable recorded payloads,
 cross-process retirement, A6 fencing, resident guarded batching and I1 caller activation remain pending.
+
+## Cleanup policy facts (B5 first slice)
+
+`cleanup::plan_catalog` analyzes caller-supplied metadata facts without filesystem access or a
+mutation API. It validates every supplied reference, accounts for shared CAS payload bytes once,
+protects roots/lease sets/recent or unknown observations and their producer closure, and proposes
+oldest currently eligible result removals. A producer stays while a remaining consumer refers to
+it. Cyclic closure is conservatively retained; missing producer metadata refuses a plan. Missing
+payloads are reported as missing, without inventing availability or byte counts.
+
+Age is a durable use/grace observation's conservative upper bound; payload mtime and production
+provenance are not last use. Unknown and future observations retain. A single absolute deadline
+covers all fact validation/planning and returns no partial plan on expiry. The explicit byte target
+is a logical unique CAS budget; physical APFS space freed is unmeasured. Unresolved pre-publication
+lease keys conservatively fence proposals, rather than being guessed to have no upstreams.
+
+This pure plan is diagnostic, not filesystem snapshot/deletion authority. Raw metadata acquisition,
+B4/B4b usage retention, the sole `roots::may_reclaim` adapter, same-store custody, actual unlink/fault
+handling, the restore/GC race, CLI wiring and physical free-space proof remain separate. No shared
+store cleanup or production activation is added. All nine registered pure cases remain T0; the
+pending `t0.restore-gc-race` row is retained.
