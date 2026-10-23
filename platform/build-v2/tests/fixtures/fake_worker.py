@@ -74,9 +74,9 @@ def main(scenario, request_fd, response_fd):
             os._exit(3)
         if scenario == 'wrong_job_id':
             return drain()
-        if protocol.encode_payload(protocol.REQUEST, request) != payload:
+        if protocol.decode_payload(protocol.REQUEST, protocol.encode_payload(protocol.REQUEST, request)) != request:
             send({'type': 'failed', 'job_id': job_id,
-                  'failure': {'kind': 'protocol', 'message': 'Python re-encoding differs from the received bytes'}})
+                  'failure': {'kind': 'protocol', 'message': 'Python re-encoding changed the decoded request'}})
             continue
         if job['params'].get('fixture') == 'await_cancel':
             follow, _ = receive()

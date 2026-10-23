@@ -1,5 +1,5 @@
 {
- "about": "Protocol v1 frames shared by tests/worker_session.rs and platform/studio/tests/test_build_v2_protocol.py. A vector concatenates its chunks (hex bytes or UTF-8 text). Reading frames of the given kind yields messages in order (opaque_messages more are only checked canonically, being too deep to embed); then the next read is a clean end (error null) or fails with the named error (invalid: Rust InvalidData, truncated: UnexpectedEof). Canonical vectors are also the exact bytes that both encoders write for those messages. reencoded, when present, is the exact text both encoders write for a non-canonical input. Regenerate with generate_protocol_v1.py.",
+ "about": "Protocol v1 frames shared by tests/worker_session.rs and platform/studio/tests/test_build_v2_protocol.py. A vector concatenates its chunks (hex bytes or UTF-8 text). Reading frames of the given kind yields messages in order (opaque_messages more are only checked canonically, being too deep to embed); then the next read is a clean end (error null) or fails with the named error (invalid: Rust InvalidData, truncated: UnexpectedEof). Canonical vectors are also the exact bytes Rust writes for those messages; Python checks decoded values only (no consumer needs identical text). Regenerate with generate_protocol_v1.py.",
  "vectors": [
   {
    "name": "empty_stream_is_clean_eof",
@@ -292,15 +292,7 @@
     }
    ],
    "error": null,
-   "canonical": false,
-   "reencoded": [
-    {
-     "hex": "000000e8"
-    },
-    {
-     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":{\"kind\":\"k\",\"version\":\"1\"},\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[],\"params\":{\"x\":-0.0},\"outputs\":[{\"path\":\"o.json\",\"required\":true}]}}}"
-    }
-   ]
+   "canonical": false
   },
   {
    "name": "nesting_depth_127_is_accepted",

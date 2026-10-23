@@ -564,12 +564,8 @@ fn unframeable_requests_are_not_sent_and_write_failures_break_the_session() {
 }
 
 fn vector_bytes(vector: &Value) -> Vec<u8> {
-    chunk_bytes(&vector["chunks"])
-}
-
-fn chunk_bytes(chunks: &Value) -> Vec<u8> {
     let mut bytes = vec![];
-    for chunk in chunks.as_array().unwrap() {
+    for chunk in vector["chunks"].as_array().unwrap() {
         if let Some(hex) = chunk.get("hex") {
             let hex = hex.as_str().unwrap();
             for index in (0..hex.len()).step_by(2) {
@@ -636,11 +632,13 @@ fn check_vector<T: DeserializeOwned + Serialize + PartialEq + Debug>(vector: &Va
         if canonical {
             assert_eq!(encoded, bytes, "{name}: Rust encoding differs");
         }
-        if let Some(reencoded) = vector.get("reencoded") {
+        // Rust's own encoding decodes back to equal values; canonical vectors pin Rust's text.
+        let mut again = Cursor::new(&encoded);
+        for message in &decoded {
             assert_eq!(
-                encoded,
-                chunk_bytes(reencoded),
-                "{name}: Rust re-encoding differs"
+                read_frame::<_, T>(&mut again).unwrap().as_ref(),
+                Some(message),
+                "{name}"
             );
         }
     }

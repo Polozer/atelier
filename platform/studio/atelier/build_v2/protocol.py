@@ -5,16 +5,16 @@ length followed by a UTF-8 JSON envelope `{"version":1,"message":{...}}` of at m
 plain dicts in the Rust shapes. The frames travel on a dedicated pipe; stdout and stderr stay logs.
 Message ordering belongs to the controller session (`platform/build-v2/src/worker_session.rs`).
 
-Decoding is at least as strict as the Rust reader. Python additionally refuses duplicate keys anywhere and
-integers outside the 64-bit range, which Rust would keep only lossily. Encoding validates first and writes
-the Rust byte form: compact JSON, fields in declaration order, params keys sorted, non-ASCII unescaped.
-Floats use Rust's shortest round-trip text and its layout (`1e-7`, `0.00001`, `1e+16`, `100.0`).
+Decoding is at least as strict as the Rust reader: duplicate keys, positional records, unknown or
+missing fields, wrong types and versions fail. Python also refuses integers outside the 64-bit range,
+which Rust would keep only lossily. Interoperability means equal decoded values, not identical JSON
+text: nothing consumes the wire bytes as an identity (cache keys are computed in Rust from typed
+values), so encoding is plain compact stdlib JSON of the validated message.
 
 Only the standard library is used, so a worker interpreter can load this file by path.
 """
 from __future__ import annotations
 
-from decimal import Decimal
 import json
 import math
 import struct
@@ -101,8 +101,7 @@ def _value(value, where):
     if isinstance(value, list):
         return [_value(item, where) for item in value]
     if isinstance(value, dict):
-        keys = sorted(_str(key, where) for key in value)
-        return {key: _value(value[key], where) for key in keys}
+        return {_str(key, where): _value(item, where) for key, item in value.items()}
     _fail(where, f'unsupported value {type(value).__name__}')
 
 
@@ -192,8 +191,9 @@ def validate(kind, message):
     """@cc [owner:fontanierh,label:correctness] build-v2-python-message-parity
     Python MUST accept a request or response only in a shape Rust's protocol.rs also accepts,
     refusing unknown, missing, duplicate and wrongly typed fields (bool is not an integer) and
-    unknown tags. It MUST return the normalized message Rust would decode, in Rust field order,
-    so that re-encoding reproduces Rust's bytes. tests/vectors/protocol_v1.json is shared with Rust.
+    unknown tags. It MUST return the values Rust would decode (defaults filled, `-0` as -0.0).
+    Byte-identical re-encoding is deliberately not required: no key, digest or comparison consumes
+    wire text. tests/vectors/protocol_v1.json is shared with Rust as decoded-value vectors.
     """
     if kind == REQUEST:
         return _request(message)
@@ -263,42 +263,12 @@ def decode_payload(kind, payload):
     return validate(kind, document['message'])
 
 
-def _float_text(value):
-    """serde_json's float text: the shortest round-trip digits (Python's repr), laid out as Rust does."""
-    sign = '-' if math.copysign(1.0, value) < 0 else ''
-    if value == 0:
-        return sign + '0.0'
-    _, digit_tuple, exponent = Decimal(repr(abs(value))).as_tuple()
-    digits = ''.join(map(str, digit_tuple)).rstrip('0')
-    exponent += len(digit_tuple) - len(digits)
-    point = len(digits) + exponent - 1  # decimal exponent of the leading digit
-    if -5 <= point <= 15:
-        if len(digits) - 1 <= point:
-            return sign + digits + '0' * (point + 1 - len(digits)) + '.0'
-        if point >= 0:
-            return sign + digits[:point + 1] + '.' + digits[point + 1:]
-        return sign + '0.' + '0' * (-point - 1) + digits
-    mantissa = digits[0] + ('.' + digits[1:] if len(digits) > 1 else '')
-    return f'{sign}{mantissa}e{"+" if point >= 0 else "-"}{abs(point)}'
-
-
-def _json(value):
-    """Compact JSON in insertion order with Rust's string escapes and float text."""
-    if isinstance(value, dict):
-        return '{' + ','.join(f'{_json(key)}:{_json(item)}' for key, item in value.items()) + '}'
-    if isinstance(value, list):
-        return '[' + ','.join(_json(item) for item in value) + ']'
-    if isinstance(value, float):
-        return _float_text(value)
-    return json.dumps(value, ensure_ascii=False)
-
-
 def encode_payload(kind, message):
-    """Validate a message and return its envelope bytes in Rust's form, without the length header."""
+    """Validate a message and return its compact JSON envelope bytes, without the length header."""
     envelope = {'version': PROTOCOL_VERSION, 'message': validate(kind, message)}
     if _depth(envelope) > _MAX_DEPTH:
         _fail('json', 'recursion limit exceeded')
-    payload = _json(envelope).encode('utf-8')
+    payload = json.dumps(envelope, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8')
     if len(payload) > MAX_FRAME_BYTES:
         _fail('frame', 'frame exceeds maximum length')
     return payload

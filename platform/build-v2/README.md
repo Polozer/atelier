@@ -268,9 +268,11 @@ policy (C1b, A3), execution (C2), deadlines, retries and crash classification (C
 are not here; nor is validation of returned output paths.
 
 `platform/studio/atelier/build_v2/protocol.py` is the standard-library Python framing: the same frames,
-size limit and strict shapes, as plain dicts. It writes Rust's bytes, including serde_json's float text. [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
+size limit and strict shapes, as plain dicts, encoded with stdlib `json`. Interoperability means equal
+decoded values, not identical text: no key, digest or comparison consumes wire bytes (keys are computed
+in Rust from typed values, and responses carry no numbers). [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
 holds byte vectors that both `tests/worker_session.rs` and `platform/studio/tests/test_build_v2_protocol.py`
-decode and, where canonical, re-encode byte for byte. The pipe tests start
+decode to the same values; canonical vectors also pin Rust's own text. The pipe tests start
 [tests/fixtures/fake_worker.py](tests/fixtures/fake_worker.py) with its protocol on two inherited pipe
 descriptors and logs on stdout/stderr, under a five-second watchdog; the Rust T0 job needs `python3`.
 
