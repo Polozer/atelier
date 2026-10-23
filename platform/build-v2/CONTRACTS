@@ -199,8 +199,9 @@ The Blender job loop MUST run inside the installed background Blender started wi
 admission reads its threads, and MUST serve the same protocol as the Python job loop with its own
 worker version. Each job MUST run in a fresh Blender from that same binary, in its staged folder,
 with the same flags plus `--python-use-system-env`, the declared environment only, every Blender
-user folder and `HOME` pointed at a missing path inside the job folder, and the scene reset to an
-empty factory file before the op runs; no state of one job may reach another. Each job MUST run the
+user folder and `HOME` pointed at a missing path inside the job folder (a job whose staged folder
+already holds that path, as a link or as declared code, MUST be refused as `protocol` before Blender
+starts), and the scene reset to an empty factory file before the op runs; no state of one job may reach another. Each job MUST run the
 Python job bootstrap, so the Python job isolation contract applies inside it with the Blender
 application bundle as its installed platform. On macOS the child MUST run under the same deny-default
 kill-on-deny sandbox that lets it execute only the Blender binary, read only the bundle, the named

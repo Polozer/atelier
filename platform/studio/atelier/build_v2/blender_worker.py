@@ -55,6 +55,7 @@ BLENDER_FLAGS = ('--factory-startup', '-b', '--threads', str(THREADS), '--python
 # PYTHONHOME), so this adds no ambient input.
 JOB_FLAGS = BLENDER_FLAGS + ('--python-use-system-env',)
 # Folders Blender would otherwise take from the user's home; each points at a missing job-local path.
+# Staged code could occupy that path, so a job whose folder already holds it is refused.
 USER_FOLDERS = ('BLENDER_USER_RESOURCES', 'BLENDER_USER_CONFIG', 'BLENDER_USER_SCRIPTS',
                 'BLENDER_USER_DATAFILES', 'BLENDER_USER_EXTENSIONS', 'HOME')
 MISSING_USER_FOLDER = '.no-user-folder'
@@ -134,6 +135,16 @@ class BlenderWorker(python_worker.Worker):
         missing = os.path.join(job_dir, MISSING_USER_FOLDER)
         environment.update({name: missing for name in USER_FOLDERS})
         return environment
+
+    def check_job_folder(self, job_dir):
+        # lstat, so a dangling link there is refused too. The child cannot create the path later:
+        # it writes only output/.
+        try:
+            os.lstat(os.path.join(job_dir, MISSING_USER_FOLDER))
+        except FileNotFoundError:
+            return
+        raise python_worker.JobRefused(
+            'protocol', f'the job folder holds {MISSING_USER_FOLDER}, reserved as the missing Blender user folder')
 
 
 def serve(request_fd, response_fd, sandboxed, blender):

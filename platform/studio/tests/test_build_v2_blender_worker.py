@@ -132,6 +132,22 @@ def run(context):
     loop.close()
 
 
+def test_jobs_whose_folder_holds_the_missing_user_folder_are_refused_before_blender_starts(tmp_path, loop):
+    # Declared code under the reserved name would give Blender a real, readable user folder.
+    marker = tmp_path / 'started'
+    script = f'def run(context):\n    open({str(marker)!r}, "w").close()\n'
+    code = {f'{blender_worker.MISSING_USER_FOLDER}/startup/helper.py': 'raise SystemExit(3)\n'}
+    declared = stage(tmp_path / 'declared', script=script, code=code)
+    assert blender_worker.MISSING_USER_FOLDER in failure(loop.run(declared), 'protocol')
+    dangling = stage(tmp_path / 'dangling', script=script, job_id='job-2')
+    os.symlink(tmp_path / 'nowhere', tmp_path / 'dangling' / blender_worker.MISSING_USER_FOLDER)
+    assert blender_worker.MISSING_USER_FOLDER in failure(loop.run(dangling), 'protocol')
+    assert not marker.exists()
+    assert os.listdir(tmp_path / 'declared/output') == os.listdir(tmp_path / 'dangling/output') == []
+    assert loop.run(stage(tmp_path / 'next', job_id='job-3'))['type'] == 'completed'
+    loop.close()
+
+
 def test_failure_publishes_nothing_and_the_next_job_behaves(tmp_path, loop):
     broken = 'def run(context):\n    context.output("piece.txt").write_text("partial")\n    raise ValueError("boom")\n'
     job = stage(tmp_path / 'broken', script=broken)

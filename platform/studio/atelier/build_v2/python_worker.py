@@ -244,6 +244,9 @@ class Worker:
     def child_environment(self, job_dir):
         return dict(JOB_ENVIRONMENT)
 
+    def check_job_folder(self, job_dir):
+        """Refuse a staged folder this loop's child cannot use; a Python job needs nothing further."""
+
     def send(self, message):
         protocol.write_frame(self.responses, protocol.RESPONSE, message)
 
@@ -283,6 +286,7 @@ class Worker:
             raise JobRefused('protocol', 'the job folder is not a staged absolute folder with output/')
         if os.listdir(os.path.join(job_dir, 'output')):
             raise JobRefused('protocol', 'output/ is not empty before the job')
+        self.check_job_folder(job_dir)
         if self.sandboxed and not os.access(SANDBOX_EXEC, os.X_OK):
             raise JobRefused('dependency', 'no supported job sandbox on this platform')
         command = self.child_command()
