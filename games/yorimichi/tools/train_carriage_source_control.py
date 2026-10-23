@@ -21,7 +21,7 @@ def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def namespace(folder, output):
     for key in list(sys.modules):
-        if key == 'train' or key.startswith('train.'): sys.modules.pop(key)
+        if key == 'train' or key.startswith('train.') or key == 'definition': sys.modules.pop(key)
     package = ModuleType('train'); package.__path__ = [str(folder)]; sys.modules['train'] = package
     yori.OUT = output
     return importlib.import_module('train.build')

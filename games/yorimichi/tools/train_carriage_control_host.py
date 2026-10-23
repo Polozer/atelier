@@ -48,9 +48,11 @@ def main(argv=None):
                 'games/yorimichi/assets/vehicles/belmonte-train/textures',
                 'games/yorimichi/assets/vehicles/belmonte-train/furniture',
                 'games/yorimichi/assets/vehicles/belmonte-train/source.toml',
-                'games/yorimichi/tools/gltf_subset.py').decode().splitlines()
+                'games/yorimichi/tools/gltf_subset.py', 'games/yorimichi/assets/characters').decode().splitlines()
     frozen = {}
     for relative in paths:
+        if '/assets/characters/' in relative and not (relative.endswith(('/character.toml', '/adventure.toml'))
+                or relative.endswith('/pipeline/definition.py')): continue
         if relative.startswith('games/yorimichi/world/train/') and not relative.endswith('.py'): continue
         data = git('show', ORIGINAL + ':' + relative)
         target = original / relative; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
