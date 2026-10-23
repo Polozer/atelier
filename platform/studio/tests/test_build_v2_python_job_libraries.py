@@ -161,6 +161,31 @@ def test_the_loops_own_installed_libraries_reach_the_child(tmp_path):
     assert config['site_libraries'] == folders
 
 
+@pytest.mark.parametrize('case', ['missing', 'file'])
+def test_the_loop_passes_a_bad_scheme_folder_through_and_the_child_refuses_it(tmp_path, monkeypatch, case):
+    """The loop never drops a scheme folder: a missing purelib or a file platlib fails the job."""
+    root = tmp_path / 'platform'
+    root.mkdir()
+    (root / 'plain-file').write_text('x', encoding='utf-8')
+    bad = str(root / 'missing') if case == 'missing' else str(root / 'plain-file')
+    real = python_worker.sysconfig.get_paths
+    good = real()['purelib']
+    names = {'missing': {'purelib': bad, 'platlib': good}, 'file': {'purelib': good, 'platlib': bad}}[case]
+    monkeypatch.setattr(python_worker.sysconfig, 'get_paths', lambda *args, **kwargs: {**real(*args, **kwargs),
+                                                                                         **names})
+    folders = python_worker.site_libraries()
+    assert bad in folders, 'the loop passes every scheme folder, unfiltered'
+
+    class Interpreter(Libraries):
+        def site_libraries(self):
+            return python_worker.Platform.site_libraries(self)
+
+    report, probe, _ = run_child(tmp_path, Interpreter(root, []))
+    assert report['status'] == 'failed' and report['kind'] == 'dependency', report
+    assert bad in report['message']
+    assert probe is None, 'the op never ran'
+
+
 def test_an_undeclared_location_fails_the_job_before_it_runs(tmp_path):
     root = tmp_path / 'platform'
     root.mkdir()

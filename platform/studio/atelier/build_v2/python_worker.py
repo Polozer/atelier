@@ -75,12 +75,11 @@ def interpreter_roots():
 def site_libraries():
     """This interpreter's installed-library folders (its venv's, when it runs in one), in order.
 
-    A scheme folder that does not exist holds no library and is not passed; the child refuses any
-    folder it is given that is missing or outside the platform roots.
+    Both scheme folders are always passed, never filtered here: the child refuses, as a `dependency`
+    failure naming the folder, any one that is missing, not a folder or outside the platform roots.
     """
     paths = sysconfig.get_paths()
-    return [folder for folder in dict.fromkeys(paths[name] for name in ('purelib', 'platlib'))
-            if os.path.isdir(folder)]
+    return list(dict.fromkeys(paths[name] for name in ('purelib', 'platlib')))
 
 
 def _quote(path):
