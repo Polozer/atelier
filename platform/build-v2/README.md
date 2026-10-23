@@ -217,3 +217,22 @@ submission over queue, execution, cleanup and retries. `BeginCleanup` is a reque
 owned process and unpublished scratch, and an `Unconfirmed` cleanup outcome means the process may
 still be alive. Real owned-process cleanup (C5b) and capacity/guard integration (C7) remain pending.
 The decision matrix is in `tests/failure_policy.rs`.
+
+## Selected static graph (A4a)
+
+`graph::BuildGraph::validate` owns a declaration after global A2 structural checks: supported op
+slots, parameters, paths, unique owners, complete references and an acyclic graph. It does not
+require every declared source to be available. `select(targets, snapshot)` chooses explicit unit IDs,
+dot-delimited namespaces or all units, then observes sources and selectors only within that target
+closure. A missing source for an unrelated unit does not block a focused build; selecting that unit
+refuses before any dispatch. The existing public A2 `validate` still validates all sources.
+
+Both content and declared reference producers precede consumers. An external reference with no
+producer adds no invented edge. Selection exposes read-only roots, deterministic dependency-first
+order, role/item-tagged edges and the matching A2 source observations for later A3 preparation.
+Repeated or overlapping targets are a set union; an unknown or empty target selection refuses.
+No source file is opened by this API: the caller supplies the immutable snapshot.
+
+This is **A4a only**. Dynamic `plan.json` validation, stable generated children and removed-owner
+intents remain A4b, coordinated with the D2/Editor Cost plan interface. No worker dispatch, store
+lookup, materialisation, install/removal or scheduler/output-cutoff proof is implemented here.
