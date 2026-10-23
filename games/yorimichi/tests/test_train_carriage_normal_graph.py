@@ -78,6 +78,11 @@ def test_legacy_blend_review_has_an_explicit_disjoint_authoring_root(tmp_path):
     assert GAME / 'assets/characters/pipeline/definition.py' in authoring.inputs
     assert set((GAME / 'assets/characters').glob('*/character.toml')) <= set(authoring.inputs)
     assert set(path.with_name('adventure.toml') for path in (GAME / 'assets/characters').glob('*/character.toml')) <= set(authoring.optional_inputs)
+    furniture = rows['world.belmonte_train_furniture_review']
+    assert furniture.commands[0].args == ('--scenes', str(source))
+    assert 'world.belmonte_train_authoring' in furniture.needs
+    assert {'belmonte_train.library', 'belmonte_train.authoring_scenes'} <= set(furniture.reads)
+    assert authoring in build.order(steps, ['world.belmonte_train_furniture_review'])
     assert not any(step.name == authoring.name for step in build.order(steps, ['world.belmonte_train_service']))
 
 
@@ -96,3 +101,24 @@ def test_authoring_entry_rejects_production_before_invoking_legacy_builder(tmp_p
     assert calls == [True]
     assert builder.OUT == tmp_path / 'belmonte-train-authoring'
     assert builder.TEX == builder.OUT / 'textures'
+
+
+def test_furniture_review_rejects_production_scenes_before_any_render(tmp_path):
+    source = GAME / 'world/train/review_lods.py'
+    tree = ast.parse(source.read_text())
+    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
+    namespace = dict(_Path=Path, OUT=tmp_path / 'belmonte-train', __doc__='diagnostic')
+    exec(compile(ast.Module(body=[main], type_ignores=[]), str(source), 'exec'), namespace)
+    with pytest.raises(ValueError, match='isolated'):
+        namespace['main'](['--scenes', str(tmp_path / 'belmonte-train')])
+    coach = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'coach_frames')
+    opened = []
+    def open_scene(*, filepath):
+        opened.append(Path(filepath))
+        raise RuntimeError('observed scene read before rendering')
+    namespace.update(SCENES=tmp_path / 'belmonte-train-authoring',
+        bpy=SimpleNamespace(ops=SimpleNamespace(wm=SimpleNamespace(open_mainfile=open_scene))))
+    exec(compile(ast.Module(body=[coach], type_ignores=[]), str(source), 'exec'), namespace)
+    with pytest.raises(RuntimeError, match='observed scene read'):
+        namespace['coach_frames']('restaurant', [])
+    assert opened == [tmp_path / 'belmonte-train-authoring/restaurant/restaurant.blend']
