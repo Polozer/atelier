@@ -318,7 +318,7 @@ public `LeaseStore::lock()` guard; never remove that mutex file. `MetadataGuard:
 on malformed/unsupported records. B2 does not implement root selection, scope deletion, checkout
 installs, OS process probing, age-based retention or GC. Production v1 remains unchanged.
 
-## Bounded group metadata (A4b, isolated first slice)
+## Bounded groups and typed child expansion (A4b)
 
 `groups` reads the existing D2 schema1 plan envelope and checks complete flat membership, authored
 names, encoding, budgets, payload digests and whole-collision ownership. Payload geometry stays
@@ -335,7 +335,7 @@ file portion. Future C1b must report all fixed plus group output membership and 
 aliasing or over-budget members. C1a framing alone proves none of that group behavior.
 
 Selected projections reuse one-member Item staging and bind that member's logical identity,
-path, byte digest, size and mode. A complete saved manifest can restore a token through B2's
+path, byte digest, size, mode and certified encoding/role. A complete saved manifest can restore a token through B2's
 trusted reader with named object checks, without scanning mutable output folders. Group/roster
 changes remain separate from a selected member's content view.
 
@@ -348,5 +348,24 @@ trusted record checks, named CAS metadata checks and durable pins under the same
 no plan bytes and scans no output folders. C1b must supply the complete actual manifest and preserve
 physical sandbox boundaries; these APIs do not implement a worker or a filesystem sandbox.
 
-Child graph expansion/removal intents are still being integrated. No worker, install/removal,
-production activation or native equivalence is claimed.
+`plans::RegisteredTemplate` binds a programmatic `ChildTemplate` to a fixed planner/group contract.
+The template supplies the exporter op, script, explicit code closure, parameters, staged payload slot
+and fixed output files. Plan rows supply only validated member metadata. A child uses a narrow
+`GroupMember` dependency and stable `<unit_prefix>.<piece>` ID; its logical output ends in the same
+piece name. Export parameters name that selected member, encoding and certified role. No planner code closure,
+whole roster or producer input key enters the child contract. Key tests prove the pure identity
+boundary; actual skipped worker launches remain D2/A9 acceptance.
+
+Cold child selection reports `NeedsPlanner` until validated membership exists, then `Ready` or
+`UnknownChild`; it never exports a provisional unit or fictional hit. `expand` checks all generated
+children with the same global structural validator before returning a graph. It does not require
+unselected source observations. Its private in-process `ExpansionReceipt` records exact generated
+units. Re-expansion accepts that receipt only with the same template/contract and unchanged prior
+unit ownership. Removed children yield exact old-output `RemovalIntent`s, without deleting files or
+inferring ownership from a prefix. A persisted previous group may be re-expanded to reconstruct its
+receipt; raw deserialization cannot mint one. Current D2 schema1 validation refuses zero-piece plans;
+retiring an entire empty family needs an explicit reviewed empty-plan contract.
+
+C1b still owns complete physical output reporting/sandboxing; D2 binds real recipe templates and A9
+schedules planners/children. B3 must preflight and apply any ownership removal. No worker execution,
+install/removal, production activation or native equivalence is claimed.

@@ -115,7 +115,10 @@ fn normalized_item(item: &Item) -> Item {
     item
 }
 
-fn safe_staged_paths(paths: &BTreeMap<String, String>, code: &[String]) -> Result<(), String> {
+pub(crate) fn safe_staged_paths(
+    paths: &BTreeMap<String, String>,
+    code: &[String],
+) -> Result<(), String> {
     let mut claims = Claims::new();
     claim(&mut claims, "output", "writable output root")?;
     for path in code.iter().collect::<BTreeSet<_>>() {
@@ -374,7 +377,15 @@ pub fn prepare(
                 }
                 let selected = validated_group.project(piece)?;
                 let payload = item_payload(&selected.item, &selected)?;
-                let identity = item_identity(&payload)?;
+                // Only the selected certified type/role joins its Item content view.
+                // The runtime roster, planner contract and planner input key stay out.
+                let identity = ContentIdentity::Digest {
+                    digest: sha256(&canonical_bytes(&serde_json::json!({
+                        "domain": "atelier-group-member-content", "version": 1,
+                        "item": item_identity(&payload)?,
+                        "projection": validated_group.stored().projections[piece],
+                    }))?),
+                };
                 content.insert(name.clone(), identity.clone());
                 (name, identity, payload)
             }

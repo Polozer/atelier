@@ -45,6 +45,14 @@ pub struct OutputGroupContract {
 pub struct MemberProjection {
     pub payload: String,
     pub encoding: PlanEncoding,
+    pub role: Option<EncodedRole>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EncodedRole {
+    Render,
+    Collision,
 }
 
 /// Complete immutable result data. Deserialization alone grants no validation token.
@@ -232,6 +240,9 @@ fn check_recorded(
         if projection.encoding != contract.encoding {
             return Err("wrong projected payload type".into());
         }
+        if (projection.encoding == PlanEncoding::EncodedGlb) != projection.role.is_some() {
+            return Err("wrong projected payload role".into());
+        }
         let suffix = match contract.encoding {
             PlanEncoding::EncodedGlb => ".mesh",
             _ => ".npz",
@@ -302,21 +313,25 @@ pub fn parse_manifest(
         triangles = triangles
             .checked_add(count)
             .ok_or("triangle total overflow")?;
-        if contract.encoding == PlanEncoding::EncodedGlb {
+        let role = if contract.encoding == PlanEncoding::EncodedGlb {
             match text(row, "role")? {
                 "render" => {
                     render_triangles = render_triangles
                         .checked_add(count)
-                        .ok_or("render triangle overflow")?
+                        .ok_or("render triangle overflow")?;
+                    Some(EncodedRole::Render)
                 }
                 "collision" => {
                     collision_triangles = collision_triangles
                         .checked_add(count)
-                        .ok_or("collision triangle overflow")?
+                        .ok_or("collision triangle overflow")?;
+                    Some(EncodedRole::Collision)
                 }
                 _ => return Err("unsupported encoded payload role".into()),
             }
-        }
+        } else {
+            None
+        };
         if contract.encoding != PlanEncoding::EncodedGlb {
             let whole_hulls = integer(&raw, "source_collision_hulls")?;
             if integer(row, "collision_hulls")? != if index == 0 { whole_hulls } else { 0 } {
@@ -337,6 +352,7 @@ pub fn parse_manifest(
                 MemberProjection {
                     payload: payload.into(),
                     encoding: contract.encoding.clone(),
+                    role,
                 },
             )
             .is_some()
@@ -502,6 +518,7 @@ mod tests {
             MemberProjection {
                 payload: "Sibling.npz".into(),
                 encoding: PlanEncoding::MeshIr,
+                role: None,
             },
         );
         let second = restore_recorded(&contract, &changed, |_| Ok(())).unwrap();
@@ -776,6 +793,7 @@ mod tests {
             MemberProjection {
                 payload: "Sibling.npz".into(),
                 encoding: PlanEncoding::MeshIr,
+                role: None,
             },
         );
         groups.insert(
@@ -866,6 +884,61 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn cached_member_keys_bind_equal_byte_payload_type_and_role_without_plan_reads() {
+        let (contract, stored) = fixture();
+        let key = |contract: &OutputGroupContract, stored: &StoredOutputGroup| {
+            let (declaration, registry, snapshot) = key_fixture(contract);
+            let groups = BTreeMap::from([(
+                ("planner".into(), "geometry".into()),
+                restore_recorded(contract, stored, |_| Ok(())).unwrap(),
+            )]);
+            prepared(
+                &declaration,
+                &registry,
+                &snapshot,
+                &groups,
+                "export.Village_Edges",
+            )
+            .unwrap()
+            .key()
+            .to_owned()
+        };
+        let mesh_ir = key(&contract, &stored);
+        let mut mesh_set_contract = contract.clone();
+        mesh_set_contract.encoding = PlanEncoding::MeshSet;
+        let mut mesh_set = stored.clone();
+        mesh_set
+            .projections
+            .get_mut("Village_Edges")
+            .unwrap()
+            .encoding = PlanEncoding::MeshSet;
+        assert_eq!(stored.files, mesh_set.files);
+        assert_ne!(mesh_ir, key(&mesh_set_contract, &mesh_set));
+        let mut encoded_contract = contract;
+        encoded_contract.encoding = PlanEncoding::EncodedGlb;
+        let mut encoded = stored;
+        encoded
+            .files
+            .iter_mut()
+            .find(|f| f.path == "Village_Edges.npz")
+            .unwrap()
+            .path = "Village_Edges.mesh".into();
+        let projection = encoded.projections.get_mut("Village_Edges").unwrap();
+        projection.encoding = PlanEncoding::EncodedGlb;
+        projection.payload = "Village_Edges.mesh".into();
+        projection.role = Some(EncodedRole::Render);
+        let render = key(&encoded_contract, &encoded);
+        let mut collision = encoded.clone();
+        collision.projections.get_mut("Village_Edges").unwrap().role = Some(EncodedRole::Collision);
+        assert_eq!(encoded.files, collision.files);
+        assert_ne!(render, key(&encoded_contract, &collision));
+        collision.projections.get_mut("Village_Edges").unwrap().role = None;
+        assert!(restore_recorded(&encoded_contract, &collision, |_| Ok(())).is_err());
+        mesh_set.projections.get_mut("Village_Edges").unwrap().role = Some(EncodedRole::Render);
+        assert!(restore_recorded(&mesh_set_contract, &mesh_set, |_| Ok(())).is_err());
+    }
+
     struct Workspace(std::path::PathBuf);
     impl Workspace {
         fn new() -> Self {
@@ -898,6 +971,7 @@ mod tests {
                     branch: "main".into(),
                     commit: "source".into(),
                     dirty: false,
+                    built_at: "fixture".into(),
                 },
                 crate::leases::ProcessIdentity {
                     pid: std::process::id(),

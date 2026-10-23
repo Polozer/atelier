@@ -7,6 +7,7 @@ pub mod groups;
 pub mod keys;
 pub mod leases;
 mod paths;
+pub mod plans;
 pub mod protocol;
 pub mod results;
 pub mod schema;
