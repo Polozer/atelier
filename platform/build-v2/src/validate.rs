@@ -226,17 +226,11 @@ fn dependency_order(
     Ok(order)
 }
 
-/// @cc [owner:fontanierh,label:correctness] validate-frozen-declarations
-/// Validation MUST reject unsupported ops, missing required files/items, missing
-/// selector nodes, mismatched input roles, cyclic dependencies and overlapping
-/// final output owners before returning an execution order. Missing optional files
-/// MUST remain distinct from empty files and missing selector nodes. See tests/validation.rs.
-pub fn validate(
+pub(crate) fn validate_structure(
     declaration: &Declaration,
     registry: &OpRegistry,
-    snapshot: &SourceSnapshot,
     allowed_install_roots: &[String],
-) -> Result<ValidatedDeclaration, ValidationError> {
+) -> Result<ValidatedStructure, ValidationError> {
     if declaration.schema_version != SCHEMA_VERSION {
         return Err(fail("unsupported declaration schema version"));
     }
@@ -286,7 +280,6 @@ pub fn validate(
             if !code.insert(path.clone()) {
                 return Err(fail(format!("duplicate code file: {path}")));
             }
-            file(snapshot, path, false)?;
         }
         if !code.contains(&unit.script) {
             return Err(fail(format!(
@@ -361,7 +354,6 @@ pub fn validate(
         .keys()
         .map(|name| (name.clone(), BTreeSet::new()))
         .collect();
-    let mut files = vec![];
     for unit in &declaration.units {
         let op = &registry[&(unit.op.kind.clone(), unit.op.version.clone())];
         let mut names = BTreeSet::new();
@@ -419,30 +411,6 @@ pub fn validate(
                             if let Some(selector) = selector {
                                 pointer(selector)?;
                             }
-                            let selection = match file(snapshot, path, *optional)? {
-                                None => FileSelection::Absent,
-                                Some(bytes) => {
-                                    match selector {
-                                        None => FileSelection::Whole,
-                                        Some(selector) => {
-                                            let json: serde_json::Value =
-                                                serde_json::from_slice(bytes).map_err(|_| {
-                                                    fail(format!(
-                                                        "selector input is not JSON: {path}"
-                                                    ))
-                                                })?;
-                                            FileSelection::Json(json.pointer(selector).cloned()
-                                            .ok_or_else(|| fail(format!("missing selector node: {path}#{selector}")))?)
-                                        }
-                                    }
-                                }
-                            };
-                            files.push(ResolvedFile {
-                                unit: unit.id.clone(),
-                                input: name.clone(),
-                                path: path.clone(),
-                                selection,
-                            });
                             None
                         }
                         ContentSource::Item { unit, item } => Some(ItemRef {
@@ -506,5 +474,92 @@ pub fn validate(
         }
     }
     let order = dependency_order(&dependencies)?;
-    Ok(ValidatedDeclaration { order, files })
+    Ok(ValidatedStructure { order })
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ValidatedStructure {
+    pub(crate) order: Vec<String>,
+}
+
+/// @cc [owner:fontanierh,label:correctness] validate-frozen-declarations
+/// Validation MUST reject unsupported ops, missing required files/items, missing
+/// selector nodes, mismatched input roles, cyclic dependencies and overlapping
+/// final output owners before returning an execution order. Missing optional files
+/// MUST remain distinct from empty files and missing selector nodes. See tests/validation.rs.
+pub fn validate(
+    declaration: &Declaration,
+    registry: &OpRegistry,
+    snapshot: &SourceSnapshot,
+    allowed_install_roots: &[String],
+) -> Result<ValidatedDeclaration, ValidationError> {
+    let structure = validate_structure(declaration, registry, allowed_install_roots)?;
+    let selected = structure.order.iter().cloned().collect();
+    observe_selected(declaration, &structure, snapshot, &selected)
+}
+
+/// Source observations are scoped to an already selected dependency closure.
+/// Structural validation remains global; this phase never opens the live filesystem.
+pub(crate) fn observe_selected(
+    declaration: &Declaration,
+    structure: &ValidatedStructure,
+    snapshot: &SourceSnapshot,
+    selected: &BTreeSet<String>,
+) -> Result<ValidatedDeclaration, ValidationError> {
+    if selected.iter().any(|id| !structure.order.contains(id)) {
+        return Err(fail("source observation contains an unknown unit"));
+    }
+    let mut files = Vec::new();
+    for unit in declaration
+        .units
+        .iter()
+        .filter(|unit| selected.contains(&unit.id))
+    {
+        for path in &unit.code {
+            file(snapshot, path, false)?;
+        }
+        for input in &unit.inputs {
+            let Input::Content {
+                name,
+                source:
+                    ContentSource::File {
+                        path,
+                        selector,
+                        optional,
+                    },
+                ..
+            } = input
+            else {
+                continue;
+            };
+            let selection = match file(snapshot, path, *optional)? {
+                None => FileSelection::Absent,
+                Some(bytes) => match selector {
+                    None => FileSelection::Whole,
+                    Some(selector) => {
+                        let json: serde_json::Value = serde_json::from_slice(bytes)
+                            .map_err(|_| fail(format!("selector input is not JSON: {path}")))?;
+                        FileSelection::Json(json.pointer(selector).cloned().ok_or_else(|| {
+                            fail(format!("missing selector node: {path}#{selector}"))
+                        })?)
+                    }
+                },
+            };
+            files.push(ResolvedFile {
+                unit: unit.id.clone(),
+                input: name.clone(),
+                path: path.clone(),
+                selection,
+            });
+        }
+    }
+    Ok(ValidatedDeclaration {
+        order: structure
+            .order
+            .iter()
+            .filter(|id| selected.contains(*id))
+            .cloned()
+            .collect(),
+        files,
+    })
 }
