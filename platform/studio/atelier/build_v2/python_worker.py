@@ -121,9 +121,29 @@ def interpreter_executables():
     return sorted(set(paths))
 
 
-def sandbox_profile(job_dir):
+class Platform:
+    """The installed execution platform one kind of job may use: what it may execute and read, and
+    where platform modules import from. The default is this Python interpreter."""
+
+    def executables(self):
+        return interpreter_executables()
+
+    def reads(self):
+        """(subpaths, literals) of platform files every job may read."""
+        return platform_reads()
+
+    def import_roots(self):
+        return interpreter_roots()
+
+    def extra_rules(self):
+        """Further sandbox allowances this platform needs, each a reviewed profile rule; none here."""
+        return []
+
+
+def sandbox_profile(job_dir, platform=None):
     """A deny-default profile: reads of the platform and the job folder, writes to `output/` only."""
-    subpaths, literals = platform_reads()
+    platform = platform or Platform()
+    subpaths, literals = platform.reads()
     reads = subpaths + [job_dir] + _links(job_dir)
     metadata = sorted({ancestor for path in reads + literals for ancestor in _ancestors(path)})
     literals = literals + _links(job_dir)
@@ -133,12 +153,13 @@ def sandbox_profile(job_dir):
         '(deny default)',
         # Listed first so that every later allow takes precedence; what remains kills the job.
         '(deny file-read* network* (with send-signal SIGKILL))',
-        f'(allow process-exec {" ".join(f"(literal {_quote(path)})" for path in interpreter_executables())})',
+        f'(allow process-exec {" ".join(f"(literal {_quote(path)})" for path in platform.executables())})',
         f'(allow file-read* {subpaths} {" ".join(f"(literal {_quote(path)})" for path in literals)})',
         f'(allow file-read-metadata {" ".join(f"(literal {_quote(path)})" for path in metadata)})',
         f'(allow file-write* (subpath {_quote(os.path.join(job_dir, "output"))}) (literal "/dev/null"))',
         '(allow file-ioctl (literal "/dev/dtracehelper"))',
         '(allow sysctl-read)',
+        *platform.extra_rules(),
     ])
 
 
@@ -149,8 +170,9 @@ def _job_relative(path, label):
     return path
 
 
-def job_config(job, job_dir, result_fd):
+def job_config(job, job_dir, result_fd, platform=None):
     """The child's configuration: declared names only, no job ID, folder or source locator."""
+    platform = platform or Platform()
     inputs = {}
     for item in job['inputs']:
         path = _job_relative(item['path'], 'input')
@@ -164,8 +186,8 @@ def job_config(job, job_dir, result_fd):
         raise JobRefused('protocol', 'the entry script is outside the declared code')
     return {'script': job['script'], 'code': job['code'], 'inputs': inputs,
             'outputs': [_job_relative(item['path'], 'output') for item in job['outputs']],
-            'params': job['params'], 'platform_roots': interpreter_roots(), 'read_subpaths': platform_reads()[0],
-            'read_literals': platform_reads()[1], 'result_fd': result_fd}
+            'params': job['params'], 'platform_roots': platform.import_roots(), 'read_subpaths': platform.reads()[0],
+            'read_literals': platform.reads()[1], 'result_fd': result_fd}
 
 
 def output_files(job_dir):
@@ -204,11 +226,26 @@ def drain(logs):
 
 
 class Worker:
+    """The job loop. Subclasses (another tool's loop) override the version, platform and child command."""
+
+    VERSION = WORKER_VERSION
+
     def __init__(self, requests, responses, sandboxed):
         self.requests = requests
         self.responses = responses
         self.sandboxed = sandboxed
-        self.version = WORKER_VERSION if sandboxed else TEST_WORKER_VERSION
+        self.version = self.VERSION if sandboxed else self.VERSION + '+unsandboxed-test'
+        self.platform = Platform()
+
+    def child_command(self):
+        """The job child's command before sandbox wrapping; its configuration arrives on stdin."""
+        return [sys.executable, *CHILD_FLAGS, '-c', JOB_SOURCE]
+
+    def child_environment(self, job_dir):
+        return dict(JOB_ENVIRONMENT)
+
+    def check_job_folder(self, job_dir):
+        """Refuse a staged folder this loop's child cannot use; a Python job needs nothing further."""
 
     def send(self, message):
         protocol.write_frame(self.responses, protocol.RESPONSE, message)
@@ -249,19 +286,20 @@ class Worker:
             raise JobRefused('protocol', 'the job folder is not a staged absolute folder with output/')
         if os.listdir(os.path.join(job_dir, 'output')):
             raise JobRefused('protocol', 'output/ is not empty before the job')
+        self.check_job_folder(job_dir)
         if self.sandboxed and not os.access(SANDBOX_EXEC, os.X_OK):
             raise JobRefused('dependency', 'no supported job sandbox on this platform')
-        command = [sys.executable, *CHILD_FLAGS, '-c', JOB_SOURCE]
+        command = self.child_command()
         if self.sandboxed:
-            command = [SANDBOX_EXEC, '-p', sandbox_profile(job_dir)] + command
+            command = [SANDBOX_EXEC, '-p', sandbox_profile(job_dir, self.platform)] + command
         result_read, result_write = os.pipe()
         try:
             # The configuration travels on the child's stdin, never argv, so no valid request can hit
             # argument limits. The child gets its own log pipe: inherited stdout/stderr files would be
             # undeclared paths to the sandbox; the loop forwards those logs to its own stderr. It stays
             # in the loop's process group, so a guard that stops the worker stops the job too.
-            config = json.dumps(job_config(job, job_dir, result_write)).encode('utf-8')
-            child = subprocess.Popen(command, cwd=job_dir, env=dict(JOB_ENVIRONMENT), stdin=subprocess.PIPE,
+            config = json.dumps(job_config(job, job_dir, result_write, self.platform)).encode('utf-8')
+            child = subprocess.Popen(command, cwd=job_dir, env=self.child_environment(job_dir), stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(result_write,))
         except OSError as error:
             os.close(result_read)

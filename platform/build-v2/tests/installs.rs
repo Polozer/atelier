@@ -1389,7 +1389,7 @@ fn current_sources_pin_without_cache_and_clone_only_certified_unchanged_items() 
         .join("../studio/atelier/build_v2/python_worker.py")
         .canonicalize()
         .unwrap();
-    let command = atelier_build_v2::launch::WorkerCommand::python_job_loop(python, script);
+    let command = atelier_build_v2::launch::WorkerCommand::python_job_loop(python, script).unwrap();
     let outcome = atelier_build_v2::launch::run_staged(
         &atelier_build_v2::launch::DirectChild,
         &command,
