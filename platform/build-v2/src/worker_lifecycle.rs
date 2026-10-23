@@ -690,6 +690,17 @@ impl<A> Live<A> {
     }
 }
 
+/// The session a `Stop` command may signal: none while its exit report waits, held or released
+/// into `replay` and not yet applied (session-exit-after-drain).
+fn stop_target<'a, A>(
+    live: &'a mut BTreeMap<u32, Live<A>>,
+    session: u32,
+    replay: &VecDeque<SessionInput>,
+) -> Option<&'a mut Live<A>> {
+    live.get_mut(&session)
+        .filter(|entry| !entry.exit_waiting(session, replay))
+}
+
 fn wall_clock() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1173,10 +1184,7 @@ fn drive<L: WorkerLauncher>(
                 SessionCommand::Stop { session } => {
                     // A held exit report means the guard is already unwinding: never interrupt
                     // it (session-exit-after-drain). Its receipt or settlement limit decides.
-                    if let Some(entry) = live
-                        .get_mut(&session)
-                        .filter(|entry| !entry.exit_waiting(session, &replay))
-                    {
+                    if let Some(entry) = stop_target(&mut live, session, &replay) {
                         let _ = entry.handle.stop();
                     }
                 }
@@ -1394,16 +1402,18 @@ mod tests {
             !entry.exit_held(),
             "the held list alone no longer shows the exit"
         );
+        // The Stop arm's own target: no owner to signal while the released exit waits.
+        let mut live = BTreeMap::from([(1, entry)]);
         assert!(
-            entry.exit_waiting(1, &replay),
-            "released but not yet applied: the exit still waits"
+            stop_target(&mut live, 1, &replay).is_none(),
+            "released but not yet applied: the exit still waits, so nothing is signalled"
         );
         assert!(
-            !entry.exit_waiting(2, &replay),
-            "another session's exit is not this one"
+            stop_target(&mut live, 2, &replay).is_none(),
+            "no such session"
         );
-        // Once replayed (applied), nothing waits any more.
+        // Once replayed (applied), the session may be signalled again.
         replay.clear();
-        assert!(!entry.exit_waiting(1, &replay));
+        assert!(stop_target(&mut live, 1, &replay).is_some());
     }
 }
