@@ -680,3 +680,13 @@ frozen bytes, and dispatches payload format validation strictly on the declared 
 (`JsonData` semantic UTF-8 JSON object/array with finite numbers and no duplicate keys,
 `RouteData` finite waypoints and monotone distances, `RuntimeData` `ATD1\x01` binary tables,
 and non-empty `Data`).
+
+Selected downstream source custody: `WriteTransaction::pin_recorded_items` checks/pins only requested
+fixed item IDs from its same-store `RecordedIdentities`. `pinned_objects` exposes existing claims;
+both return borrowed clone-only providers. `retain_recorded` roots checked metadata and releases its
+read ticket without requiring payload availability or claiming Stored. Cached checkout plans may
+opt into `commit_with_sources`, borrow `cached_sources` through downstream staging, then call
+`finish_sources` (also when no consumer stages). Root success leaves these source claims active until
+that explicit finish; failed finish/drop retains claims conservatively. Ordinary commit releases as
+before. A committed local plan retains `local_completion` for frozen store-only siblings, without
+opening CAS or converting Current into Stored. These accessors remain unused by production v1.

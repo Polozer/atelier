@@ -57,6 +57,7 @@ impl ResultEnvelope {
 pub struct RecordedIdentities {
     envelope: ResultEnvelope,
     groups: BTreeMap<String, RecordedGroupIdentity>,
+    store_root: PathBuf,
 }
 impl RecordedIdentities {
     pub fn result(&self) -> &ResultEnvelope {
@@ -126,6 +127,47 @@ pub struct WriteTransaction {
     unit: PreparedUnit,
     provenance: Provenance,
     upstream: BTreeSet<String>,
+}
+
+/// Selected object authority borrowed from a transaction with durable digest claims.
+pub struct SelectedItems<'a> {
+    transaction: &'a WriteTransaction,
+    allowed: BTreeSet<String>,
+}
+impl SelectedItems<'_> {
+    pub fn clone_to(
+        &self,
+        digest: &ObjectDigest,
+        destination: &Path,
+    ) -> Result<(), crate::staging::SourceError> {
+        use crate::staging::{SourceError, SourceErrorKind};
+        if !self.allowed.contains(digest.as_hex()) {
+            return Err(SourceError {
+                kind: SourceErrorKind::Unavailable,
+                digest: digest.clone(),
+                message: "digest is outside selected durable claims".into(),
+            });
+        }
+        self.transaction
+            .store
+            .objects
+            .clone_to(digest, destination)
+            .map_err(|error| {
+                let kind = match &error {
+                    StoreError::Io(error) if error.kind() == io::ErrorKind::NotFound => {
+                        SourceErrorKind::Unavailable
+                    }
+                    StoreError::InvalidFile(_) => SourceErrorKind::Changed,
+                    StoreError::Clone(_) => SourceErrorKind::CloneUnsupported,
+                    _ => SourceErrorKind::Io,
+                };
+                SourceError {
+                    kind,
+                    digest: digest.clone(),
+                    message: error.to_string(),
+                }
+            })
+    }
 }
 
 pub struct FrozenOutput<'a> {
@@ -247,7 +289,11 @@ impl ResultStore {
         for key in &envelope.upstream_result_keys {
             digest(key)?;
         }
-        Ok(Some(RecordedIdentities { envelope, groups }))
+        Ok(Some(RecordedIdentities {
+            envelope,
+            groups,
+            store_root: self.objects.root().to_path_buf(),
+        }))
     }
 
     fn read_validated(&self, unit: &PreparedUnit) -> Result<Option<GroupHit>, ResultError> {
@@ -502,6 +548,85 @@ impl WriteTransaction {
     pub fn lookup_recorded(&mut self) -> Result<Option<RecordedIdentities>, ResultError> {
         let _guard = self.store.leases.lock()?;
         self.store.read_metadata(&self.unit)
+    }
+
+    fn check_recorded_token(&self, recorded: &RecordedIdentities) -> Result<(), ResultError> {
+        if recorded.store_root != self.store.objects.root()
+            || recorded.envelope.result.key != self.unit.key()
+            || &recorded.envelope.result.ingredients != self.unit.ingredients()
+        {
+            return Err(invalid(
+                "recorded token belongs to another store or prepared unit",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Pin only requested fixed items. Unselected producer objects are never probed.
+    /// Claims MUST be durable under the shared GC mutex before selected authority escapes.
+    pub fn pin_recorded_items(
+        &mut self,
+        recorded: &RecordedIdentities,
+        item_ids: &[&str],
+    ) -> Result<SelectedItems<'_>, ResultError> {
+        self.check_recorded_token(recorded)?;
+        let guard = self.store.leases.lock()?;
+        let mut allowed = BTreeSet::new();
+        let mut selected = BTreeSet::new();
+        for id in item_ids {
+            if !selected.insert(*id) {
+                return Err(invalid("duplicate selected item"));
+            }
+            let item = recorded
+                .envelope
+                .result
+                .outputs
+                .iter()
+                .find(|item| item.item.id == *id)
+                .ok_or_else(|| invalid("selected item is absent from recorded result"))?;
+            if item.external_locator.is_some() {
+                return Err(invalid("external item has no CAS source"));
+            }
+            for file in &item.files {
+                self.store
+                    .objects
+                    .check_recorded(&ObjectDigest::from_hex(&file.digest)?, file.size)?;
+                allowed.insert(file.digest.clone());
+            }
+        }
+        let mut updated = self.lease.clone();
+        updated.object_digests.extend(allowed.iter().cloned());
+        guard.save(&updated)?;
+        self.lease = updated;
+        Ok(SelectedItems {
+            transaction: self,
+            allowed,
+        })
+    }
+
+    /// Expose only digest claims already held by this transaction, without reopening another store.
+    pub fn pinned_objects(&self) -> SelectedItems<'_> {
+        SelectedItems {
+            transaction: self,
+            allowed: self.lease.object_digests.clone(),
+        }
+    }
+
+    /// Root checked metadata without claiming that any payload is available.
+    /// Root failure MUST retain claims; successful rooting precedes claim release.
+    pub fn retain_recorded(
+        mut self,
+        recorded: &RecordedIdentities,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> Result<ResultEnvelope, ResultError> {
+        self.check_recorded_token(recorded)?;
+        root(&recorded.envelope).map_err(ResultError::Root)?;
+        self.release()?;
+        Ok(recorded.envelope.clone())
+    }
+
+    pub(crate) fn release_sources(&mut self) -> Result<(), ResultError> {
+        self.release()
     }
 
     /// Private tokens escape only after all named blobs are checked and durably pinned
