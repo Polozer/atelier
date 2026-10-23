@@ -397,10 +397,13 @@ impl UnitSlot {
 /// Once any session's custody is held (an unconfirmed receipt, a missed settlement limit or a
 /// unit's unconfirmed cleanup), the lifecycle MUST start no further session and every waiting
 /// unit MUST give up. A later confirmed receipt MUST NOT reopen sessions or change a unit record
-/// already handed out with `Settled`; it is recorded only on that session's own record. Recovery
-/// is a fresh lifecycle started by the caller. See tests/session_lifecycle.rs
-/// (`a_held_session_starts_no_further_session`,
-/// `a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record`).
+/// already handed out with `Settled`; it is recorded only on that session's own record. A
+/// confirmed receipt delivered at or past the settlement limit, or past its unit's cleanup limit
+/// or deadline, is such a late receipt even when no Tick came first: that cleanup stays
+/// unconfirmed and the session held. Recovery is a fresh lifecycle started by the caller. See
+/// tests/session_lifecycle.rs (`a_held_session_starts_no_further_session`,
+/// `a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record`,
+/// `a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown`).
 #[derive(Clone, Debug)]
 pub struct SessionLifecycle {
     config: SessionConfig,
@@ -963,8 +966,9 @@ impl SessionLifecycle {
     /// is configured; otherwise each session serves one unit. Without evidence within the bound
     /// the session MUST stop, and the unit then settles only by the session's cleanup receipt. A
     /// running unit's cancel or job limit MUST cancel only that job when the session stays up for
-    /// others, and MUST NOT release anything. Evidence rests on two things: the job sandbox
-    /// denying fork and spawn (an assumption tied to that profile, see
+    /// others, and MUST NOT release anything. A malformed, lost or faulted stream poisons the
+    /// session: it never runs, takes or settles another unit on evidence. Evidence rests on two
+    /// things: the job sandbox denying fork and spawn (an assumption tied to that profile, see
     /// platform/studio/tests/test_build_v2_job_fork.py; a session refuses any key that does not
     /// declare it) and the driver accepting only fresh, exact tree samples taken after the latest
     /// terminal reply (quiescence-sample-evidence). Assumptions and gaps: a sample proves only what
@@ -1354,11 +1358,25 @@ impl SessionLifecycle {
         };
         let current = self.sessions.len() == s + 1;
         if let LaunchEvent::Finished { cleanup, .. } = event {
+            // Limits reached by the delivery time `now` apply before the receipt, as if a Tick
+            // had come first: a receipt at or past the settlement limit, or past its unit's
+            // cleanup limit or deadline, leaves that cleanup unknown (session-held-is-sticky).
+            self.sessions[s].finished = true;
+            let cleaning = self.sessions[s].active.filter(|&index| {
+                current && matches!(self.units[index].policy.phase(), Phase::CleaningUp { .. })
+            });
+            if let Some(index) = cleaning {
+                self.decide(now, index, PolicyEvent::Tick, out)?;
+            }
+            let late = reached(self.sessions[s].settle_by, now);
+            if late && self.sessions[s].record.custody == Custody::Pending {
+                self.hold(s, "no confirmed cleanup receipt within the cleanup limit");
+            }
             let custody = match cleanup.clone() {
                 CleanupReceipt::Confirmed => Custody::Released,
                 CleanupReceipt::Unconfirmed { reason } => Custody::Held(reason),
             };
-            let confirmed = cleanup == CleanupReceipt::Confirmed;
+            let confirmed = cleanup == CleanupReceipt::Confirmed && !late;
             let slot = &mut self.sessions[s];
             slot.finished = true;
             // The session's own record shows the guard's latest receipt, as evidence. Unit
@@ -1593,9 +1611,19 @@ impl SessionLifecycle {
                 }
             }
             // A lost response stream is not crash evidence, but no reply or hello can arrive any
-            // more: the session never runs, takes or settles another unit on evidence.
+            // more: the session never runs, takes or settles another unit on evidence. A session
+            // with no running or cleaning-up unit stops now instead of waiting out its bound.
             Err(WorkerFault::Disconnected(_)) => {
                 self.sessions[s].poisoned = true;
+                let governed = active.is_some_and(|index| {
+                    matches!(
+                        self.units[index].policy.phase(),
+                        Phase::Running { .. } | Phase::CleaningUp { .. }
+                    )
+                });
+                if !governed {
+                    self.stop_ungoverned(now, s, out);
+                }
                 Ok(())
             }
         }

@@ -1794,12 +1794,16 @@ fn a_broken_or_lost_protocol_poisons_the_session_in_every_phase() {
             }
             _ => {
                 assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
-                sim.at(
+                let lost = sim.at(
                     200,
                     SessionInput::Worker {
                         session: 1,
                         event: Err(WorkerFault::Disconnected("stream lost".into())),
                     },
+                );
+                assert!(
+                    lost.contains(&SessionCommand::Stop { session: 1 }),
+                    "{case}: stops now, {lost:?}"
                 );
             }
         }
@@ -1834,6 +1838,21 @@ fn a_fault_while_a_unit_awaits_evidence_still_bounds_the_settlement() {
         sim.lifecycle.unit("a").unwrap().attempts[0].custody,
         Custody::Held(_)
     ));
+    // A guard fault on a live idle session after a's quiescence settled it (custody pending,
+    // no settlement limit yet, no unit policy): the stop still wakes at its cleanup limit.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    sim.quiet(200, 1);
+    assert_eq!(sim.settled(), vec!["a".to_string()]);
+    assert_eq!(sim.lifecycle.sessions()[0].custody, Custody::Pending);
+    let fault = sim.launch(300, 1, LaunchEvent::Fault("malformed bridge event".into()));
+    assert!(
+        fault.contains(&SessionCommand::Stop { session: 1 }),
+        "{fault:?}"
+    );
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(300 + SESSION_CLEAN)));
 }
 
 #[test]
@@ -1850,4 +1869,67 @@ fn a_protocol_fault_on_an_idle_session_stops_it_with_a_bounded_settlement() {
         "{fault:?}"
     );
     assert_eq!(sim.lifecycle.next_deadline(), Some(t(300 + SESSION_CLEAN)));
+}
+
+#[test]
+fn a_receipt_at_or_past_its_limit_before_any_tick_leaves_the_cleanup_unknown() {
+    // T is the settlement limit after a completed unit's shutdown, or a crashed unit's own
+    // cleanup limit. The confirmed receipt arrives at T - 1, T or T + 1, with no Tick before it.
+    let limit = 100 + CLEAN;
+    for crash in [false, true] {
+        for at in [limit - 1, limit, limit + 1] {
+            let case = format!("crash {crash}, receipt at {at}");
+            let mut sim = Sim::new();
+            sim.at(0, plan("a", None));
+            sim.at(0, plan("b", None));
+            sim.start(10, 1, 101, "a");
+            if crash {
+                let exit = LaunchEvent::ChildExited {
+                    worker: worker(101),
+                    exit: ExitInfo::Signal(9),
+                    stopped_by: None,
+                };
+                assert_eq!(sim.launch(100, 1, exit), vec![], "{case}");
+            } else {
+                assert_eq!(
+                    sim.worker(100, 1, completed("a")),
+                    vec![SessionCommand::Shutdown { session: 1 }],
+                    "{case}"
+                );
+                sim.worker(110, 1, WorkerEvent::Stopped);
+                sim.launch(120, 1, exited(101));
+            }
+            let out = sim.launch(at, 1, confirmed());
+            if at < limit {
+                assert!(
+                    out.contains(&SessionCommand::Submit { session: 2 }),
+                    "{case}: released in time, {out:?}"
+                );
+                assert_eq!(sim.lifecycle.sessions()[0].custody, Custody::Released);
+                continue;
+            }
+            assert!(
+                !out.iter()
+                    .any(|c| matches!(c, SessionCommand::Submit { .. })),
+                "{case}: {out:?}"
+            );
+            let a = sim.lifecycle.unit("a").unwrap();
+            assert!(
+                matches!(a.attempts[0].custody, Custody::Held(_)),
+                "{case}: {:?}",
+                a.attempts
+            );
+            if crash {
+                assert_eq!(
+                    a.outcome.cleanup,
+                    CleanupState::Unconfirmed(Expiry::CleanupLimit),
+                    "{case}"
+                );
+                assert_eq!(a.outcome.attempts, 1, "{case}: never retried");
+            }
+            let b = sim.lifecycle.unit("b").unwrap();
+            assert_eq!(b.outcome.end, End::Failed(Stop::Cancelled), "{case}");
+            assert_eq!(sim.submits(), vec![1], "{case}");
+        }
+    }
 }
