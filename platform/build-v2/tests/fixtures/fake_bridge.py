@@ -10,7 +10,9 @@ normal, queue_forever (never admitted; holds until stopped), guard_stop (the "gu
 worker), foreign_exit (reports another identity's exit), unconfirmed (cleanup not confirmed),
 spec_closed (closes its spec descriptor unread, so the launcher's spec write fails after the spawn;
 it then waits to be stopped and reports nothing), samples (normal, plus a tree sample of only the
-worker every 50 ms), busy_samples (samples that also list an unclassified process).
+worker every 50 ms), busy_samples (samples that also list an unclassified process), early_exit
+(reports the worker's exit as soon as it starts, before any reply is read: the order in which the
+controller can see a real exit report and the worker's last replies).
 """
 import argparse
 import json
@@ -99,6 +101,8 @@ def main():
     os.close(args.response_fd)
     identity = dict(pid=child.pid, started=f'fake-{child.pid}-{time.monotonic_ns()}', boot='fake-boot')
     emit('child_started', **identity)
+    if args.scenario == 'early_exit':
+        emit('child_exited', returncode=0, stopped_by=None, **identity)
     stopped_by = None
     if args.scenario == 'guard_stop':
         child.kill()
@@ -116,7 +120,8 @@ def main():
     code = child.wait()
     if args.scenario == 'foreign_exit':
         identity['pid'] += 100000
-    emit('child_exited', returncode=code if stopped_by is None else None, stopped_by=stopped_by, **identity)
+    if args.scenario != 'early_exit':
+        emit('child_exited', returncode=code if stopped_by is None else None, stopped_by=stopped_by, **identity)
     if args.scenario == 'unconfirmed':
         emit('finished', cleanup='unconfirmed', reason='scripted uncertain cleanup')
     else:

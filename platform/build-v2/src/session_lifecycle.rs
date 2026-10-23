@@ -81,11 +81,19 @@ pub enum SessionInput {
         session: u32,
         event: Result<WorkerEvent, WorkerFault>,
     },
-    /// The session's worker was durably added to the unit's write lease (or not).
+    /// The session's worker was durably added to the unit's write lease (or not). The driver
+    /// reports success only once the attempt's job request is also prepared.
     Registered {
         session: u32,
         unit: UnitId,
         ok: bool,
+    },
+    /// The worker was registered, but the job request for the unit's current attempt could not
+    /// be prepared: the unit ends without a `Run`, as after a failed registration.
+    PrepareFailed {
+        session: u32,
+        unit: UnitId,
+        reason: String,
     },
     /// Quiescence evidence for `session`: a validated tree sample, taken after the session's
     /// latest terminal reply, that shows only the session's pinned worker (and the shared
@@ -408,6 +416,15 @@ impl SessionLifecycle {
             .and_then(UnitSlot::current)
     }
 
+    /// The number of `unit`'s latest attempt (1 for its first), once it was assigned a session.
+    pub fn unit_attempt(&self, unit: &str) -> Option<u32> {
+        self.units
+            .iter()
+            .find(|u| u.plan.id == unit)
+            .and_then(|u| u.attempts.last())
+            .map(|a| a.attempt)
+    }
+
     /// Every accepted unit's record so far, in submission order.
     pub fn units(&self) -> Vec<UnitRecord> {
         self.units.iter().filter_map(UnitSlot::current).collect()
@@ -558,21 +575,17 @@ impl SessionLifecycle {
                 }
             }
             SessionInput::Registered { session, unit, ok } => {
-                let (Some(s), Some(index)) = (self.session_index(session), self.unit_index(&unit))
-                else {
-                    return Ok(out);
-                };
-                if self.live() == Some(s) && self.units[index].session == Some(session) {
-                    if ok {
-                        self.units[index].registered = true;
-                        self.run_if_ready(s, &mut out);
-                    } else {
-                        self.units[index].abort.get_or_insert(
-                            "worker identity could not be added to the write lease".into(),
-                        );
-                        self.decide(now, index, PolicyEvent::CancelRequested, &mut out)?;
-                    }
-                }
+                let failure = (!ok)
+                    .then(|| "worker identity could not be added to the write lease".to_string());
+                self.registered(now, session, &unit, failure, &mut out)?;
+            }
+            SessionInput::PrepareFailed {
+                session,
+                unit,
+                reason,
+            } => {
+                let failure = format!("the attempt's job request could not be prepared: {reason}");
+                self.registered(now, session, &unit, Some(failure), &mut out)?;
             }
             SessionInput::Worker { session, event } => {
                 if let Some(s) = self.session_index(session) {
@@ -611,6 +624,35 @@ impl SessionLifecycle {
             }
         }
         Ok(out)
+    }
+
+    /// `unit`'s registration on `session` succeeded, or failed with `failure`: a unit whose
+    /// registration or attempt preparation failed ends without a `Run`.
+    fn registered(
+        &mut self,
+        now: MonoTime,
+        session: u32,
+        unit: &str,
+        failure: Option<String>,
+        out: &mut Vec<SessionCommand>,
+    ) -> Result<(), LifecycleError> {
+        let (Some(s), Some(index)) = (self.session_index(session), self.unit_index(unit)) else {
+            return Ok(());
+        };
+        if self.live() != Some(s) || self.units[index].session != Some(session) {
+            return Ok(());
+        }
+        match failure {
+            None => {
+                self.units[index].registered = true;
+                self.run_if_ready(s, out);
+                Ok(())
+            }
+            Some(failure) => {
+                self.units[index].abort.get_or_insert(failure);
+                self.decide(now, index, PolicyEvent::CancelRequested, out)
+            }
+        }
     }
 
     /// Every unit waiting for the live session gives up with `reason`.
@@ -968,8 +1010,10 @@ impl SessionLifecycle {
     /// @cc [owner:fontanierh,label:safety] session-register-before-run
     /// A unit's `Run` MUST be sent only on its assigned session, after that session's pinned
     /// worker was durably registered for this unit (`Registered { ok: true }`) and said hello, in
-    /// either order. A failed registration MUST end the unit without a `Run` and stop the session.
-    /// See tests/session_lifecycle.rs (`a_later_units_failed_registration_stops_its_run`,
+    /// either order. A failed registration or attempt preparation MUST end the unit without a
+    /// `Run` and stop the session. See tests/session_lifecycle.rs
+    /// (`a_later_units_failed_registration_stops_its_run`,
+    /// `a_failed_preparation_ends_the_unit_without_a_run`,
     /// `hello_before_registration_waits_for_the_registration`) and tests/guard_adapter.rs
     /// (`run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver`).
     fn run_if_ready(&mut self, s: usize, out: &mut Vec<SessionCommand>) {

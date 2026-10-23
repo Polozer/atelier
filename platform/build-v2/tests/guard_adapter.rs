@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 static SERIAL: AtomicU64 = AtomicU64::new(0);
 /// One bound for every handshake in these tests.
@@ -72,6 +72,10 @@ fn worker(space: &Workspace, scenario: &str) -> WorkerCommand {
     env.insert(
         "CRASH_MARKER".into(),
         space.path("crash-marker").display().to_string(),
+    );
+    env.insert(
+        "JOB_LOG".into(),
+        space.path("jobs.log").display().to_string(),
     );
     WorkerCommand {
         program: "python3".into(),
@@ -1089,4 +1093,204 @@ fn a_resident_session_reuses_its_worker_only_on_fresh_exact_samples() {
     assert_eq!(report.units[0].attempts[0].quiescent, None);
     assert_eq!(report.units[0].attempts[0].custody, Custody::Released);
     assert_ne!(registered[0].1, registered[1].1);
+}
+
+/// The (job id, job folder) of every `run` the workers received, in order.
+fn runs(space: &Workspace) -> Vec<(String, String)> {
+    fs::read_to_string(space.path("jobs.log"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| {
+            let run: Value = serde_json::from_str(line).unwrap();
+            (
+                run["job_id"].as_str().unwrap().to_string(),
+                run["job_dir"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+fn staged(job: &JobRequest, unit: &str, attempt: u32) -> JobRequest {
+    let mut job = job.clone();
+    job.job_dir = format!("/jobs/{unit}-{attempt}");
+    job
+}
+
+#[test]
+fn a_crash_retry_runs_a_freshly_prepared_request_in_a_later_session() {
+    // A resident session: a crashes once, its retry and then b share the second session.
+    let space = Workspace::new();
+    let job_spec = spec(&space, "crash_once", 3_000);
+    let session = resident_spec(&space, &job_spec, 2_000);
+    let (handle, inbox) = session_channel();
+    handle.submit(unit_with("a", "a", resident_limits(), key(&job_spec)));
+    handle.submit(unit_with("b", "b", resident_limits(), key(&job_spec)));
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let mut calls = vec![];
+    let report = run_session_prepared(
+        &mut launcher("samples"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        &mut |unit, attempt| {
+            calls.push((unit.clone(), attempt));
+            let mut request = job();
+            request.job_id = unit.clone();
+            Ok(staged(&request, unit, attempt))
+        },
+        published,
+    )
+    .unwrap();
+    assert_eq!(
+        calls,
+        vec![("a".into(), 1), ("a".into(), 2), ("b".into(), 1)],
+        "one preparation per attempt, each after its admission"
+    );
+    assert_eq!(
+        runs(&space),
+        vec![
+            ("a".into(), "/jobs/a-1".into()),
+            ("a".into(), "/jobs/a-2".into()),
+            ("b".into(), "/jobs/b-1".into()),
+        ],
+        "every run carries its own attempt's request"
+    );
+    let a = &report.units[0];
+    assert_eq!(a.outcome.end, End::Completed);
+    assert_eq!(a.outcome.attempts, 2);
+    assert_eq!(
+        a.attempts.iter().map(|x| x.session).collect::<Vec<_>>(),
+        vec![1, 2],
+        "the retry joined a later session"
+    );
+    assert_eq!(a.attempts[0].custody, Custody::Released);
+    let b = &report.units[1];
+    assert_eq!(b.outcome.end, End::Completed);
+    assert_eq!(
+        b.attempts[0].session, 2,
+        "b requeued onto the retry's session"
+    );
+    assert_eq!(report.sessions.len(), 2);
+    assert!(
+        report
+            .sessions
+            .iter()
+            .all(|s| s.custody == Custody::Released)
+    );
+
+    // run_job_prepared: the same per-attempt seam for one job.
+    let space = Workspace::new();
+    let job_spec = spec(&space, "crash_once", 3_000);
+    let (_canceller, inbox) = job_channel();
+    let mut attempts = vec![];
+    let report = run_job_prepared(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &job_spec,
+        inbox,
+        &mut |_| Ok(()),
+        &mut |attempt| {
+            attempts.push(attempt);
+            Ok(staged(&job(), "job", attempt))
+        },
+    )
+    .unwrap();
+    assert_eq!(report.outcome.end, End::Completed);
+    assert_eq!(attempts, vec![1, 2]);
+    assert_eq!(
+        runs(&space),
+        vec![
+            ("job".into(), "/jobs/job-1".into()),
+            ("job".into(), "/jobs/job-2".into()),
+        ]
+    );
+}
+
+#[test]
+fn a_failed_preparation_ends_the_unit_without_a_run_and_is_never_retried() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let session = session_spec(&space, &job_spec);
+    let (handle, inbox) = session_channel();
+    for id in ["a", "b", "c"] {
+        handle.submit(unit_with(id, id, job_spec.limits, key(&job_spec)));
+    }
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let mut calls = vec![];
+    let report = run_session_prepared(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        &mut |unit, attempt| {
+            calls.push(unit.clone());
+            let mut request = job();
+            request.job_id = unit.clone();
+            match unit.as_str() {
+                "a" => Err("staging failed".into()),
+                "b" => {
+                    request.job_id = "other".into();
+                    Ok(request)
+                }
+                _ => Ok(staged(&request, unit, attempt)),
+            }
+        },
+        published,
+    )
+    .unwrap();
+    assert_eq!(
+        calls,
+        vec!["a", "b", "c"],
+        "no retry after a failed preparation"
+    );
+    assert_eq!(
+        runs(&space),
+        vec![("c".into(), "/jobs/c-1".into())],
+        "only the prepared unit ran"
+    );
+    for (unit, why) in [
+        (&report.units[0], "staging failed"),
+        (&report.units[1], "changed the unit's job id"),
+    ] {
+        assert_eq!(unit.outcome.end, End::Failed(Stop::Cancelled));
+        assert_eq!(unit.outcome.attempts, 1);
+        assert!(unit.abort.as_ref().unwrap().contains(why), "{unit:?}");
+        assert_eq!(unit.attempts[0].custody, Custody::Released);
+    }
+    assert_eq!(report.units[2].outcome.end, End::Completed);
+}
+
+#[test]
+fn a_reply_read_after_the_exit_report_still_completes_the_unit() {
+    // The bridge reports the exit before the worker has replied at all: the driver applies the
+    // report only after the response stream ends, so the completed reply comes first.
+    let (report, _, space) = drive("normal", "early_exit", false, 3_000);
+    assert_eq!(report.outcome.end, End::Completed);
+    assert_eq!(report.outcome.attempts, 1, "no retry from the early report");
+    assert_eq!(report.attempts.len(), 1);
+    assert_eq!(report.attempts[0].custody, Custody::Released);
+    assert_eq!(report.outputs.unwrap().files, vec!["piece.glb".to_string()]);
+    assert_eq!(runs(&space).len(), 1);
+}
+
+#[test]
+fn an_exit_report_without_the_stream_end_applies_after_the_drain_limit() {
+    // The worker keeps its pipe open and never replies: the exit report is applied once the
+    // drain limit passes, long before the 30 s job limit, and is crash evidence as reported.
+    let started = Instant::now();
+    let (report, _, _space) = drive("hang", "early_exit", false, 1_000);
+    let took = started.elapsed();
+    assert_eq!(report.outcome.end, End::Failed(Stop::Crash), "{report:?}");
+    assert_eq!(
+        report.attempts.len(),
+        1,
+        "no retry without a confirmed receipt"
+    );
+    assert!(matches!(report.attempts[0].custody, Custody::Held(_)));
+    assert!(took >= EXIT_DRAIN_LIMIT, "{took:?}");
+    assert!(took < Duration::from_secs(15), "{took:?}");
 }

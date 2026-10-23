@@ -19,7 +19,7 @@ use crate::session_lifecycle::{
     UnitRecord,
 };
 use crate::worker_session::{Event as WorkerEvent, Session, SessionError};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -496,6 +496,43 @@ struct Live<A> {
     /// When the controller received the latest terminal reply (seconds since the epoch): a tree
     /// sample is evidence only if taken after it.
     terminal_at: Option<f64>,
+    /// The response stream ended (or there never was one): every frame is read.
+    drained: bool,
+    /// The guard's exit report and the session's later guard events, waiting for the response
+    /// stream to end (session-exit-after-drain).
+    held: Vec<AttemptEvent>,
+    /// When a held exit report is applied even if the stream has not ended.
+    drain_by: Option<MonoTime>,
+}
+
+/// How long the guard's exit report may wait for the worker's response stream to end. The bridge
+/// closes its own protocol descriptors before it reports the exit, so the end normally follows
+/// within the reader's next read.
+pub const EXIT_DRAIN_LIMIT: Duration = Duration::from_secs(2);
+
+impl<A> Live<A> {
+    /// The guard reported this session's worker exit, applied or still held.
+    fn exit_held(&self) -> bool {
+        self.held
+            .iter()
+            .any(|event| matches!(event.event, LaunchEvent::ChildExited { .. }))
+    }
+
+    /// Release every held guard event, in order.
+    fn release(&mut self, replay: &mut VecDeque<SessionInput>) {
+        self.drain_by = None;
+        for event in std::mem::take(&mut self.held) {
+            replay.push_back(self.launch_input(event));
+        }
+    }
+
+    fn launch_input(&mut self, event: AttemptEvent) -> SessionInput {
+        if matches!(event.event, LaunchEvent::Finished { .. }) {
+            // The admission owner is done; drop its pipes and handle.
+            self.writer = None;
+        }
+        SessionInput::Launch(event)
+    }
 }
 
 fn wall_clock() -> f64 {
@@ -583,6 +620,23 @@ pub fn run_job<L: WorkerLauncher>(
     inbox: JobInbox,
     register: &mut dyn FnMut(&ProcessIdentity) -> Result<(), String>,
 ) -> Result<Report, LifecycleError> {
+    let job = spec.job.clone();
+    run_job_prepared(launcher, clock, spec, inbox, register, &mut |_| {
+        Ok(job.clone())
+    })
+}
+
+/// [`run_job`], with the job request prepared per attempt: `prepare(attempt)` returns the request
+/// attempt `attempt` (1 for the first) runs, as [`run_session_prepared`] describes. `spec.job` is
+/// the job's identity; every prepared request must keep its job id.
+pub fn run_job_prepared<L: WorkerLauncher>(
+    launcher: &mut L,
+    clock: &dyn Clock,
+    spec: &JobSpec,
+    inbox: JobInbox,
+    register: &mut dyn FnMut(&ProcessIdentity) -> Result<(), String>,
+    prepare: &mut dyn FnMut(u32) -> Result<JobRequest, String>,
+) -> Result<Report, LifecycleError> {
     let shared = Shared {
         worker_version: &spec.worker_version,
         command: &spec.command,
@@ -609,6 +663,7 @@ pub fn run_job<L: WorkerLauncher>(
         &shared,
         inbox,
         &mut |_, worker| register(worker),
+        &mut |_, attempt, _| prepare(attempt),
         published,
         Some(unit),
     )?;
@@ -644,6 +699,62 @@ pub fn run_session<L: WorkerLauncher>(
     register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
     published: Sender<UnitRecord>,
 ) -> Result<SessionReport, LifecycleError> {
+    run_session_with(
+        launcher,
+        clock,
+        spec,
+        inbox,
+        register,
+        &mut |_, _, job| Ok(job.clone()),
+        published,
+    )
+}
+
+/// @cc [owner:fontanierh,label:correctness] session-prepare-per-attempt
+/// `prepare` MUST be called exactly once for each attempt of a unit, after that attempt's
+/// admission and its worker's registration and before its `Run`, and that `Run` MUST carry the
+/// request it returned. A failure, or a request with another job id than the submitted one, MUST
+/// end the unit without a `Run`. A retry gets its own call and request; nothing here reuses or
+/// clears an earlier attempt's folder, which stays as evidence. `prepare` runs on the lifecycle
+/// thread, so it must be quick (clones or links). See tests/guard_adapter.rs
+/// (`a_crash_retry_runs_a_freshly_prepared_request_in_a_later_session`,
+/// `a_failed_preparation_ends_the_unit_without_a_run_and_is_never_retried`) and
+/// tests/session_lifecycle.rs (`a_failed_preparation_ends_the_unit_without_a_run`).
+///
+/// [`run_session`], with each attempt's job request prepared by `prepare(unit, attempt)` (1 for a
+/// unit's first attempt) instead of the submitted one. The submitted request stays the unit's
+/// identity: its job id must be unique in the session and every prepared request must keep it.
+pub fn run_session_prepared<L: WorkerLauncher>(
+    launcher: &mut L,
+    clock: &dyn Clock,
+    spec: &SessionSpec,
+    inbox: JobInbox,
+    register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
+    prepare: &mut dyn FnMut(&UnitId, u32) -> Result<JobRequest, String>,
+    published: Sender<UnitRecord>,
+) -> Result<SessionReport, LifecycleError> {
+    run_session_with(
+        launcher,
+        clock,
+        spec,
+        inbox,
+        register,
+        &mut |unit, attempt, _| prepare(unit, attempt),
+        published,
+    )
+}
+
+type Prepare<'a> = dyn FnMut(&UnitId, u32, &JobRequest) -> Result<JobRequest, String> + 'a;
+
+fn run_session_with<L: WorkerLauncher>(
+    launcher: &mut L,
+    clock: &dyn Clock,
+    spec: &SessionSpec,
+    inbox: JobInbox,
+    register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
+    prepare: &mut Prepare<'_>,
+    published: Sender<UnitRecord>,
+) -> Result<SessionReport, LifecycleError> {
     custody_matches(&spec.custody, &spec.key.custody)?;
     let shared = Shared {
         worker_version: &spec.key.worker_version,
@@ -655,7 +766,9 @@ pub fn run_session<L: WorkerLauncher>(
         custody: &spec.custody,
         key: Some(&spec.key),
     };
-    drive(launcher, clock, &shared, inbox, register, published, None)
+    drive(
+        launcher, clock, &shared, inbox, register, prepare, published, None,
+    )
 }
 
 /// What [`run_job`] and [`run_session`] share, borrowed so a custody duplicate is made only per
@@ -672,20 +785,34 @@ struct Shared<'a> {
     key: Option<&'a SessionKey>,
 }
 
+/// @cc [owner:fontanierh,label:correctness] session-exit-after-drain
+/// The guard's exit report for a session's worker MUST reach the lifecycle only after the
+/// worker's response stream has ended, so every reply the worker wrote before exiting is applied
+/// first, or once [`EXIT_DRAIN_LIMIT`] has passed; the session's later guard events MUST follow it
+/// in order. While the report waits, the driver MUST NOT signal that session's admission owner,
+/// which is already unwinding. See tests/guard_adapter.rs
+/// (`a_reply_read_after_the_exit_report_still_completes_the_unit`,
+/// `an_exit_report_without_the_stream_end_applies_after_the_drain_limit`).
+///
 /// `only`: one unit submitted and closed before the inbox is read.
+#[allow(clippy::too_many_arguments)]
 fn drive<L: WorkerLauncher>(
     launcher: &mut L,
     clock: &dyn Clock,
     spec: &Shared<'_>,
     inbox: JobInbox,
     register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
+    prepare: &mut Prepare<'_>,
     published: Sender<UnitRecord>,
     only: Option<(UnitPlan, JobRequest)>,
 ) -> Result<SessionReport, LifecycleError> {
     let mut lifecycle = SessionLifecycle::new(spec.config);
     let mut jobs: BTreeMap<UnitId, JobRequest> = BTreeMap::new();
+    // Each unit's request for its current attempt, from `prepare`, until its `Run` takes it.
+    let mut prepared: BTreeMap<UnitId, JobRequest> = BTreeMap::new();
     let mut live: BTreeMap<u32, Live<L::Attempt>> = BTreeMap::new();
     let mut pending: Vec<SessionInput> = vec![];
+    let mut replay: VecDeque<SessionInput> = VecDeque::new();
     let mut commands: Vec<SessionCommand> = vec![];
     let mut refused: Vec<UnitRecord> = vec![];
     if let Some((plan, job)) = only {
@@ -746,8 +873,11 @@ fn drive<L: WorkerLauncher>(
                                 Live {
                                     handle,
                                     session: Session::new(spec.worker_version),
+                                    drained: writer.is_none(),
                                     writer,
                                     terminal_at: None,
+                                    held: vec![],
+                                    drain_by: None,
                                 },
                             );
                         }
@@ -762,15 +892,51 @@ fn drive<L: WorkerLauncher>(
                     unit,
                     worker,
                 } => {
-                    let ok = register(&unit, &worker).is_ok();
-                    pending.push(SessionInput::Registered { session, unit, ok });
+                    // Registration first, then this attempt's request (session-prepare-per-attempt).
+                    let input = if register(&unit, &worker).is_err() {
+                        SessionInput::Registered {
+                            session,
+                            unit,
+                            ok: false,
+                        }
+                    } else {
+                        let made = match (jobs.get(&unit), lifecycle.unit_attempt(&unit)) {
+                            (Some(job), Some(attempt)) => match prepare(&unit, attempt, job) {
+                                Ok(request) if request.job_id == job.job_id => Ok(request),
+                                Ok(_) => {
+                                    Err("the prepared request changed the unit's job id".into())
+                                }
+                                Err(reason) => Err(reason),
+                            },
+                            _ => Err("no submitted job request or attempt for the unit".into()),
+                        };
+                        match made {
+                            Ok(request) => {
+                                prepared.insert(unit.clone(), request);
+                                SessionInput::Registered {
+                                    session,
+                                    unit,
+                                    ok: true,
+                                }
+                            }
+                            Err(reason) => {
+                                prepared.remove(&unit);
+                                SessionInput::PrepareFailed {
+                                    session,
+                                    unit,
+                                    reason,
+                                }
+                            }
+                        }
+                    };
+                    pending.push(input);
                 }
                 SessionCommand::Run { session, unit } => {
                     let Some(entry) = live.get_mut(&session) else {
                         continue;
                     };
-                    let request = match jobs.get(&unit) {
-                        Some(job) => entry.session.run(job.clone()).map_err(fault_of),
+                    let request = match prepared.remove(&unit) {
+                        Some(job) => entry.session.run(job).map_err(fault_of),
                         None => Err(WorkerFault::Protocol(format!(
                             "no job request for unit {unit}"
                         ))),
@@ -807,7 +973,9 @@ fn drive<L: WorkerLauncher>(
                     }
                 }
                 SessionCommand::Stop { session } => {
-                    if let Some(entry) = live.get_mut(&session) {
+                    // A held exit report means the guard is already unwinding: never interrupt
+                    // it (session-exit-after-drain). Its receipt or settlement limit decides.
+                    if let Some(entry) = live.get_mut(&session).filter(|entry| !entry.exit_held()) {
                         let _ = entry.handle.stop();
                     }
                 }
@@ -831,10 +999,18 @@ fn drive<L: WorkerLauncher>(
                 refused,
             });
         }
-        let input = match pending.pop() {
+        let now = clock.now();
+        for entry in live.values_mut() {
+            if entry.drain_by.is_some_and(|by| now >= by) {
+                entry.release(&mut replay);
+            }
+        }
+        let next = pending.pop().or_else(|| replay.pop_front());
+        let input = match next {
             Some(input) => input,
             None => {
-                let message = match lifecycle.next_deadline() {
+                let drains = live.values().filter_map(|entry| entry.drain_by);
+                let message = match lifecycle.next_deadline().into_iter().chain(drains).min() {
                     Some(deadline) => {
                         let wait = deadline
                             .elapsed()
@@ -890,7 +1066,14 @@ fn drive<L: WorkerLauncher>(
                         event: LaunchEvent::TreeSample(sample),
                     })) => {
                         // Evidence only when fresh and exact for the pinned worker, after the
-                        // latest terminal reply (quiescence-sample-evidence); otherwise dropped.
+                        // latest terminal reply (quiescence-sample-evidence), and never once the
+                        // guard reported the worker's exit; otherwise dropped.
+                        if live
+                            .get(&attempt)
+                            .is_some_and(|entry| !entry.held.is_empty())
+                        {
+                            continue;
+                        }
                         let pinned = lifecycle
                             .sessions()
                             .into_iter()
@@ -910,18 +1093,30 @@ fn drive<L: WorkerLauncher>(
                         }
                     }
                     Some(Message::Launch(event)) => {
-                        if matches!(event.event, LaunchEvent::Finished { .. }) {
-                            // The admission owner is done; drop its pipes and handle.
-                            if let Some(entry) = live.get_mut(&event.attempt) {
-                                entry.writer = None;
+                        let Some(entry) = live.get_mut(&event.attempt) else {
+                            commands = lifecycle.on(clock.now(), SessionInput::Launch(event))?;
+                            continue;
+                        };
+                        let exit = matches!(event.event, LaunchEvent::ChildExited { .. });
+                        if !entry.held.is_empty() || (exit && !entry.drained) {
+                            // Wait for the replies the worker wrote before it exited.
+                            if entry.held.is_empty() {
+                                entry.drain_by = clock.now().checked_add(EXIT_DRAIN_LIMIT);
                             }
+                            entry.held.push(event);
+                            continue;
                         }
-                        SessionInput::Launch(event)
+                        entry.launch_input(event)
                     }
                     Some(Message::Frame { attempt, frame }) => {
                         let Some(entry) = live.get_mut(&attempt) else {
                             continue;
                         };
+                        if !matches!(frame, Ok(Some(_))) {
+                            // The stream's end: a held exit report follows this input.
+                            entry.drained = true;
+                            entry.release(&mut replay);
+                        }
                         let event = match frame {
                             Ok(Some(response)) => {
                                 let event = entry.session.receive(response).map_err(fault_of);

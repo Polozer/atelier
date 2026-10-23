@@ -1193,3 +1193,131 @@ fn a_unit_a_session_could_never_serve_is_refused_at_submission() {
         }]
     );
 }
+
+#[test]
+fn a_failed_preparation_ends_the_unit_without_a_run() {
+    // On a reused session: b's registration succeeded, but its attempt's request could not be
+    // prepared. b never runs, and the session stops as after a failed registration.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    assert_eq!(
+        sim.quiet(160, 1),
+        vec![
+            register(1, "b", 101),
+            SessionCommand::Settled { unit: "a".into() }
+        ]
+    );
+    assert_eq!(sim.lifecycle.unit_attempt("b"), Some(1));
+    assert_eq!(
+        sim.at(
+            170,
+            SessionInput::PrepareFailed {
+                session: 1,
+                unit: "b".into(),
+                reason: "staging failed".into()
+            }
+        ),
+        vec![SessionCommand::Stop { session: 1 }]
+    );
+    sim.launch(180, 1, exited(101));
+    assert_eq!(
+        sim.launch(190, 1, confirmed()),
+        vec![SessionCommand::Settled { unit: "b".into() }]
+    );
+    assert!(sim.lifecycle.done());
+    assert!(
+        !sim.log
+            .iter()
+            .any(|c| matches!(c, SessionCommand::Run { unit, .. } if unit == "b")),
+        "b never runs"
+    );
+    let b = sim.lifecycle.unit("b").unwrap();
+    assert_eq!(b.outcome.end, End::Failed(Stop::Cancelled));
+    assert_eq!(b.outcome.attempts, 1);
+    assert!(
+        b.abort
+            .unwrap()
+            .contains("could not be prepared: staging failed")
+    );
+    assert_eq!(sim.submits(), vec![1], "never retried");
+}
+
+#[test]
+fn a_crash_in_a_reused_session_retries_in_a_later_session_and_requeues_the_rest() {
+    let mut sim = Sim::resident(100 * JOB);
+    for id in ["a", "b", "c"] {
+        sim.at(0, plan(id, None));
+    }
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    sim.quiet(160, 1);
+    assert_eq!(
+        sim.registered(170, 1, "b"),
+        vec![SessionCommand::Run {
+            session: 1,
+            unit: "b".into()
+        }]
+    );
+    // The reused worker exits mid-job with no stop requested: crash evidence for b only.
+    assert_eq!(
+        sim.launch(
+            200,
+            1,
+            LaunchEvent::ChildExited {
+                worker: worker(101),
+                exit: ExitInfo::Signal(9),
+                stopped_by: None
+            }
+        ),
+        vec![]
+    );
+    assert_eq!(
+        sim.at(250, SessionInput::Tick),
+        vec![],
+        "no session before the receipt"
+    );
+    assert_eq!(
+        sim.launch(300, 1, confirmed()),
+        vec![SessionCommand::Submit { session: 2 }],
+        "b's retry and c wait for one fresh session"
+    );
+    assert_eq!(sim.lifecycle.unit_attempt("b"), Some(1));
+    // The retry is first in line, then c joins the same session after quiescence.
+    sim.start(400, 2, 202, "b");
+    assert_eq!(sim.lifecycle.unit_attempt("b"), Some(2));
+    assert_eq!(sim.worker(500, 2, completed("b")), vec![]);
+    assert_eq!(
+        sim.quiet(560, 2),
+        vec![
+            register(2, "c", 202),
+            SessionCommand::Settled { unit: "b".into() }
+        ]
+    );
+    sim.registered(570, 2, "c");
+    assert_eq!(
+        sim.worker(600, 2, completed("c")),
+        vec![SessionCommand::Shutdown { session: 2 }]
+    );
+    sim.worker(610, 2, WorkerEvent::Stopped);
+    sim.launch(620, 2, exited(202));
+    assert_eq!(
+        sim.launch(630, 2, confirmed()),
+        vec![SessionCommand::Settled { unit: "c".into() }]
+    );
+    assert!(sim.lifecycle.done());
+    let b = sim.lifecycle.unit("b").unwrap();
+    assert_eq!(b.outcome.end, End::Completed);
+    assert_eq!(b.outcome.attempts, 2);
+    assert_eq!(
+        b.attempts.iter().map(|x| x.session).collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert_eq!(b.attempts[0].custody, Custody::Released);
+    assert_eq!(sim.lifecycle.unit("c").unwrap().attempts[0].session, 2);
+    assert_eq!(sim.submits(), vec![1, 2]);
+}
