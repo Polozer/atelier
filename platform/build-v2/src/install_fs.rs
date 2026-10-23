@@ -184,6 +184,26 @@ impl RootFs {
         })
     }
 
+    pub fn directory_identity(&self, path: &str) -> io::Result<Option<CreatedDirectory>> {
+        let (parent, leaf) = self.parent(path)?;
+        let directory = match opened(&parent, &leaf, libc::O_RDONLY | libc::O_DIRECTORY, 0) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let metadata = directory.metadata()?;
+        Ok(Some(CreatedDirectory {
+            path: path.into(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        }))
+    }
+
+    pub fn sync_directory(&self, path: &str) -> io::Result<()> {
+        let (parent, leaf) = self.parent(path)?;
+        opened(&parent, &leaf, libc::O_RDONLY | libc::O_DIRECTORY, 0)?.sync_all()
+    }
+
     pub fn file(&self, path: &str) -> io::Result<File> {
         let (parent, leaf) = self.parent(path)?;
         let file = opened(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK, 0)?;

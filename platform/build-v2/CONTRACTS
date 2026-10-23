@@ -71,6 +71,20 @@ clone-only restoration and recorded normalized modes, without payload hashing or
 Receipt identity MUST include explicit stable project namespace plus logical item path, never
 selected roots or Unit.id. Foreign files, other projects and current code/sources MUST be preserved.
 Before receipt-index commit recovery MUST restore prior owned bytes; after commit it MUST finish
-only exact owned cleanup. Unknown/replaced files or malformed journals MUST retain evidence and
+only exact owned cleanup. Unknown/replaced checkout files or malformed journals MUST retain evidence and
 block readers. Required root failure MUST preserve valid installed work and cache claims.
 See tests/installs.rs and checkout_locks::tests; macOS APFS acceptance remains mandatory.
+An unready journal MAY abort only with the unchanged prior index, exact old file observations,
+absent trash and matching pre-owned directory identity. Recovery MUST persist abort intent,
+archive the exact SHA-bound journal, durably quarantine the whole scope without replacing
+another name, and recheck identities/evidence/old checkout before clearing reader exclusion.
+Unknown private leaves MUST be preserved, never adopted/deleted or certified as result bytes.
+Quarantine retains independent artifacts and explicit owner/claim metadata; failed B2 leases
+remain unchanged. Future dead-producer CAS retention and explicit quarantine cleanup are separate.
+Replacement inodes at prior receipt-owned names MUST refuse restore/retirement; dirty original
+inodes MAY be journaled using their fresh metadata. ReceiptReader MUST use the shared exact
+receipt/stat validator without opening or creating any cache paths, including on cold start.
+See preinstall_abort_preserves_unknown_clone_and_resumes_every_durable_cut,
+preinstall_abort_rejects_changed_outputs_trash_and_replaced_directory_identities,
+replaced_receipt_inode_is_foreign_before_restore_and_whole_item_retirement and
+install_modes_receipts_and_clone_independence_survive_cache_removal in tests/installs.rs.

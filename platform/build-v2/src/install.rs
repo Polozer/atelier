@@ -1,6 +1,6 @@
 //! Exact-owned-set checkout installs. Store/root/worker lifecycle policy remains separate.
-//! Checkpoint: journal commit/recovery is drafted; acceptance tests and hosted compilation
-//! are still pending. No production caller uses this draft module.
+//! Pre-install interruptions quarantine the pre-owned scope; later unknown mutations fail closed.
+//! The library remains unused pending final validation and separately reviewed caller integration.
 use crate::checkout_locks::{BuildGuard, CheckoutLocks, INSTALL_METADATA, LockError};
 use crate::graph::BuildGraph;
 pub use crate::install_fs::FileObservation;
@@ -295,14 +295,25 @@ pub enum CurrentStatus {
     NotMaterialized,
 }
 
+/// Receipt/status access does not open or create the cache, including on cold start.
 #[derive(Clone)]
-pub struct CheckoutInstaller {
+pub struct ReceiptReader {
     locks: CheckoutLocks,
     fs: Arc<RootFs>,
-    objects: ObjectStore,
-    results: ResultStore,
     policy: InstallPolicy,
     reserved: Claims,
+}
+#[derive(Clone)]
+pub struct CheckoutInstaller {
+    reader: ReceiptReader,
+    objects: ObjectStore,
+    results: ResultStore,
+}
+impl std::ops::Deref for CheckoutInstaller {
+    type Target = ReceiptReader;
+    fn deref(&self) -> &Self::Target {
+        &self.reader
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -322,6 +333,13 @@ pub struct RestorePlan {
     removals: Vec<RemovalIntent>,
     desired: BTreeMap<String, DesiredFile>,
     items: BTreeMap<OwnerId, Item>,
+    retention: QuarantineRetention,
+}
+
+/// A miss retains the original write transaction for dispatch; no second begin/lease.
+pub enum RestoreLookup {
+    Miss(WriteTransaction),
+    Hit(RestorePlan),
 }
 
 impl CheckoutInstaller {
@@ -330,34 +348,48 @@ impl CheckoutInstaller {
         store: impl AsRef<Path>,
         policy: InstallPolicy,
     ) -> Result<Self, InstallError> {
-        ProjectNamespace::new(policy.project.as_str())?;
-        let locks = CheckoutLocks::open(checkout)?;
-        let fs = Arc::new(RootFs::open(locks.root())?);
+        let mut reader = ReceiptReader::open(checkout, policy)?;
         let objects = ObjectStore::open(store)?;
         let results = ResultStore::open(objects.root())?;
-        let mut reserved = Claims::new();
-        claim(&mut reserved, ".git", "git metadata").map_err(invalid)?;
-        claim(&mut reserved, INSTALL_METADATA, "install metadata/locks").map_err(invalid)?;
-        if let Ok(relative) = objects.root().strip_prefix(locks.root()) {
+        if let Ok(relative) = objects.root().strip_prefix(reader.locks.root()) {
             let relative = relative
                 .to_str()
                 .ok_or_else(|| invalid("in-checkout store path is not UTF-8"))?;
             relative_path(relative, true).map_err(invalid)?;
-            reserved.insert(folded(relative), (relative.into(), "object store".into()));
+            reader
+                .reserved
+                .insert(folded(relative), (relative.into(), "object store".into()));
         }
+        for folder in ["receipts", "transactions", "quarantine"] {
+            reader
+                .fs
+                .mkdirs(&format!("{INSTALL_METADATA}/{folder}"), 0o700)?;
+        }
+        Ok(Self {
+            reader,
+            objects,
+            results,
+        })
+    }
+}
+
+impl ReceiptReader {
+    pub fn open(checkout: impl AsRef<Path>, policy: InstallPolicy) -> Result<Self, InstallError> {
+        ProjectNamespace::new(policy.project.as_str())?;
+        let locks = CheckoutLocks::open(checkout)?;
+        let fs = Arc::new(RootFs::open(locks.root())?);
+        let mut reserved = Claims::new();
+        claim(&mut reserved, ".git", "git metadata").map_err(invalid)?;
+        claim(&mut reserved, INSTALL_METADATA, "install metadata/locks").map_err(invalid)?;
         if policy.allowed_install_roots.is_empty() {
             return Err(invalid("no install roots supplied"));
         }
         for root in &policy.allowed_install_roots {
             relative_path(root, true).map_err(invalid)?;
         }
-        fs.mkdirs(&format!("{INSTALL_METADATA}/receipts"), 0o700)?;
-        fs.mkdirs(&format!("{INSTALL_METADATA}/transactions"), 0o700)?;
         Ok(Self {
             locks,
             fs,
-            objects,
-            results,
             policy,
             reserved,
         })
@@ -500,7 +532,9 @@ impl CheckoutInstaller {
         }
         Ok(CurrentStatus::Current(receipts))
     }
+}
 
+impl CheckoutInstaller {
     pub fn prepare_restore(
         &self,
         guard: &BuildGuard,
@@ -509,10 +543,33 @@ impl CheckoutInstaller {
         view: &OwnershipSnapshot,
         removals: Vec<RemovalIntent>,
     ) -> Result<Option<RestorePlan>, InstallError> {
+        match self.lookup_restore(guard, unit, identity, view, removals)? {
+            RestoreLookup::Miss(_transaction) => Ok(None),
+            RestoreLookup::Hit(plan) => Ok(Some(plan)),
+        }
+    }
+
+    /// Potential materialization uses one lookup. A miss carries its lease into dispatch.
+    /// The compatibility prepare_restore wrapper conservatively drops a miss transaction.
+    pub fn lookup_restore(
+        &self,
+        guard: &BuildGuard,
+        unit: &PreparedUnit,
+        identity: LeaseIdentity,
+        view: &OwnershipSnapshot,
+        removals: Vec<RemovalIntent>,
+    ) -> Result<RestoreLookup, InstallError> {
         self.guard(guard)?;
         if !view.projects.contains(&self.policy.project) {
             return Err(invalid("missing complete project ownership view"));
         }
+        let mut retention = QuarantineRetention {
+            owner: identity.owner.clone(),
+            workers: identity.workers.clone(),
+            result_key: unit.key().into(),
+            object_digests: BTreeSet::new(),
+            upstream_result_keys: identity.upstream_result_keys.clone(),
+        };
         let mut transaction = self.results.begin(
             unit,
             identity.provenance,
@@ -521,8 +578,14 @@ impl CheckoutInstaller {
             identity.upstream_result_keys,
         )?;
         let Some(result) = transaction.lookup()? else {
-            return Ok(None);
+            return Ok(RestoreLookup::Miss(transaction));
         };
+        retention
+            .object_digests
+            .extend(result.files().map(|file| file.digest.clone()));
+        retention
+            .upstream_result_keys
+            .extend(result.upstream_result_keys.iter().cloned());
         let mut desired = BTreeMap::new();
         let mut items = BTreeMap::new();
         for stored in &result.result.outputs {
@@ -535,6 +598,27 @@ impl CheckoutInstaller {
             })?;
             if definition.class != stored.item.class {
                 return Err(invalid("result class differs from declared owner"));
+            }
+            let declared_files: BTreeMap<_, _> = stored
+                .item
+                .files
+                .iter()
+                .map(|file| {
+                    Ok((
+                        file.path.clone(),
+                        (
+                            file.install_path
+                                .clone()
+                                .ok_or_else(|| invalid("missing output mapping"))?,
+                            file.required,
+                        ),
+                    ))
+                })
+                .collect::<Result<_, InstallError>>()?;
+            if declared_files != definition.files {
+                return Err(invalid(
+                    "result complete mapping differs from current declaration",
+                ));
             }
             for file in &stored.files {
                 let declared = stored
@@ -590,7 +674,7 @@ impl CheckoutInstaller {
                 }
             }
         }
-        Ok(Some(RestorePlan {
+        Ok(RestoreLookup::Hit(RestorePlan {
             installer: self.clone(),
             transaction: Some(transaction),
             result,
@@ -598,14 +682,17 @@ impl CheckoutInstaller {
             removals,
             desired,
             items,
+            retention,
         }))
     }
 }
 
-/// Fault boundaries are after durable journal/publication steps, never successful stamps.
+/// Named filesystem transitions for fault injection, never successful stamps.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstallEvent {
     JournalCreated,
+    /// Clone returned, but its inode has not yet been observed and durably recorded.
+    CloneCreated(usize),
     FileStaged(usize),
     Ready,
     OldMoved(usize),
@@ -620,6 +707,32 @@ pub enum InstallOutcome {
     Installed,
     /// Checkout receipts are committed. B2 keeps its lease when rooting fails.
     InstalledWithRootPending(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecoveryEvent {
+    AbortIntentDurable,
+    JournalArchived,
+    ScopeQuarantined,
+    ReaderBarrierCleared,
+}
+
+/// Quarantine owns independent staging artifacts/evidence, not a successful result/root.
+/// B2's failed-transaction lease is unchanged; its ordinary liveness policy remains B5's.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QuarantineRetention {
+    owner: ProcessIdentity,
+    workers: Vec<ProcessIdentity>,
+    result_key: String,
+    object_digests: BTreeSet<String>,
+    upstream_result_keys: BTreeSet<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AbortIntent {
+    quarantine: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -644,6 +757,8 @@ struct InstallJournal {
     ready: bool,
     entries: Vec<JournalEntry>,
     directories: Vec<CreatedDirectory>,
+    retention: QuarantineRetention,
+    abort: Option<AbortIntent>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -698,6 +813,25 @@ impl CheckoutInstaller {
         if journal.after_index.is_some() && !journal.ready {
             return Err(recovery("unready journal has committed receipts"));
         }
+        digest(&journal.retention.result_key)?;
+        for digest_value in journal
+            .retention
+            .object_digests
+            .iter()
+            .chain(journal.retention.upstream_result_keys.iter())
+        {
+            digest(digest_value)?;
+        }
+        for process in
+            std::iter::once(&journal.retention.owner).chain(journal.retention.workers.iter())
+        {
+            if process.pid == 0
+                || process.boot.trim().is_empty()
+                || process.started.trim().is_empty()
+            {
+                return Err(recovery("invalid quarantine custody identity"));
+            }
+        }
         let prefix = format!("{INSTALL_METADATA}/transactions/");
         let serial = journal
             .scope
@@ -708,6 +842,22 @@ impl CheckoutInstaller {
             || !serial.bytes().all(|b| b.is_ascii_digit() || b == b'-')
         {
             return Err(recovery("invalid transaction scope"));
+        }
+        if let Some(abort) = &journal.abort {
+            if journal.ready
+                || abort.quarantine != format!("{INSTALL_METADATA}/quarantine/{serial}")
+            {
+                return Err(recovery("invalid pre-install abort intent"));
+            }
+        }
+        if journal
+            .directories
+            .iter()
+            .filter(|directory| directory.path == journal.scope)
+            .count()
+            != 1
+        {
+            return Err(recovery("missing unique pre-owned scope identity"));
         }
         let mut claims = Claims::new();
         for (i, entry) in journal.entries.iter().enumerate() {
@@ -792,28 +942,175 @@ impl CheckoutInstaller {
     /// @cc [owner:fontanierh,label:correctness;safety] recover-owned-checkout-install
     /// Recovery MUST hold build and exclusive content custody. Before the receipt-index commit
     /// it MUST restore the prior owned bytes; after commit it MUST finish only exact owned cleanup.
-    /// Unknown/replaced leaves and newly declared source paths MUST preserve the journal and refuse.
+    /// Unknown checkout leaves, unproved scope identities and newly declared source paths MUST refuse.
     /// No output-directory discovery, payload hashing, cache mutation or process launch is permitted.
     pub fn recover(
         &self,
         guard: &BuildGuard,
         view: &OwnershipSnapshot,
     ) -> Result<(), InstallError> {
+        self.recover_with(guard, view, |_| Ok(()))
+    }
+
+    pub fn recover_with(
+        &self,
+        guard: &BuildGuard,
+        view: &OwnershipSnapshot,
+        mut event: impl FnMut(RecoveryEvent) -> io::Result<()>,
+    ) -> Result<(), InstallError> {
         self.guard(guard)?;
         let _writer = guard.try_write_content()?;
         if !self.journal_present()? {
             return Ok(());
         }
-        let journal = self.load_journal(view)?;
+        let mut journal = self.load_journal(view)?;
         let index = self.index()?;
         let committed = journal.after_index.as_ref() == Some(&index);
         if !committed && index != journal.old_index {
             return Err(recovery("receipt index changed outside journal"));
         }
+        if !journal.ready {
+            return self.abort_preinstall(&mut journal, &mut event);
+        }
         if !committed {
             self.rollback(&journal)?;
         }
         self.cleanup_journal(&journal, committed)
+    }
+
+    fn preinstall_unchanged(
+        &self,
+        journal: &InstallJournal,
+        scope: &str,
+    ) -> Result<(), InstallError> {
+        if journal.ready || journal.after_index.is_some() || self.index()? != journal.old_index {
+            return Err(recovery("pre-install abort index/phase changed"));
+        }
+        for entry in &journal.entries {
+            if let Some(path) = &entry.old_path {
+                if self.fs.observe(path)? != entry.old {
+                    return Err(recovery("pre-install old output changed"));
+                }
+            }
+            let destination = self.fs.observe(&entry.destination)?;
+            let same_name = entry.old_path.as_deref() == Some(entry.destination.as_str());
+            if destination != entry.old && (same_name || destination.is_some()) {
+                return Err(recovery("pre-install destination changed"));
+            }
+            let trash = entry
+                .trash
+                .strip_prefix(&(journal.scope.clone() + "/"))
+                .ok_or_else(|| recovery("foreign abort trash"))?;
+            if self.fs.observe(&format!("{scope}/{trash}"))?.is_some() {
+                return Err(recovery("unready journal has moved prior output"));
+            }
+        }
+        Ok(())
+    }
+
+    /// @cc [owner:fontanierh,label:correctness;safety] preinstall-owned-scope-abort
+    /// Only an unready journal with unchanged prior index, exact old output observations,
+    /// absent trash and the pre-owned directory identity MAY abort by quarantine. Persist
+    /// abort intent and exact journal archive, rename the directory without replacement and
+    /// fsync both parents, then recheck all preconditions/evidence before clearing readers.
+    /// Preserve every unknown private leaf and failed B2 lease; never adopt/delete/hash/scan it.
+    /// Quarantine artifact cleanup and ordinary dead-producer CAS retention remain separate.
+    /// See preinstall_abort_preserves_unknown_clone_and_resumes_every_durable_cut and
+    /// preinstall_abort_rejects_changed_outputs_trash_and_replaced_directory_identities in tests/installs.rs.
+    fn abort_preinstall(
+        &self,
+        journal: &mut InstallJournal,
+        event: &mut impl FnMut(RecoveryEvent) -> io::Result<()>,
+    ) -> Result<(), InstallError> {
+        let expected = journal
+            .directories
+            .iter()
+            .find(|directory| directory.path == journal.scope)
+            .unwrap()
+            .clone();
+        let serial = journal.scope.rsplit('/').next().unwrap();
+        let target = format!("{INSTALL_METADATA}/quarantine/{serial}");
+        let matches = |directory: &CreatedDirectory| {
+            directory.device == expected.device && directory.inode == expected.inode
+        };
+        let source = self.fs.directory_identity(&journal.scope)?;
+        let destination = self.fs.directory_identity(&target)?;
+        let current_scope = match (&source, &destination) {
+            (Some(source), None) if matches(source) => journal.scope.clone(),
+            (None, Some(destination)) if journal.abort.is_some() && matches(destination) => {
+                target.clone()
+            }
+            _ => {
+                return Err(recovery(
+                    "pre-install scope identity or quarantine namespace changed",
+                ));
+            }
+        };
+        self.preinstall_unchanged(journal, &current_scope)?;
+        if journal.abort.is_none() {
+            journal.abort = Some(AbortIntent {
+                quarantine: target.clone(),
+            });
+            self.save_journal(journal)?;
+            event(RecoveryEvent::AbortIntentDurable)?;
+        }
+        let record = JournalRecord {
+            digest: sha256(&bytes(journal)?),
+            journal: journal.clone(),
+        };
+        let archived = bytes(&record)?;
+        if self.fs.read(JOURNAL)? != archived {
+            return Err(recovery("active abort journal changed"));
+        }
+        let archive = format!("{current_scope}/journal.json");
+        if current_scope == journal.scope {
+            // Only journal-named candidates, no discovery or content reads. Fsync preserves
+            // an unobserved clone without adopting/certifying it as a result or owned leaf.
+            for entry in &journal.entries {
+                match self.fs.file(&entry.stage) {
+                    Ok(file) => file.sync_all()?,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            self.fs.sync_directory(&format!("{}/new", journal.scope))?;
+            match self.fs.publish_metadata(&archive, &archived) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    if self.fs.read(&archive)? != archived {
+                        return Err(recovery("foreign journal archive"));
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+            event(RecoveryEvent::JournalArchived)?;
+            if !self
+                .fs
+                .directory_identity(&journal.scope)?
+                .is_some_and(|directory| matches(&directory))
+            {
+                return Err(recovery("pre-install scope replaced before quarantine"));
+            }
+            self.fs.rename_exclusive(&journal.scope, &target)?;
+            event(RecoveryEvent::ScopeQuarantined)?;
+        }
+        if !self
+            .fs
+            .directory_identity(&target)?
+            .is_some_and(|directory| matches(&directory))
+            || self.fs.read(&format!("{target}/journal.json"))? != archived
+            || self.fs.read(JOURNAL)? != archived
+        {
+            return Err(recovery("quarantine evidence changed"));
+        }
+        self.preinstall_unchanged(journal, &target)?;
+        let observation = self
+            .fs
+            .observe(JOURNAL)?
+            .ok_or_else(|| recovery("active abort barrier disappeared"))?;
+        self.fs.remove_owned(JOURNAL, &observation)?;
+        event(RecoveryEvent::ReaderBarrierCleared)?;
+        Ok(())
     }
 
     fn rollback(&self, journal: &InstallJournal) -> Result<(), InstallError> {
@@ -905,6 +1202,18 @@ impl RestorePlan {
         &self.result
     }
 
+    /// Root a pinned cached result used only as metadata, without installing its files.
+    pub fn retain_cached(
+        mut self,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> Result<ResultEnvelope, InstallError> {
+        self.transaction
+            .take()
+            .ok_or_else(|| invalid("restore plan already consumed"))?
+            .retain_hit(root)
+            .map_err(InstallError::Cache)
+    }
+
     pub fn commit(
         &mut self,
         guard: &BuildGuard,
@@ -949,6 +1258,7 @@ impl RestorePlan {
                     &ObjectDigest::from_hex(&stored.digest)?,
                     installer.fs.absolute(&entry.stage),
                 )?;
+                event(InstallEvent::CloneCreated(i))?;
                 let file = installer.fs.file(&entry.stage)?;
                 file.set_permissions(fs::Permissions::from_mode(stored.mode))?;
                 file.sync_all()?;
@@ -1051,13 +1361,13 @@ impl RestorePlan {
                     return Err(invalid("prior output became declared source/code"));
                 }
                 if let Some((_, current_owner)) = conflict(&self.view.paths, &file.install_path) {
-                    let desired_owner = self
-                        .desired
-                        .get(&folded(&file.install_path))
-                        .map(|desired| desired.owner.fingerprint())
-                        .transpose()?;
+                    let current_transaction_owners: BTreeSet<_> = self
+                        .items
+                        .keys()
+                        .map(OwnerId::fingerprint)
+                        .collect::<Result<_, _>>()?;
                     if current_owner != &receipt.owner.fingerprint()?
-                        && desired_owner.as_ref() != Some(current_owner)
+                        && !current_transaction_owners.contains(current_owner)
                     {
                         return Err(invalid(
                             "prior output path is now assigned to another current owner",
@@ -1107,6 +1417,13 @@ impl RestorePlan {
                 .map(|p| installer.fs.observe(p))
                 .transpose()?
                 .flatten();
+            if let (Some(receipt), Some(actual)) = (old_file, &old) {
+                // A dirty original inode remains managed: preserve its CURRENT bytes/metadata.
+                // A replacement inode has no receipt authority, even at a previously owned name.
+                if !actual.same_inode(&receipt.observation) {
+                    return Err(invalid("prior owned file was replaced by a foreign inode"));
+                }
+            }
             if let Some(existing) = installer.fs.observe(&destination)? {
                 if !old.as_ref().is_some_and(|old| old.same_inode(&existing)) {
                     return Err(invalid("unmanaged or foreign destination file"));
@@ -1152,6 +1469,8 @@ impl RestorePlan {
                 ready: false,
                 entries,
                 directories,
+                retention: self.retention.clone(),
+                abort: None,
             },
             affected,
         ))

@@ -156,24 +156,56 @@ fn receipt_owner_namespace_is_explicit_and_independent_of_selected_roots() {
         assert!(ProjectNamespace::new(bad).is_err());
     }
     let workspace = Workspace::new();
-    let installer = workspace.installer("first");
-    let guard = installer.locks().try_build_exclusive().unwrap();
+    fs::write(workspace.path("cache"), b"unavailable cache").unwrap();
+    let reader = ReceiptReader::open(
+        &workspace.0,
+        InstallPolicy {
+            project: namespace("first"),
+            allowed_install_roots: vec!["games/first/Content".into()],
+        },
+    )
+    .unwrap();
+    let guard = reader.locks().try_build_exclusive().unwrap();
     let (_, unit) = fixture("first", "1");
     assert!(matches!(
-        installer.receipt_status(&guard, &unit).unwrap(),
+        reader.receipt_status(&guard, &unit).unwrap(),
         CurrentStatus::Dirty
     ));
-    assert!(
-        installer
-            .prepare_restore(
-                &guard,
-                &unit,
-                identity(),
-                &view("first", &fixture("first", "1").0),
-                vec![]
-            )
+    assert_eq!(
+        fs::read(workspace.path("cache")).unwrap(),
+        b"unavailable cache"
+    );
+    fs::remove_file(workspace.path("cache")).unwrap();
+    let installer = workspace.installer("first");
+    let RestoreLookup::Miss(mut transaction) = installer
+        .lookup_restore(
+            &guard,
+            &unit,
+            identity(),
+            &view("first", &fixture("first", "1").0),
+            vec![],
+        )
+        .unwrap()
+    else {
+        panic!("unexpected cache hit")
+    };
+    transaction
+        .add_worker(ProcessIdentity {
+            pid: 2,
+            boot: "test".into(),
+            started: "worker".into(),
+        })
+        .unwrap();
+    let store = ResultStore::open(workspace.path("cache")).unwrap();
+    let mutex = store.leases().lock().unwrap();
+    assert_eq!(
+        mutex
+            .leases()
             .unwrap()
-            .is_none()
+            .iter()
+            .filter(|lease| lease.result_keys.contains(unit.key()))
+            .count(),
+        1
     );
 }
 
@@ -247,8 +279,17 @@ fn install_modes_receipts_and_clone_independence_survive_cache_removal() {
         0o755
     );
     fs::remove_dir_all(workspace.path("cache")).unwrap();
+    fs::write(workspace.path("cache"), b"unavailable cache").unwrap();
+    let policy = InstallPolicy {
+        project: namespace("first"),
+        allowed_install_roots: vec!["games/first/Content".into()],
+    };
+    assert!(
+        CheckoutInstaller::open(&workspace.0, workspace.path("cache"), policy.clone()).is_err()
+    );
+    let cold = ReceiptReader::open(&workspace.0, policy).unwrap();
     assert!(matches!(
-        installer.receipt_status(&guard, &unit).unwrap(),
+        cold.receipt_status(&guard, &unit).unwrap(),
         CurrentStatus::Current(_)
     ));
     fs::write(&path, b"edited independently").unwrap();
@@ -560,4 +601,366 @@ fn malformed_journal_and_linked_metadata_fail_closed_without_cleanup() {
         .is_err()
     );
     assert_eq!(fs::read(target.path("sentinel")).unwrap(), b"foreign");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn replaced_receipt_inode_is_foreign_before_restore_and_whole_item_retirement() {
+    for retire in [false, true] {
+        let workspace = Workspace::new();
+        let installer = workspace.installer("first");
+        let guard = installer.locks().try_build_exclusive().unwrap();
+        let (old_graph, old) = fixture("first", "1");
+        publish(&workspace, &old, b"old", Some(b"old-side"), 0o644);
+        restore(&installer, &guard, &old, &view("first", &old_graph));
+        let CurrentStatus::Current(receipts) = installer.receipt_status(&guard, &old).unwrap()
+        else {
+            panic!("missing old receipt")
+        };
+        let old_index = fs::read(workspace.path("build/build-v2/install/index.json")).unwrap();
+        let target = workspace.path("games/first/Content/Shared.bin");
+        let foreign = workspace.path("foreign-replacement");
+        fs::write(&foreign, b"foreign keep").unwrap();
+        fs::rename(&foreign, &target).unwrap();
+        let (new_graph, new) = fixture_named(
+            "first",
+            "2",
+            if retire {
+                "/Game/Replacement"
+            } else {
+                "/Game/Shared"
+            },
+        );
+        let new_view = view("first", &new_graph);
+        publish(&workspace, &new, b"new", None, 0o644);
+        let removals = if retire {
+            let receipt = &receipts[0];
+            vec![RemovalIntent {
+                owner: receipt.owner.clone(),
+                expected_receipt_id: sha256(&canonical_bytes(receipt).unwrap()),
+                exact_paths: receipt
+                    .files
+                    .iter()
+                    .map(|f| f.install_path.clone())
+                    .collect(),
+            }]
+        } else {
+            vec![]
+        };
+        let mut plan = installer
+            .prepare_restore(&guard, &new, identity(), &new_view, removals)
+            .unwrap()
+            .unwrap();
+        assert!(plan.commit(&guard, |_| Ok(())).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"foreign keep");
+        assert_eq!(
+            fs::read(workspace.path("games/first/Content/Shared.side")).unwrap(),
+            b"old-side"
+        );
+        assert_eq!(
+            fs::read(workspace.path("build/build-v2/install/index.json")).unwrap(),
+            old_index
+        );
+        assert!(
+            !workspace
+                .path("build/build-v2/install/journal.json")
+                .exists()
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn dirty_same_inode_edits_are_preserved_during_failed_install_rollback() {
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (g1, u1) = fixture("first", "1");
+    publish(&workspace, &u1, b"old", None, 0o644);
+    restore(&installer, &guard, &u1, &view("first", &g1));
+    let target = workspace.path("games/first/Content/Shared.bin");
+    fs::write(&target, b"dirty managed edit").unwrap();
+    let (g2, u2) = fixture("first", "2");
+    let view = view("first", &g2);
+    publish(&workspace, &u2, b"new", None, 0o644);
+    let mut plan = installer
+        .prepare_restore(&guard, &u2, identity(), &view, vec![])
+        .unwrap()
+        .unwrap();
+    assert!(
+        plan.commit_with(
+            &guard,
+            |event| if event == InstallEvent::OldMoved(0) {
+                Err(std::io::Error::other("cut after preserving dirty original"))
+            } else {
+                Ok(())
+            },
+            |_| Ok(())
+        )
+        .is_err()
+    );
+    installer.recover(&guard, &view).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"dirty managed edit");
+    assert!(matches!(
+        installer.receipt_status(&guard, &u1).unwrap(),
+        CurrentStatus::Dirty
+    ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn preinstall_abort_preserves_unknown_clone_and_resumes_every_durable_cut() {
+    use atelier_build_v2::checkout_locks::LockError;
+    use std::os::unix::fs::MetadataExt;
+    let cuts = [
+        None,
+        Some(RecoveryEvent::AbortIntentDurable),
+        Some(RecoveryEvent::JournalArchived),
+        Some(RecoveryEvent::ScopeQuarantined),
+        Some(RecoveryEvent::ReaderBarrierCleared),
+    ];
+    for cut in cuts {
+        let workspace = Workspace::new();
+        let installer = workspace.installer("first");
+        let guard = installer.locks().try_build_exclusive().unwrap();
+        let (g1, u1) = fixture("first", "1");
+        publish(&workspace, &u1, b"old", Some(b"old-side"), 0o644);
+        restore(&installer, &guard, &u1, &view("first", &g1));
+        let (g2, u2) = fixture("first", "2");
+        let view = view("first", &g2);
+        publish(&workspace, &u2, b"new", None, 0o644);
+        let mut plan = installer
+            .prepare_restore(&guard, &u2, identity(), &view, vec![])
+            .unwrap()
+            .unwrap();
+        assert!(
+            plan.commit_with(
+                &guard,
+                |event| if event == InstallEvent::CloneCreated(0) {
+                    Err(std::io::Error::other("clone returned, no inode receipt"))
+                } else {
+                    Ok(())
+                },
+                |_| Ok(())
+            )
+            .is_err()
+        );
+        let journal_path = workspace.path("build/build-v2/install/journal.json");
+        let before = fs::read(&journal_path).unwrap();
+        let journal: serde_json::Value = serde_json::from_slice(&before).unwrap();
+        let scope = journal["journal"]["scope"].as_str().unwrap();
+        let stage = workspace.path(journal["journal"]["entries"][0]["stage"].as_str().unwrap());
+        assert!(stage.is_file());
+        let scope_identity = fs::metadata(workspace.path(scope)).unwrap();
+        // The controller must preserve even leaves absent from the journal, without discovering them.
+        fs::write(
+            workspace.path(scope).join("unlisted-evidence"),
+            b"preserve unknown",
+        )
+        .unwrap();
+        assert!(matches!(
+            installer.locks().try_read_content(),
+            Err(LockError::RecoveryRequired)
+        ));
+        let attempt = installer.recover_with(&guard, &view, |event| {
+            if cut.as_ref() == Some(&event) {
+                Err(std::io::Error::other("abort cut"))
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(attempt.is_err(), cut.is_some(), "{cut:?}");
+        if cut != Some(RecoveryEvent::ReaderBarrierCleared) && cut.is_some() {
+            assert!(matches!(
+                installer.locks().try_read_content(),
+                Err(LockError::RecoveryRequired)
+            ));
+        }
+        installer.recover(&guard, &view).unwrap();
+        installer.recover(&guard, &view).unwrap();
+        let quarantine = workspace.path(&format!(
+            "build/build-v2/install/quarantine/{}",
+            scope.rsplit('/').next().unwrap()
+        ));
+        let moved = fs::metadata(&quarantine).unwrap();
+        assert_eq!(
+            (moved.dev(), moved.ino()),
+            (scope_identity.dev(), scope_identity.ino())
+        );
+        assert_eq!(fs::read(quarantine.join("new/0")).unwrap(), b"new");
+        assert_eq!(
+            fs::read(quarantine.join("unlisted-evidence")).unwrap(),
+            b"preserve unknown"
+        );
+        let archived: serde_json::Value =
+            serde_json::from_slice(&fs::read(quarantine.join("journal.json")).unwrap()).unwrap();
+        assert_eq!(
+            archived["digest"].as_str().unwrap(),
+            sha256(&canonical_bytes(&archived["journal"]).unwrap())
+        );
+        assert_eq!(
+            archived["journal"]["retention"]["result_key"]
+                .as_str()
+                .unwrap(),
+            u2.key()
+        );
+        assert_eq!(
+            archived["journal"]["retention"]["owner"]["pid"]
+                .as_u64()
+                .unwrap(),
+            1
+        );
+        assert!(!journal_path.exists());
+        assert!(!workspace.path(scope).exists());
+        assert_eq!(
+            fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+            b"old"
+        );
+        assert_eq!(
+            fs::read(workspace.path("games/first/Content/Shared.side")).unwrap(),
+            b"old-side"
+        );
+        assert!(matches!(
+            installer.receipt_status(&guard, &u1).unwrap(),
+            CurrentStatus::Current(_)
+        ));
+        installer.locks().try_read_content().unwrap();
+        let store = ResultStore::open(workspace.path("cache")).unwrap();
+        let mutex = store.leases().lock().unwrap();
+        assert!(mutex.leases().unwrap().iter().any(|lease| !lease.rooted
+            && lease.result_keys.contains(u2.key())
+            && !lease.object_digests.is_empty()));
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn preinstall_abort_rejects_changed_outputs_trash_and_replaced_directory_identities() {
+    use atelier_build_v2::checkout_locks::LockError;
+    for damage in ["index", "output", "trash", "scope", "quarantine"] {
+        let workspace = Workspace::new();
+        let installer = workspace.installer("first");
+        let guard = installer.locks().try_build_exclusive().unwrap();
+        let (g1, u1) = fixture("first", "1");
+        publish(&workspace, &u1, b"old", None, 0o644);
+        restore(&installer, &guard, &u1, &view("first", &g1));
+        let (g2, u2) = fixture("first", "2");
+        let view = view("first", &g2);
+        publish(&workspace, &u2, b"new", None, 0o644);
+        let mut plan = installer
+            .prepare_restore(&guard, &u2, identity(), &view, vec![])
+            .unwrap()
+            .unwrap();
+        assert!(
+            plan.commit_with(
+                &guard,
+                |event| if event == InstallEvent::CloneCreated(0) {
+                    Err(std::io::Error::other("cut"))
+                } else {
+                    Ok(())
+                },
+                |_| Ok(())
+            )
+            .is_err()
+        );
+        let journal_path = workspace.path("build/build-v2/install/journal.json");
+        let journal: serde_json::Value =
+            serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+        let scope = journal["journal"]["scope"].as_str().unwrap();
+        let output = workspace.path("games/first/Content/Shared.bin");
+        match damage {
+            "index" => fs::write(
+                workspace.path("build/build-v2/install/index.json"),
+                b"{\"version\":1,\"receipts\":{},\"paths\":{}}",
+            )
+            .unwrap(),
+            "output" => fs::write(&output, b"changed after interruption").unwrap(),
+            "trash" => fs::write(
+                workspace.path(journal["journal"]["entries"][0]["trash"].as_str().unwrap()),
+                b"unexpected trash",
+            )
+            .unwrap(),
+            "scope" => {
+                fs::rename(
+                    workspace.path(scope),
+                    workspace.path("preserved-real-scope"),
+                )
+                .unwrap();
+                fs::create_dir(workspace.path(scope)).unwrap();
+            }
+            "quarantine" => {
+                assert!(
+                    installer
+                        .recover_with(&guard, &view, |event| {
+                            if event == RecoveryEvent::ScopeQuarantined {
+                                Err(std::io::Error::other("cut"))
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .is_err()
+                );
+                let target = workspace.path(&format!(
+                    "build/build-v2/install/quarantine/{}",
+                    scope.rsplit('/').next().unwrap()
+                ));
+                fs::rename(&target, workspace.path("preserved-real-scope")).unwrap();
+                fs::create_dir(&target).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let evidence = fs::read(&journal_path).unwrap();
+        assert!(installer.recover(&guard, &view).is_err(), "{damage}");
+        assert_eq!(fs::read(&journal_path).unwrap(), evidence);
+        assert_eq!(
+            fs::read(&output).unwrap(),
+            if damage == "output" {
+                &b"changed after interruption"[..]
+            } else {
+                &b"old"[..]
+            }
+        );
+        assert!(matches!(
+            installer.locks().try_read_content(),
+            Err(LockError::RecoveryRequired)
+        ));
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn metadata_only_cached_use_roots_same_transaction_without_materializing_checkout() {
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture("first", "1");
+    let view = view("first", &graph);
+    publish(&workspace, &unit, b"cached only", None, 0o644);
+    let RestoreLookup::Hit(plan) = installer
+        .lookup_restore(&guard, &unit, identity(), &view, vec![])
+        .unwrap()
+    else {
+        panic!("expected hit")
+    };
+    let reader = installer.locks().try_read_content().unwrap();
+    let rooted = std::cell::Cell::new(false);
+    assert_eq!(
+        plan.retain_cached(|result| {
+            assert_eq!(result.result.key, unit.key());
+            rooted.set(true);
+            Ok(())
+        })
+        .unwrap()
+        .result
+        .key,
+        unit.key()
+    );
+    assert!(rooted.get());
+    assert!(!workspace.path("games/first/Content/Shared.bin").exists());
+    assert!(
+        !workspace
+            .path("build/build-v2/install/journal.json")
+            .exists()
+    );
+    drop(reader);
 }

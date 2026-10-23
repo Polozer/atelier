@@ -54,3 +54,28 @@ platforms = ["darwin"]
 id = "b3.installs.malformed_journal_and_linked_metadata_fail_closed_without_cleanup"
 tests = ["atelier-build-v2::installs/malformed_journal_and_linked_metadata_fail_closed_without_cleanup"]
 platforms = ["darwin", "linux"]
+
+[[scenarios]]
+id = "b3.installs.replaced_receipt_inode_is_foreign_before_restore_and_whole_item_retirement"
+tests = ["atelier-build-v2::installs/replaced_receipt_inode_is_foreign_before_restore_and_whole_item_retirement"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.dirty_same_inode_edits_are_preserved_during_failed_install_rollback"
+tests = ["atelier-build-v2::installs/dirty_same_inode_edits_are_preserved_during_failed_install_rollback"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.preinstall_abort_preserves_unknown_clone_and_resumes_every_durable_cut"
+tests = ["atelier-build-v2::installs/preinstall_abort_preserves_unknown_clone_and_resumes_every_durable_cut"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.preinstall_abort_rejects_changed_outputs_trash_and_replaced_directory_identities"
+tests = ["atelier-build-v2::installs/preinstall_abort_rejects_changed_outputs_trash_and_replaced_directory_identities"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.metadata_only_cached_use_roots_same_transaction_without_materializing_checkout"
+tests = ["atelier-build-v2::installs/metadata_only_cached_use_roots_same_transaction_without_materializing_checkout"]
+platforms = ["darwin"]
