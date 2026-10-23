@@ -156,6 +156,7 @@ fn failed_or_incomplete_blender_jobs_publish_nothing_and_the_next_job_publishes(
             serde_json::json!(["raise ValueError('bad mesh')"]),
             false,
             Some(FailureKind::Job),
+            "failed:",
         ),
         (
             serde_json::json!([
@@ -163,16 +164,23 @@ fn failed_or_incomplete_blender_jobs_publish_nothing_and_the_next_job_publishes(
             ]),
             false,
             Some(FailureKind::Dependency),
+            "failed:",
         ),
         // Completed, then refused by the result store: an undeclared extra file, a missing one.
         (
             serde_json::json!(["(context.output_dir / 'stray.bin').write_bytes(b'x')"]),
             false,
             None,
+            "unknown actual output path",
         ),
-        (serde_json::json!([]), true, None),
+        (
+            serde_json::json!([]),
+            true,
+            None,
+            "missing output probe.json",
+        ),
     ];
-    for (index, (attempts, skip_probe, kind)) in cases.into_iter().enumerate() {
+    for (index, (attempts, skip_probe, kind, reason)) in cases.into_iter().enumerate() {
         let fixture = Fixture::new(
             FAKE_OP,
             serde_json::json!({"seed": 7, "name": "a", "attempts": attempts, "skip_probe": skip_probe}),
@@ -182,17 +190,22 @@ fn failed_or_incomplete_blender_jobs_publish_nothing_and_the_next_job_publishes(
             Some(kind) => assert_eq!(failed(&outcome), kind, "case {index}"),
             None => assert_ne!(completed_paths(&outcome), ["model.glb", "probe.json"]),
         }
+        // Refused for membership before anything is frozen, on every platform.
         let refusal = publish(&space, &fixture, outcome).unwrap_err();
-        assert!(!refusal.is_empty());
+        assert!(refusal.contains(reason), "case {index}: {refusal}");
         assert!(!published(&space, &fixture), "case {index} published");
     }
     let good = Fixture::new(FAKE_OP, serde_json::json!({"seed": 7, "name": "a"}));
     let outcome = session.run(&stage_job(&space, &good, "good"));
-    assert_eq!(
-        publish(&space, &good, outcome).unwrap(),
-        ["model.glb", "probe.json"]
-    );
-    assert!(published(&space, &good));
+    assert_eq!(completed_paths(&outcome), ["model.glb", "probe.json"]);
+    let published_files = publish(&space, &good, outcome);
+    if cfg!(target_os = "macos") {
+        assert_eq!(published_files.unwrap(), ["model.glb", "probe.json"]);
+        assert!(published(&space, &good));
+    } else {
+        // B2 freezes outputs by APFS clone only; elsewhere publication refuses, and says why.
+        assert!(published_files.unwrap_err().contains("requires macOS"));
+    }
     assert!(session.close().success());
 }
 
