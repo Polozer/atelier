@@ -2,6 +2,16 @@
 The crate MUST remain independent of production v1 until a separately validated caller cutover.
 A0 schemas MUST NOT decide cache hits, launch native tools or publish results.
 
+@cc [owner:fontanierh,label:correctness] build-v2-summary-observation
+Explanations MUST consume existing typed decisions and compact original-ingredient metadata without
+extra source/payload/cache reads, execution capabilities or provenance/platform key additions.
+Submission MUST NOT imply a launch, and incomplete lifecycle reports MUST NOT prove zero launches.
+Identity-only resolution and uninstalled hits MUST NOT count as restored. Successful publication
+before later settlement failure MUST remain visible; errors MUST preserve publication/effect
+uncertainty rather than certify no writes. Missing records/objects MUST NOT imply eviction.
+See tests/explain.rs, explain_cases in tests/scheduler.rs and python_executor::tests. Changed real
+Python/APFS summary assertions in python_backend::tests remain MAC1 pending.
+
 @cc [owner:fontanierh,label:correctness] build-v2-identity-boundary
 Identity ingredients MUST distinguish producing input keys from each output's content digest.
 Provenance MUST remain outside identity ingredients. Installed Python, dependencies, lockfiles,

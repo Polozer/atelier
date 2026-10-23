@@ -1,0 +1,55 @@
+schema_version = 1
+
+[[pending]]
+id = "a7.actual-python-summary-effects"
+task = "MAC1: changed A7 assertions in existing Darwin sandbox/APFS backend fixtures"
+
+[[scenarios]]
+id = "a7.ingredient_differences_are_semantic_redacted_and_label_independent"
+tier = "t0"
+tests = ["atelier-build-v2::explain/ingredient_differences_are_semantic_redacted_and_label_independent"]
+
+[[scenarios]]
+id = "a7.ingredient_versions_shapes_and_contract_changes_are_not_lost"
+tier = "t0"
+tests = ["atelier-build-v2::explain/ingredient_versions_shapes_and_contract_changes_are_not_lost"]
+
+[[scenarios]]
+id = "a7.launch_evidence_counts_worker_attempts_and_never_turns_uncertainty_into_zero"
+tier = "t0"
+tests = ["atelier-build-v2/python_executor::tests::launch_evidence_counts_worker_attempts_and_never_turns_uncertainty_into_zero"]
+
+[[scenarios]]
+id = "a7.summary_first_noop_and_mixed_frontiers_match_existing_operation_trace"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_first_noop_and_mixed_frontiers_match_existing_operation_trace"]
+
+[[scenarios]]
+id = "a7.summary_output_cutoff_uses_selected_content_not_producer_key"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_output_cutoff_uses_selected_content_not_producer_key"]
+
+[[scenarios]]
+id = "a7.summary_restored_hit_requires_actual_settlement_effects"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_restored_hit_requires_actual_settlement_effects"]
+
+[[scenarios]]
+id = "a7.summary_missing_blob_is_typed_refusal_without_eviction_or_error_text"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_missing_blob_is_typed_refusal_without_eviction_or_error_text"]
+
+[[scenarios]]
+id = "a7.summary_not_cached_feeds_downstream_and_late_failure_keeps_partial_success"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_not_cached_feeds_downstream_and_late_failure_keeps_partial_success"]
+
+[[scenarios]]
+id = "a7.summary_keeps_published_result_when_settlement_fails_and_marks_unknown_attempts"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_keeps_published_result_when_settlement_fails_and_marks_unknown_attempts"]
+
+[[scenarios]]
+id = "a7.summary_refuses_mismatched_evidence_and_retains_unresolved_lifecycle"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_refuses_mismatched_evidence_and_retains_unresolved_lifecycle"]

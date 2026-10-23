@@ -26,6 +26,8 @@ struct Fake {
     current: BTreeSet<String>,
     fail_publish: BTreeSet<String>,
     not_cached: BTreeSet<String>,
+    miss_reason: Option<NonHitReason>,
+    fail_settle: BTreeSet<String>,
     bad_key: bool,
     bad_settle: bool,
 }
@@ -44,6 +46,8 @@ impl Fake {
             current: BTreeSet::new(),
             fail_publish: BTreeSet::new(),
             not_cached: BTreeSet::new(),
+            miss_reason: None,
+            fail_settle: BTreeSet::new(),
             bad_key: false,
             bad_settle: false,
         }
@@ -95,7 +99,10 @@ impl Backend for Fake {
         }
         Ok(Lookup::Miss {
             ticket: u.key().into(),
-            reason: NonHitReason::MissingRecord,
+            reason: self
+                .miss_reason
+                .clone()
+                .unwrap_or(NonHitReason::MissingRecord),
         })
     }
     fn prepare_inputs(
@@ -188,6 +195,9 @@ impl Backend for Fake {
         d: &FinalDemands,
     ) -> Result<Effects, String> {
         let id = &u.ingredients().logical_outputs[0].id;
+        if self.fail_settle.contains(id) {
+            return Err("fixture settlement failed after publication".into());
+        }
         self.trace
             .borrow_mut()
             .push(format!("settle:{id}:{}", label(d)));
@@ -204,6 +214,8 @@ impl Backend for Fake {
         })
     }
 }
+#[path = "support/explain_scheduler_cases.rs"]
+mod explain_cases;
 fn label(d: &FinalDemands) -> String {
     if d.is_empty() {
         "Identity".into()
