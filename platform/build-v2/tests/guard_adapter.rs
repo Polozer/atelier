@@ -648,6 +648,7 @@ fn key(job_spec: &JobSpec) -> SessionKey {
         worker_version: job_spec.worker_version.clone(),
         command: job_spec.command.clone(),
         memory_gib: job_spec.memory_gib,
+        sandbox: JobSandbox::NoFork,
         custody: Default::default(),
     }
 }
@@ -1293,4 +1294,59 @@ fn an_exit_report_without_the_stream_end_applies_after_the_drain_limit() {
     assert!(matches!(report.attempts[0].custody, Custody::Held(_)));
     assert!(took >= EXIT_DRAIN_LIMIT, "{took:?}");
     assert!(took < Duration::from_secs(15), "{took:?}");
+}
+
+#[test]
+fn a_resident_session_refuses_a_key_without_the_no_fork_sandbox() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let mut session = resident_spec(&space, &job_spec, 2_000);
+    session.key.sandbox = JobSandbox::Other;
+    let (handle, inbox) = session_channel();
+    handle.submit(unit_with("a", "a", resident_limits(), session.key.clone()));
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let error = run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        published,
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("no-fork job sandbox"),
+        "{error:?}"
+    );
+    assert!(
+        !space.path("attempt-1").exists(),
+        "nothing was queued or started"
+    );
+
+    // One unit per session needs no evidence: any sandbox may run there, and a unit declaring
+    // another sandbox is another key.
+    session.config = atelier_build_v2::session_lifecycle::SessionConfig::single(
+        Duration::from_secs(3),
+        Duration::from_secs(30),
+    );
+    let (handle, inbox) = session_channel();
+    handle.submit(unit_with("a", "a", job_spec.limits, session.key.clone()));
+    handle.submit(unit_with("b", "b", job_spec.limits, key(&job_spec)));
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let report = run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        published,
+    )
+    .unwrap();
+    assert_eq!(report.units[0].outcome.end, End::Completed);
+    assert_eq!(
+        report.refused[0].refused,
+        Some(atelier_build_v2::session_lifecycle::Refusal::IncompatibleKey)
+    );
 }

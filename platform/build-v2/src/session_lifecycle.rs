@@ -890,9 +890,15 @@ impl SessionLifecycle {
     /// the session MUST stop, and the unit then settles only by the session's cleanup receipt. A
     /// running unit's cancel or job limit MUST cancel only that job when the session stays up for
     /// others, and MUST NOT release anything. Evidence rests on two things: the job sandbox
-    /// denying fork and spawn (an assumption tied to that profile; see
-    /// platform/studio/tests/test_build_v2_job_fork.py) and the driver accepting only fresh, exact
-    /// tree samples (quiescence-sample-evidence). See tests/session_lifecycle.rs
+    /// denying fork and spawn (an assumption tied to that profile, see
+    /// platform/studio/tests/test_build_v2_job_fork.py; a session refuses any key that does not
+    /// declare it) and the driver accepting only fresh, exact tree samples taken after the latest
+    /// terminal reply (quiescence-sample-evidence). Assumptions and gaps: a sample proves only what
+    /// the guard's tree receipt discovered after excluding shared services, which is not a universal
+    /// proof that no descendant escaped discovery; ordering a sample after the terminal reply uses
+    /// wall clocks within a bounded skew, which is not causal ordering under a clock adjustment; and
+    /// reuse MUST NOT be activated before the guard monitor's identity is durably registered before
+    /// `Run` (Q3, C5c slice 5). See tests/session_lifecycle.rs
     /// (`a_reused_session_runs_the_next_unit_only_after_quiescence_evidence`,
     /// `without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_unit`,
     /// `cancelling_a_running_unit_cancels_only_its_job_when_others_wait`,

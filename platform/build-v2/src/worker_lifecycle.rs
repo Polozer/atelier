@@ -293,23 +293,37 @@ impl CustodyIdentity {
 /// @cc [owner:fontanierh,label:safety] session-refuses-incompatible-units
 /// [`run_session`] MUST refuse, with a refused record and nothing queued or started, a unit whose
 /// key differs from the session's in any part (exact worker command, worker version, admission
-/// profile or custody set) or whose job id another unit of the session uses, and MUST refuse to
+/// profile, job sandbox or custody set) or whose job id another unit of the session uses, and MUST refuse to
 /// start at all unless its custody descriptors are exactly its key's custody set by device and
-/// inode, each proven held in its declared scope by an independent non-blocking probe. Custody is
-/// identified by lock file and scope, never by descriptor number. See tests/guard_adapter.rs
-/// (`run_session_refuses_a_unit_with_another_key_or_a_used_job_id`,
+/// inode, each proven held in its declared scope by an independent non-blocking probe, and MUST
+/// refuse to start a session reused on quiescence evidence unless its key declares the no-fork
+/// job sandbox. Custody is identified by lock file and scope, never by descriptor number. See
+/// tests/guard_adapter.rs (`run_session_refuses_a_unit_with_another_key_or_a_used_job_id`,
+/// `a_resident_session_refuses_a_key_without_the_no_fork_sandbox`,
 /// `run_session_refuses_custody_that_is_not_its_keys_custody_set`,
 /// `run_session_refuses_custody_not_held_in_its_declared_scope`).
 ///
 /// What units sharing a session must share exactly: the worker, its version, the admission
-/// profile and the custody set.
+/// profile, the job sandbox and the custody set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionKey {
     pub worker_version: String,
     pub command: WorkerCommand,
     /// The admission profile: a job admission reserving this ceiling.
     pub memory_gib: u32,
+    /// The sandbox the worker runs this key's jobs under.
+    pub sandbox: JobSandbox,
     pub custody: BTreeSet<CustodyIdentity>,
+}
+
+/// The sandbox profile a worker runs its jobs under, as the caller declares it for a key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobSandbox {
+    /// The job profile whose kernel sandbox denies fork and spawn (pinned by
+    /// platform/studio/tests/test_build_v2_job_fork.py). Only this profile may reuse a session.
+    NoFork,
+    /// Any other profile: every session serves one unit.
+    Other,
 }
 
 /// The lock file an open descriptor refers to, for an independent probe.
@@ -755,6 +769,13 @@ fn run_session_with<L: WorkerLauncher>(
     prepare: &mut Prepare<'_>,
     published: Sender<UnitRecord>,
 ) -> Result<SessionReport, LifecycleError> {
+    if spec.config.quiescence.is_some() && spec.key.sandbox != JobSandbox::NoFork {
+        // Quiescence evidence assumes jobs cannot fork (session-reuse-after-quiescence); every
+        // unit carries this key, so none may run on a reused session.
+        return Err(LifecycleError::Invariant(
+            "a session reused on quiescence evidence needs the no-fork job sandbox".into(),
+        ));
+    }
     custody_matches(&spec.custody, &spec.key.custody)?;
     let shared = Shared {
         worker_version: &spec.key.worker_version,

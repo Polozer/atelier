@@ -111,7 +111,9 @@ pub const SAMPLE_CLOCK_SKEW_SECONDS: f64 = 2.0;
 /// the unit's terminal reply was received (`after`, the controller's clock), no later than the
 /// controller's clock plus the skew, and its process list is exactly the session's pinned worker
 /// (pid and start time). An absent, stale, future, malformed, empty sample, one with any other
-/// process or one naming another identity MUST be refused, never repaired. See
+/// process or one naming another identity MUST be refused, never repaired. The ordering assumes
+/// the monitor's and the controller's wall clocks agree within `SAMPLE_CLOCK_SKEW_SECONDS` and
+/// are not adjusted between the terminal reply and the sample; it is not causal ordering. See
 /// tests/guard_adapter.rs (`quiescence_refuses_every_sample_that_is_not_fresh_exact_evidence`).
 pub fn quiescence(
     sample: &TreeSample,

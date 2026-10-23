@@ -159,3 +159,7 @@ tests = ["atelier-build-v2::guard_adapter/a_reply_read_after_the_exit_report_sti
 [[scenarios]]
 id = "c5c.session.an_exit_report_without_the_stream_end_applies_after_the_drain_limit"
 tests = ["atelier-build-v2::guard_adapter/an_exit_report_without_the_stream_end_applies_after_the_drain_limit"]
+
+[[scenarios]]
+id = "c5c.session.a_resident_session_refuses_a_key_without_the_no_fork_sandbox"
+tests = ["atelier-build-v2::guard_adapter/a_resident_session_refuses_a_key_without_the_no_fork_sandbox"]
