@@ -248,16 +248,16 @@ impl PythonSources<'_> {
                 Origin::Local(completion) => use_source(
                     &completion
                         .objects_for(&[&selected.input])
-                        .map_err(|message| refusal(SourceErrorKind::Changed, message))?,
+                        .map_err(|message| {
+                            refusal(SourceErrorKind::Changed, message.to_string())
+                        })?,
                 ),
                 Origin::Installed(plan) => {
                     stored(plan.result())?;
                     if let Some(completion) = plan.local_completion() {
-                        use_source(
-                            &completion
-                                .objects_for(&[&selected.input])
-                                .map_err(|message| refusal(SourceErrorKind::Changed, message))?,
-                        )
+                        use_source(&completion.objects_for(&[&selected.input]).map_err(
+                            |message| refusal(SourceErrorKind::Changed, message.to_string()),
+                        )?)
                     } else {
                         use_source(&plan.cached_sources().ok_or_else(|| {
                             refusal(

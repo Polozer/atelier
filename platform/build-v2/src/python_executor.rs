@@ -131,7 +131,7 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
                 driver
                     .join()
                     .map_err(|_| "Python lifecycle driver panicked".to_string())?
-                    .map_err(|error| error.to_string())
+                    .map_err(|error| format!("{error:?}"))
             });
             if let Ok(report) = &result {
                 work.inputs().io.borrow_mut().launches += report
