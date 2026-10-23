@@ -105,8 +105,9 @@ def _iter_cases(listing: dict):
     for binary, suite in listing['rust-suites'].items():
         if suite['status'] != 'listed':
             raise ValueError(f'unlisted suite: {binary}')
+        binary_id = suite.get('binary-id', binary)
         for name, case in suite['testcases'].items():
-            yield f'{binary}/{name}', case
+            yield f'{binary}/{name}', binary_id, name, case
 
 
 def _plan(registry: dict, listing: dict) -> dict:
@@ -150,13 +151,15 @@ def _plan(registry: dict, listing: dict) -> dict:
               for test in row['tests']}
     collected = set()
     native_collected = set()
+    coordinates = {}
     listed = 0
-    for identity, case in _iter_cases(listing):
+    for identity, binary_id, name, case in _iter_cases(listing):
         listed += 1
         matched = case['filter-match']['status'] == 'matches'
         if identity in native:
             if matched and not case['ignored']:
                 native_collected.add(identity)
+                coordinates[identity] = (binary_id, name)
             continue
         if case['ignored']:
             raise ValueError(f'ignored test: {identity}')
@@ -165,6 +168,7 @@ def _plan(registry: dict, listing: dict) -> dict:
         if identity not in ci_owner:
             raise ValueError(f'unmapped test: {identity}')
         collected.add(identity)
+        coordinates[identity] = (binary_id, name)
     if listing['test-count'] != listed:
         raise ValueError('incomplete collection')
     missing = set(ci_owner) - collected
@@ -172,6 +176,7 @@ def _plan(registry: dict, listing: dict) -> dict:
         raise ValueError(f'registry mismatch: missing tests={sorted(missing)}')
     return {'platform': platform, 'expected': expected, 'native': native,
             'native_collected': native_collected, 'collected': collected,
+            'coordinates': coordinates,
             'selected': selected, 'excluded': len(active) - len(selected),
             'native_rows': [row for row in selected if row['tier'] in NATIVE_TIERS]}
 
@@ -227,7 +232,7 @@ def check_registry(registry: dict, listing: dict, *,
             raise ValueError(f'{tier} listing host {filtered_platform} does not match the '
                              f'collection host {plan["platform"]}')
         matched = set()
-        for identity, case in _iter_cases(filtered):
+        for identity, _binary_id, _name, case in _iter_cases(filtered):
             if case['filter-match']['status'] != 'matches':
                 continue
             if case['ignored']:
@@ -261,22 +266,29 @@ def check_registry(registry: dict, listing: dict, *,
     return summary
 
 
-def _quote(text: str) -> str:
-    return text.replace('\\', '\\\\').replace('"', '\\"')
+def _token(text: str) -> str:
+    """Escape one unquoted nextest filter token; the DSL has no quoted strings."""
+    if any(character in text for character in '( \t\n\r"\''):
+        raise ValueError(f'test identity cannot be expressed as a nextest token: {text!r}')
+    return (text.replace('\\', '\\\\').replace('/', '\\/')
+            .replace(')', '\\)').replace(',', '\\,'))
 
 
-def nextest_filter(tests) -> str:
+def nextest_filter(tests, coordinates=None) -> str:
     """Return a pinned nextest filter expression selecting exactly these test identities."""
     by_binary: dict[str, list[str]] = {}
     for identity in sorted(tests):
-        binary, name = identity.split('/', 1)
+        if coordinates and identity in coordinates:
+            binary, name = coordinates[identity]
+        else:
+            binary, name = identity.split('/', 1)
         by_binary.setdefault(binary, []).append(name)
     if not by_binary:
         return 'none()'
     groups = []
     for binary in sorted(by_binary):
-        names = ' | '.join(f'test(="{_quote(name)}")' for name in by_binary[binary])
-        groups.append(f'binary_id("{_quote(binary)}") & ({names})')
+        names = ' | '.join(f'test(={_token(name)})' for name in by_binary[binary])
+        groups.append(f'binary_id(={_token(binary)}) & ({names})')
     return ' | '.join(f'({group})' for group in groups)
 
 
@@ -311,7 +323,8 @@ def main() -> None:
         plan = _plan(registry, listing)
         args.plan_dir.mkdir(parents=True, exist_ok=True)
         for tier, tests in plan['expected'].items():
-            (args.plan_dir/f'{tier}.filter').write_text(nextest_filter(tests) + '\n')
+            (args.plan_dir/f'{tier}.filter').write_text(
+                nextest_filter(tests, plan['coordinates']) + '\n')
         (args.plan_dir/'plan.json').write_text(json.dumps(
             {'platform': plan['platform'],
              'tiers': {tier: sorted(tests) for tier, tests in plan['expected'].items()},

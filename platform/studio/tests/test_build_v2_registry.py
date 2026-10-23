@@ -183,8 +183,8 @@ def test_mixed_tiers_inside_one_binary_are_split_per_test():
         't0': junit_of(t0_test), 't1a': junit_of(t1a_test)})
     assert summary['tiers']['t1a']['tests'] == 1
     assert nextest_filter({t1a_test}) == (
-        '(binary_id("atelier-build-v2") & '
-        '(test(="python_backend::tests::runs_a_sandboxed_job")))')
+        '(binary_id(=atelier-build-v2) & '
+        '(test(=python_backend::tests::runs_a_sandboxed_job)))')
     with pytest.raises(ValueError, match='t0 listing mismatch'):
         check_registry(registry, listing, tier_listings={'t0': listing_of(t0_test, t1a_test)})
     with pytest.raises(ValueError, match='t0 execution mismatch'):
@@ -391,9 +391,32 @@ def test_cli_writes_one_filter_per_tier_from_the_registry(tmp_path, monkeypatch,
     _module.main()
     summary = json.loads(capsys.readouterr().out)
     assert summary['tests'] == 2
-    assert (plan/'t0.filter').read_text() == '(binary_id("fixture") & (test(="test")))\n'
-    assert (plan/'t1a.filter').read_text() == '(binary_id("fixture") & (test(="python")))\n'
+    assert (plan/'t0.filter').read_text() == '(binary_id(=fixture) & (test(=test)))\n'
+    assert (plan/'t1a.filter').read_text() == '(binary_id(=fixture) & (test(=python)))\n'
     assert json.loads((plan/'plan.json').read_text())['tiers']['t1a'] == ['fixture/python']
+
+
+def test_the_filter_uses_the_binary_id_recorded_in_the_listing():
+    identity = 'atelier-build-v2/checkout_locks::tests::lock'
+    listing = listing_of(identity)
+    listing['rust-suites']['atelier-build-v2']['binary-id'] = 'atelier-build-v2::lib'
+    registry, _, _ = evidence()
+    registry['scenarios'][0]['tests'] = [identity]
+    assert check_registry(registry, listing)['tests'] == 1
+    plan = _module._plan(registry, listing)
+    assert plan['coordinates'][identity] == ('atelier-build-v2::lib', 'checkout_locks::tests::lock')
+    assert nextest_filter({identity}, plan['coordinates']) == (
+        '(binary_id(=atelier-build-v2::lib) & (test(=checkout_locks::tests::lock)))')
+
+
+def test_filter_tokens_escape_the_documented_dsl_characters():
+    backslash = chr(92)
+    assert nextest_filter({'fixture/plain/name'}) == (
+        '(binary_id(=fixture) & (test(=plain' + backslash + '/name)))')
+    assert nextest_filter({'fixture/a,b)c'}) == (
+        '(binary_id(=fixture) & (test(=a' + backslash + ',b' + backslash + ')c)))')
+    with pytest.raises(ValueError, match='cannot be expressed'):
+        nextest_filter({'fixture/has space'})
 
 
 def test_cli_refuses_the_old_registry_file_flag(monkeypatch):
