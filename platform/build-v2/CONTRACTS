@@ -133,7 +133,9 @@ membership. Limitations, not guarantees: native extension code that probes a mis
 through the C library is NOT detected (the kernel answers ENOENT with no sandbox decision), so these
 checks do not prove undeclared absence probes cannot happen; elapsed-time clocks (monotonic, perf
 counters, CPU time) and file timestamps are real; random generators in native libraries that read OS
-entropy themselves are not intercepted. Scope: job code is trusted project code. The kernel
+entropy themselves are not intercepted; deliberate tampering with the guard's own hooks, finders or
+patched functions is out of scope (removal of the import hook or finder is detected). Scope: job
+code is trusted project code. The kernel
 filesystem and network sandbox is the enforcement; the Python guard is additional detection of
 accidental undeclared dependencies, not an adversarial Python jail, and these checks do not intercept
 all nondeterminism or absence probes. This scope MUST NOT excuse an ordinary API bug in a supported
@@ -197,3 +199,183 @@ closure MUST retain. One absolute deadline covers validation/planning without re
 plan on expiry. Plans MUST remain diagnostic, with no deletion authority, process-liveness decision,
 filesystem access, physical-space claim or new cache identity. See tests/cleanup.rs and
 cleanup::tests::deadline_covers_validation_and_planning_without_returning_partial_authority.
+
+@cc [owner:fontanierh,label:correctness] build-v2-unreal-native-context
+An Unreal session's `UnrealContext` MUST bind the BuildId, the editor compile, the declared project
+modules, each declared engine plugin, each project plugin (the editor-only `AtelierBuildWorker`
+among them) and the declared `-ini:`/`-ForceDPCVars=` settings by content identity (digests of the
+produced bytes, never compile keys or locations). Its profile is scheduling only: semantic ini,
+CVars and module bytes still enter each unit's key. Before `hello`, once per session, the worker
+MUST recompute each declared engine plugin's identity (its descriptor and `Binaries`) from the folder
+the editor loaded it from, read every declared setting back from the editor (each forced CVar's
+value and each ini key's effective value), write the session evidence file `unreal-context.json`
+with what the editor actually loaded and holds, and MUST NOT say `hello` when that differs from the
+declared context (an ignored or overridden setting is a difference). A setting the editor does not
+hold MUST NOT match, whatever the declared text (a literal `None` included); ini values MUST compare
+as exact text, and forced CVars as exact text or as the same finite decimal value, never through a
+binary float. Each raw readback MUST be kept in the evidence (`settings_read`). Named gap: engine plugins
+enabled by default and engine modules are bound only by the BuildId, not by their bytes. The
+controller MUST refuse the session before its first `Run` when that evidence is missing, malformed,
+of another version or different. A job's import tables MUST go to `evidence/imports.json`, outside
+`output/`, covering exactly the saved packages, each read from the saved file's own import table
+(path, class, table order), never from asset-registry dependencies, with each path in Unreal's form
+(`.` after the package, `:` only at the first subobject boundary, `.` for deeper nesting); an unreadable table MUST fail the
+job, never pass with a guessed list (the real-editor reader is proven only by the pending T2
+session). Missing or malformed import evidence MUST be refused. See tests/unreal.rs
+(`the_profile_ignores_locations_and_follows_every_identity_field`,
+`contexts_refuse_what_a_session_cannot_load_honestly`,
+`context_and_import_evidence_are_required_well_formed_and_exact`,
+`undeclared_saves_files_dirty_packages_and_op_errors_fail_and_the_next_job_runs`,
+`a_different_native_context_or_a_module_rebuild_never_says_hello`).
+
+@cc [owner:fontanierh,label:safety] build-v2-unreal-scratch-project
+Each Unreal session MUST run on its own scratch project inside the session folder, never on a game
+`.uproject` and never sharing a mutable `Content`, `Saved`, `Intermediate`, `Binaries` or user
+folder with another session or checkout. Only the declared editor binaries and each declared
+plugin's descriptor and `Binaries` MAY be brought in, as APFS clones (never links) whose bytes MUST
+match the declared identities, recorded in a hash receipt and made read-only, so an editor that
+tries to rebuild a module fails closed instead of writing. The receipt MUST be checked again after
+the session (file list, modes, clone and source bytes). The command line MUST be the declared
+editor, the scratch project, the session's frozen worker script (`build-v2-unreal-frozen-worker`), fixed flags, a session `-UserDir`, the DDC flags and
+graph (`build-v2-unreal-ddc`) and the declared settings only, with `-nocrashreports`. Unreal is NOT
+sandboxed. Each of these engine-wide writes, measured in T2, is an explicit proof gap (named, not
+prevented, and not covered by any test): (1) `~/Library/Application Support/Epic/UnrealEngine/5.8/
+Saved/Config/MacEditor/EditorSettings.ini` (T2: stopped by `-nowrite`, which the command line
+passes); (2) the tool preset JSON under `UnrealEngine/Editor` (T2: written even with `-nowrite`);
+(3) the build tool's `UnrealBuildTool/Trace.uba` when the editor's startup platform check runs (T2:
+skipped with `UE_SKIP_UBT_SDK_SETUP=1`, which the command line does not set); (4) the Zen install
+files (`Common/Zen/Install`), Zen data and the `zen service status` utility (T2: none with the v2
+graph; `-NoZenAutoLaunch` alone still runs the utility); (5) crash reports (`5.8/Saved/Crashes` and
+crashpad caches) for anything `-nocrashreports` does not cover; and (6) the shared filesystem DDC
+(`Common/DerivedDataCache`), which a session refused for its cache graph may already have written
+during startup. The T2 write scan compares file times under `~/Library`, so it cannot attribute a
+write there to one agent when other agents run at the same time.
+See
+tests/unreal.rs (`a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity`,
+`a_tree_identity_names_paths_and_bytes_and_refuses_links`,
+`the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_settings`,
+`a_different_native_context_or_a_module_rebuild_never_says_hello`). The editor-only `AtelierBuildWorker` plugin source MUST live at
+`platform/build-v2/unreal/AtelierBuildWorker`, outside every folder a game or v1 enumerates
+(`platform/engine/Plugins`, game project folders, `AdditionalPluginDirectories`), MUST NOT be enabled
+by any game descriptor, and is cloned only into scratch and micro projects; its compiled binaries are
+build products, never committed, and their content identity enters `UnrealContext`. See
+platform/studio/tests/test_build_v2_unreal_worker.py
+(`test_the_worker_plugin_source_is_outside_every_folder_a_game_or_v1_enumerates`).
+
+@cc [owner:fontanierh,label:correctness] build-v2-unreal-frozen-worker
+A context MUST freeze the exact bytes of `unreal_worker.py` and the `protocol.py` it loads when it is
+declared, each read through one descriptor opened without following a link or blocking on a FIFO
+and checked as a regular file on that descriptor. Each session MUST materialize them read-only in
+`<session>/worker/`, and the editor MUST run that copy, which loads its protocol only from its own
+folder, never from the source tree, so a later edit or retarget of the source never reaches a
+session. The bundle's digest (the content identity of the frozen files: no locations and no
+installed engine or tool facts) MUST be exposed on the context and MUST be in the session profile,
+so a changed worker is a new session. The launch MUST refuse a session whose frozen copy changed,
+and before `hello` the worker MUST report the digest of the files it actually loaded, which MUST
+match. C3 proves only that session launch is bound to the frozen bundle and that the digest is
+exposed. Named future seam (D4/A9, not proven here): the A3 semantic item/op key binder MUST hash
+the exact worker and protocol implementation (this digest), the declared project module and plugin
+compiled-output views and the semantic settings; it MUST exclude the installed BuildId, the editor
+and engine-plugin bytes and the DDC paths, and source compile-input keys are no substitute for
+compiled-output identity. See tests/unreal.rs
+(`each_session_runs_a_frozen_worker_bundle_whose_digest_is_session_identity`,
+`a_worker_bundle_freezes_only_regular_files_and_never_follows_or_blocks`,
+`the_profile_ignores_locations_and_follows_every_identity_field`,
+`a_different_native_context_or_a_module_rebuild_never_says_hello`).
+
+@cc [owner:fontanierh,label:safety] build-v2-unreal-ddc
+Every Unreal session MUST cache derived data only in the persistent, v2-owned folder
+`<store root>/unreal-ddc/<engine BuildId>`, never in job or session scratch and never emptied per
+job. Its command line MUST pass `-nowrite -NoZenAutoLaunch` and the inline graph
+`-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path=<that folder>))`, and those flags, the graph
+and the folder MUST be in the session profile, so a change to any of them is a new session and never
+a reuse of an old one. The DDC is rebuildable acceleration only: no reuse, key or receipt decision
+MAY read it, and store GC MAY drop it whole. Before `hello` the worker MUST read the editor's
+effective cache graph from the editor (never from the command line), record it in
+`unreal-context.json`, and MUST NOT say `hello` (a setup failure, never a silent fallback) when any
+node is a Zen, shared, remote or unknown store, a file-system node outside that folder or a pak other
+than the installed engine pak, or when no node is inside that folder. There is no read-only parent
+cache. The controller MUST check the recorded graph again before the first `Run`. The installed
+engine pak MUST stay read-only: the graph does not show whether a pak was opened for writing, so the
+session receipt MUST record the pak's size and modification time and `verify` MUST refuse any
+change. Named gaps: the engine-pak check compares only size and modification time, so it is not a
+content hash, does not prove the pak was read-only and misses a write that restores both; the T2
+probe timings came from tiny inputs (64x64 textures, 16x16 meshes) and
+are not representative of real assets, which are measured after C3; the plugin's graph reader is
+proven against the real editor only by the pending T2 session; sessions of one engine share the
+folder, relying on Unreal's multi-process file-system store (assumed, not proven here). See
+tests/unreal.rs (`the_ddc_folder_persists_per_engine_and_its_flags_and_graph_are_session_identity`,
+`the_ddc_policy_allows_only_the_v2_folder_and_the_engine_pak`,
+`the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_settings`,
+`context_and_import_evidence_are_required_well_formed_and_exact`,
+`a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity`,
+`a_cache_graph_with_zen_or_a_folder_outside_the_v2_ddc_never_says_hello`) and
+platform/studio/tests/test_build_v2_unreal_worker.py
+(`test_the_cache_graph_may_hold_only_the_v2_folder_the_engine_pak_and_memory`).
+
+@cc [owner:fontanierh,label:correctness] build-v2-unreal-job-isolation
+One editor MUST run one job at a time, starting each with an empty `/Game` and empty `output/`.
+Input packages MUST be copied read-only to their logical paths and removed afterwards. The packages
+saved during a job MUST be exactly its declared output packages (an undeclared save or file is a
+`dependency` failure, a missing required package or an unsaved change is a `job` failure, and a
+changed input is a `dependency` failure). Every output file MUST belong to a package saved during
+the job, companion files included; a package file written any other way is a `dependency` failure.
+Every collected file MUST hold exactly the bytes its package's last save wrote: the plugin MUST take
+each save's file hashes only after an explicit flush of the save's writes
+(`UPackage::WaitForAsyncFileWrites`), and MUST hash only the files that save wrote: its target file,
+and each `.uexp`, `.ubulk` or `.uptnl` companion whose stat stamp (device, inode, size, modification
+time) differs from the stamp taken just before the save. A file the save left alone, such as a plain
+write beside it or the other main extension, is never certified as saved. Each hash MUST stay bound
+to the package whose save wrote it: across a job's saves, in order, each file keeps its latest
+attestation (so a later save that leaves a companion alone keeps the earlier hash), a file saved by
+two packages is a `dependency` failure, and a collected file MUST be attested by its own package's
+save. A mismatch, an unhashed file or another package's attestation is a `dependency` failure.
+Those SHA1 hashes are an integrity check only and MUST NOT become a key ingredient. Every required
+output file MUST exist when the job ends (otherwise a `job` failure), and a file written into
+`output/` directly is a `dependency` failure. Outputs MUST be moved out of `/Game` into `output/`. A failed job's `output/` MAY hold partially
+moved files, so the controller MUST collect `output/` only from a completed job.
+A package saved more than once to the same file counts once; one saved to more than one file is a
+`dependency` failure. A failed ensure during the job is a `job` failure. After every job the worker
+MUST restore its Python state, empty `/Game` and the asset registry, unload every package the job
+touched, collect garbage synchronously through the plugin (`SystemLibrary.collect_garbage` only
+schedules a collection a commandlet never reaches), and confirm each package is gone by name
+(`find_object`), never by the unload call's own result. Every console variable that existed before the
+job MUST keep its value; one registered during the job MUST still be at its default (a named gap: a
+new variable's default is not itself checked). When any of that
+fails or raises, the worker MUST still send the job's terminal reply and then exit instead of serving another
+job. This is detection, not isolation: native engine state outside these checks is a named T2
+limitation. See tests/unreal.rs
+(`one_editor_serves_jobs_in_order_with_a_clean_game_folder_between_them`,
+`undeclared_saves_files_dirty_packages_and_op_errors_fail_and_the_next_job_runs`,
+`a_package_left_loaded_a_changed_setting_or_a_raising_reset_retires_the_editor_after_its_reply`) and
+platform/studio/tests/test_build_v2_unreal_worker.py. The real editor's flush-then-hash order is
+proven only by the pending T2 session.
+
+@cc [owner:fontanierh,label:correctness] build-v2-blender-job-isolation
+The Blender job loop MUST run inside the installed background Blender started with
+`--factory-startup -b --threads 3 --python-exit-code 1 --disable-autoexec` before its `-P` script, so
+admission reads its threads, and MUST serve the same protocol as the Python job loop with its own
+worker version. Each job MUST run in a fresh Blender from that same binary, in its staged folder,
+with the same flags plus `--python-use-system-env`, the declared environment only, every Blender
+user folder and `HOME` pointed at a missing path inside the job folder (a job whose staged folder
+already holds that path, as a link or as declared code, MUST be refused as `protocol` before Blender
+starts), and the scene reset to an empty factory file before the op runs; no state of one job may reach another. Each job MUST run the
+Python job bootstrap, so the Python job isolation contract applies inside it with the Blender
+application bundle as its installed platform. On macOS the child MUST run under the same deny-default
+kill-on-deny sandbox that lets it execute only the Blender binary, read only the bundle, the named
+platform files and its job folder, and write only `output/`; every further kernel allowance MUST be a
+reviewed, named rule (GPU user clients, metadata of `/tmp` and the developer folder, kernel-only
+`/dev/urandom`, socket binds refused without the kill), and nothing in the home folder may be readable.
+Native Blender reads of an existing undeclared path and any other network use MUST fail the job as
+`dependency`. In Blender jobs `uuid.uuid4` MUST draw from the declared seed and every other entropy
+source stays refused; only module objects loaded by Blender's own startup are exempt from the
+undeclared-module check. The production entry MUST have no unsandboxed
+mode, and the test-only entry MUST announce a distinct worker version. The Python and Blender loop
+commands MUST refuse a non-UTF-8 script path rather than alter it, and MUST convert to the guarded
+launcher's command with the program, every argument in order, the environment and the working
+folder unchanged. Installed Blender and its
+bundled add-ons are platform, not key ingredients. The same limitations and scope as the Python job
+isolation contract apply, including native probes of missing paths. See
+platform/studio/tests/test_build_v2_blender_worker.py and tests/blender_jobs.rs, including
+job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it and
+a_loop_command_converts_to_the_guarded_launcher_command_field_for_field.
