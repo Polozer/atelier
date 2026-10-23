@@ -10,3 +10,4 @@ pub mod schema;
 pub mod source_hashes;
 pub mod store;
 pub mod validate;
+pub mod worker_session;
