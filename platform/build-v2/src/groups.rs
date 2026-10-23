@@ -94,34 +94,82 @@ impl ValidatedGroup {
         &self.stored
     }
     pub fn project(&self, piece: &str) -> Result<StoredItem, String> {
-        let projection = self
-            .stored
+        project_member(&self.contract, &self.stored, piece)
+    }
+}
+
+/// Identity evidence from a trusted immutable record, explicitly NOT blob availability.
+/// Only B2's exact-key metadata reader constructs it; it cannot become ValidatedGroup.
+#[derive(Debug)]
+pub struct RecordedGroupIdentity {
+    contract: OutputGroupContract,
+    stored: StoredOutputGroup,
+}
+impl RecordedGroupIdentity {
+    pub fn contract(&self) -> &OutputGroupContract {
+        &self.contract
+    }
+    pub fn pieces(&self) -> impl Iterator<Item = &str> {
+        self.stored.projections.keys().map(String::as_str)
+    }
+    pub fn projection(&self, piece: &str) -> Result<&MemberProjection, String> {
+        self.stored
             .projections
             .get(piece)
-            .ok_or("unknown projected piece")?;
-        let file = self
-            .stored
-            .files
-            .iter()
-            .find(|file| file.path == projection.payload)
-            .ok_or("projected member is absent")?
-            .clone();
-        Ok(StoredItem {
-            item: Item {
-                id: piece.into(),
-                logical_path: format!("{}/{piece}", self.contract.logical_namespace),
-                class: self.contract.class.clone(),
-                destination: Destination::Store,
-                files: vec![OutputFile {
-                    path: file.path.clone(),
-                    install_path: None,
-                    required: true,
-                }],
-            },
-            files: vec![file],
-            external_locator: None,
-        })
+            .ok_or_else(|| "unknown projected piece".into())
     }
+    /// Selected content view only: no planner input key, roster digest or sibling bytes.
+    pub fn project(&self, piece: &str) -> Result<StoredItem, String> {
+        project_member(&self.contract, &self.stored, piece)
+    }
+}
+
+fn project_member(
+    contract: &OutputGroupContract,
+    stored: &StoredOutputGroup,
+    piece: &str,
+) -> Result<StoredItem, String> {
+    let projection = stored
+        .projections
+        .get(piece)
+        .ok_or("unknown projected piece")?;
+    let file = stored
+        .files
+        .iter()
+        .find(|file| file.path == projection.payload)
+        .ok_or("projected member is absent")?
+        .clone();
+    Ok(StoredItem {
+        item: Item {
+            id: piece.into(),
+            logical_path: format!("{}/{piece}", contract.logical_namespace),
+            class: contract.class.clone(),
+            destination: Destination::Store,
+            files: vec![OutputFile {
+                path: file.path.clone(),
+                install_path: None,
+                required: true,
+            }],
+        },
+        files: vec![file],
+        external_locator: None,
+    })
+}
+
+/// @cc [owner:fontanierh,label:correctness] recorded-group-is-not-available
+/// B2 may issue identity evidence only after matching the exact prepared record/contract and
+/// complete saved projection metadata. This MUST NOT certify payload availability, recreate
+/// source validation from an opaque plan, or expose/convert to the available ValidatedGroup.
+/// Source adapters requiring missing payloads MUST fail rather than guess. See metadata_only_group_preserves_projection_without_certifying_availability.
+pub(crate) fn recorded_identity(
+    contract: &OutputGroupContract,
+    stored: &StoredOutputGroup,
+) -> Result<RecordedGroupIdentity, String> {
+    check_recorded(contract, stored)?;
+    Ok(RecordedGroupIdentity {
+        contract: contract.clone(),
+        stored: stored.clone(),
+    })
 }
 
 pub(crate) fn name(value: &str) -> Result<(), String> {
@@ -542,6 +590,22 @@ mod tests {
         changed.projections.get_mut("Sibling").unwrap().payload = "missing.npz".into();
         assert!(restore_recorded(&contract, &changed, |_| Ok(())).is_err());
     }
+    #[test]
+    fn metadata_only_group_preserves_projection_without_certifying_availability() {
+        let (contract, mut stored) = fixture();
+        let identity = recorded_identity(&contract, &stored).unwrap();
+        assert_eq!(identity.pieces().collect::<Vec<_>>(), ["Village_Edges"]);
+        assert_eq!(
+            identity.projection("Village_Edges").unwrap(),
+            &stored.projections["Village_Edges"]
+        );
+        assert_eq!(identity.project("Village_Edges").unwrap().files.len(), 1);
+        assert!(identity.project("unknown").is_err());
+        assert!(restore_recorded(&contract, &stored, |_| Err("absent".into())).is_err());
+        stored.projections.get_mut("Village_Edges").unwrap().payload = "missing.npz".into();
+        assert!(recorded_identity(&contract, &stored).is_err());
+    }
+
     fn key_fixture(
         contract: &OutputGroupContract,
     ) -> (

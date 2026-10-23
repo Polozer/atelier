@@ -1,6 +1,7 @@
 //! Per-unit immutable result publication. B3 installs and B4 root policy are separate.
 use crate::groups::{
-    OutputGroupContract, PlanRoster, ValidatedGroup, restore_recorded, validate_frozen,
+    OutputGroupContract, PlanRoster, RecordedGroupIdentity, ValidatedGroup, recorded_identity,
+    restore_recorded, validate_frozen,
 };
 use crate::keys::{PreparedUnit, canonical_bytes, normalized_mode};
 use crate::leases::{LeaseRecord, LeaseStore, ProcessIdentity, directory, sync_dir};
@@ -48,6 +49,21 @@ impl ResultEnvelope {
                     .iter()
                     .flat_map(|group| &group.files),
             )
+    }
+}
+
+/// Complete exact-key record identities, not a StoredHit or byte/staging capability.
+#[derive(Debug)]
+pub struct RecordedIdentities {
+    envelope: ResultEnvelope,
+    groups: BTreeMap<String, RecordedGroupIdentity>,
+}
+impl RecordedIdentities {
+    pub fn result(&self) -> &ResultEnvelope {
+        &self.envelope
+    }
+    pub fn groups(&self) -> &BTreeMap<String, RecordedGroupIdentity> {
+        &self.groups
     }
 }
 
@@ -189,7 +205,11 @@ impl ResultStore {
         Ok(self.read_validated(unit)?.map(|(envelope, _)| envelope))
     }
 
-    fn read_validated(&self, unit: &PreparedUnit) -> Result<Option<GroupHit>, ResultError> {
+    // Caller holds the same result/GC mutex and a durable result-key claim.
+    fn read_metadata(
+        &self,
+        unit: &PreparedUnit,
+    ) -> Result<Option<RecordedIdentities>, ResultError> {
         let path = self.record_path(unit.key());
         match fs::symlink_metadata(&path) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -200,7 +220,7 @@ impl ResultStore {
             _ => {}
         }
         let envelope: ResultEnvelope =
-            serde_json::from_slice(&fs::read(path)?).map_err(|error| invalid(error.to_string()))?;
+            serde_json::from_slice(&fs::read(path)?).map_err(|e| invalid(e.to_string()))?;
         if envelope.version != ENVELOPE_VERSION
             || envelope.result.schema_version != RESULT_SCHEMA_VERSION
             || envelope.result.key != unit.key()
@@ -218,6 +238,30 @@ impl ResultStore {
             .iter()
             .zip(&envelope.result.output_groups)
         {
+            groups.insert(
+                contract.id.clone(),
+                recorded_identity(contract, stored).map_err(invalid)?,
+            );
+        }
+        check_manifest(unit, &envelope.result.outputs)?;
+        for key in &envelope.upstream_result_keys {
+            digest(key)?;
+        }
+        Ok(Some(RecordedIdentities { envelope, groups }))
+    }
+
+    fn read_validated(&self, unit: &PreparedUnit) -> Result<Option<GroupHit>, ResultError> {
+        let Some(recorded) = self.read_metadata(unit)? else {
+            return Ok(None);
+        };
+        let envelope = recorded.envelope;
+        let mut groups = BTreeMap::new();
+        for (contract, stored) in unit
+            .ingredients()
+            .output_groups
+            .iter()
+            .zip(&envelope.result.output_groups)
+        {
             let token = restore_recorded(contract, stored, |file| {
                 let digest = ObjectDigest::from_hex(&file.digest).map_err(|e| e.to_string())?;
                 self.objects
@@ -226,11 +270,6 @@ impl ResultStore {
             })
             .map_err(invalid)?;
             groups.insert(contract.id.clone(), token);
-        }
-
-        check_manifest(unit, &envelope.result.outputs)?;
-        for key in &envelope.upstream_result_keys {
-            digest(key)?;
         }
         for file in envelope.result.outputs.iter().flat_map(|item| &item.files) {
             self.objects
@@ -343,6 +382,17 @@ impl WriteTransaction {
     /// Complete with retain_hit(); dropping this handle conservatively retains claims.
     pub fn lookup(&mut self) -> Result<Option<ResultEnvelope>, ResultError> {
         Ok(self.lookup_groups()?.map(|(envelope, _)| envelope))
+    }
+
+    /// @cc [owner:fontanierh,label:correctness] recorded-identities-before-availability
+    /// An exact-key metadata lookup MUST reuse complete record/ingredient/manifest checks and
+    /// hold the existing result-key claim under the shared GC mutex. It MUST NOT open/check
+    /// payload objects, mint StoredHit/available groups, substitute producer keys for content,
+    /// or bypass adapter metadata validation. Strict lookup_groups remains unchanged.
+    /// See tests/results.rs; A9 still chooses when real bytes must be materialized.
+    pub fn lookup_recorded(&mut self) -> Result<Option<RecordedIdentities>, ResultError> {
+        let _guard = self.store.leases.lock()?;
+        self.store.read_metadata(&self.unit)
     }
 
     /// Private tokens escape only after all named blobs are checked and durably pinned
