@@ -1,0 +1,9 @@
+schema_version = 1
+
+[[scenarios]]
+id = "a9b1.capture_reads_only_explicit_named_regular_files_and_keeps_frozen_bytes"
+tests = ["atelier-build-v2::python_sources/capture_reads_only_explicit_named_regular_files_and_keeps_frozen_bytes"]
+
+[[scenarios]]
+id = "a9b1.capture_refuses_traversal_and_never_follows_a_named_or_ancestor_link"
+tests = ["atelier-build-v2::python_sources/capture_refuses_traversal_and_never_follows_a_named_or_ancestor_link"]
