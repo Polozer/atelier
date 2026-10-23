@@ -86,3 +86,19 @@ def test_kit_planners_own_one_selected_source_and_query(tmp_path):
     assert len({path for step in planners+collisions for product in step.products for path in product.paths}) == 56
     final = next(step for step in steps if step.name == 'world.gondola_kit')
     assert final.reads[:3] == ['gondola_kit.atomic','gondola_kit.audit','gondola_kit.textures']
+
+
+def test_site_planners_own_selected_commands_and_declare_complete_query_membership(tmp_path):
+    steps=graph.site_steps(SimpleNamespace(out=tmp_path))
+    planners=[step for step in steps if step.name.startswith('world.gondola_site.geometry.')]
+    assert len(planners)==31
+    for step in planners:
+        key=step.name.rsplit('.',1)[-1]
+        assert step.reads==['gondola_site.source.'+key]
+        assert step.products[1].name=='gondola_site.query.'+key
+        assert step.commands[0].threads==3 and step.commands[0].factory_startup
+    query_steps=graph.query_steps(SimpleNamespace(out=tmp_path))
+    structure=next(step for step in query_steps if step.name=='world.gondola_structures_sources')
+    assert 'belmonte_north.geometry.SM_BM_NorthCountry' in structure.reads
+    assert all(not name.startswith('world.') and '.export.' not in name for name in structure.reads)
+    assert structure.deferred_inputs
