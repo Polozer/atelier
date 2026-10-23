@@ -1599,7 +1599,7 @@ def unreal_steps(ctx):
              about='the Yorimichi game binary, app bundle and redistributed files; the cook does not build'),
         *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES + ('Yorimichi',)),
         *foliage_build.unreal_steps(ctx, IMPORT_CODE, engine_version(ctx)),
-        Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved', memory_gib=14)],
+        Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved')],
              # The city's arcade and harbor materials read the region's committed paintings.
              inputs=[WORLD / 'asset_catalog.py', WORLD / 'coast_water.py', REGIONS / 'hidamari' / 'textures',
                      REGIONS / 'hidamari/ferry_source.py',
@@ -1781,7 +1781,7 @@ def unreal_steps(ctx):
              candidate_scope=CandidateScope(directories=(GAME / 'unreal/Content/Experiments/CityTrees/v4',)),
              about='independent existing city tree LOD owner'),
         Step('unreal.desktop', [
-                UnrealScript(SCRIPTS / 'import_city_surface_tiles.py', 'CITY SURFACE TILE IMPORT COMPLETE', memory_gib=14,
+                UnrealScript(SCRIPTS / 'import_city_surface_tiles.py', 'CITY SURFACE TILE IMPORT COMPLETE',
                              env=(('CITY_SURFACE_TILES_TAG', 'v1_128m'),), modules=IMPORT_CODE+('Yorimichi',))],
              inputs=[SCRIPTS / 'import_city_surface_tiles.py', GAME / 'city_tile_products.py',
                      paths.STUDIO / 'atelier/conventions.py'],
