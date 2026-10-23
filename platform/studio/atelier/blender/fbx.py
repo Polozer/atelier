@@ -7,7 +7,6 @@ from contextlib import contextmanager
 import datetime
 import hashlib
 import json
-import math
 from pathlib import Path, PureWindowsPath
 import struct
 
@@ -133,6 +132,7 @@ def world_color(scene):
 
 
 def validate_world_color(value):
+    import math
     if (type(value) is not list or len(value)!=3
             or any(type(v) not in (int,float) or not math.isfinite(v) or not 0<=v<=1 for v in value)):
         raise ValueError('Invalid explicit FBX source world colour')
