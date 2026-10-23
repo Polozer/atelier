@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "kind": "selected-export-followup-evidence",
+  "complete": false,
+  "foliage": {
+    "source_head": "c50af3e679e050a61a9059a3363d2f91b31bcc4a",
+    "source_exports": 102,
+    "authored_lod_exports": 84,
+    "seed_exports": 18,
+    "logical_owners": 18,
+    "maximum_export_triangles": 4484,
+    "literal_source_and_fbx_exact": 102,
+    "legacy_manifest_values_exact": 18,
+    "authored_source_hulls": 10,
+    "ordinary_repeat": {
+      "current_tasks": 264,
+      "executed_tasks": 0,
+      "restored_tasks": 0
+    },
+    "independent_receiver": {
+      "restored_tasks": 39,
+      "executed_tasks": 0,
+      "provider": "checkpoint actions"
+    },
+    "one_lod_edit": {
+      "source_and_export_fingerprints_changed": 2,
+      "unchanged_sibling_fingerprints": 202,
+      "unchanged_published_files": 564
+    },
+    "native_geometry_proof": "pending"
+  },
+  "track": {
+    "source_head": "f37d202d475fa509fcf5195d7e486391288f1c25",
+    "logical_source_owners": 138,
+    "source_lod_exports": 363,
+    "native_runtime_roster": {
+      "meshes": 137,
+      "lod_pages": 362,
+      "excluded_editor_marker": "SM_TK_Marker"
+    },
+    "maximum_export_triangles": 31272,
+    "source_and_actual_glb_exact": true,
+    "native_geometry_proof": "pending"
+  },
+  "carriages": {
+    "source_head": "d6e272a4d3b542cd354b74c5cdf441496ca003ac",
+    "logical_owners": 7,
+    "source_glb_exports": 81,
+    "maximum_export_triangles": 30590,
+    "shared_genuine_atlas_source_and_glb_exact": 81,
+    "ordinary_repeat": {
+      "current_tasks": 178,
+      "executed_tasks": 0,
+      "restored_tasks": 0
+    },
+    "one_edit": {
+      "query": "Restaurant crest position",
+      "executed_tasks": 15,
+      "unchanged_other_source_owners": 6,
+      "unchanged_moving_door_products": true
+    },
+    "restore_after_source_restoration": {
+      "restored_tasks": 15,
+      "executed_tasks": 0,
+      "restored_files_exact": 996
+    },
+    "normal_vs_conditional_source_oracle": {
+      "byte_exact_glbs": 79,
+      "atlas_only_differences": 2,
+      "changed_rgb_pixels": 6,
+      "maximum_component_delta": 1,
+      "tolerance_waiver": false,
+      "independent_atlas_render_repeatability": "not established; original renderer also exhibits the difference"
+    },
+    "native_geometry_proof": "pending"
+  },
+  "evidence_sha256": {
+    "foliage_source_handoff": "917cf87a930090ab3002c603e402613729605262dc457d8fcb49d262ca1e6096",
+    "foliage_ordinary_handoff": "96e4353ae48d41bc86fee4c4efc22a3e3ed526a052f0a8320863e126eaa0c993",
+    "track_source_result": "6aa9a25a5df98f3d9a08f581c02787591ccfee7b4425a9a965c936401f6ec736",
+    "carriage_source_result": "0755caa92a957519c6ed5916b739fca8d7048377778102155aa77f8f4e42c3c7",
+    "carriage_normal_cache_handoff": "157e3eb4dcb1b57d1c709ff7562425e25caa7c9bf85ec18309bed1cf1fb95e8e"
+  },
+  "not_certified": [
+    "native equivalence while its paired proofs remain pending",
+    "normal native-owner mesh reuse",
+    "full furniture LOD bake and service/route closure",
+    "production placement, gameplay and runtime behavior",
+    "whole-world or packaged cook",
+    "skeletal meshes or uncensused families"
+  ],
+  "authority": "Informational evidence index only; never a cache admission token or replacement for current validation."
+}
