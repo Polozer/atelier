@@ -36,6 +36,26 @@ def test_canonical_json_and_read_write_helpers(tmp_path, monkeypatch):
     out = py_data.write_json(ctx, 'out.json', {'z': 1, 'a': {'d': 4, 'c': 3}})
     assert out.read_bytes() == b'{"a":{"c":3,"d":4},"z":1}'
 
+    extreme = py_data.canonical_json_bytes({
+        'floats': [
+            1e-06,
+            1e-05,
+            0.0001,
+            1e-300,
+            5e-324,
+            1234567890123456.0,
+            1e16,
+            1.7976931348623157e+308,
+            -0.0,
+            0.0,
+        ],
+        'ints': [9007199254740993, 18446744073709551615],
+        'unicode': {'漢': 3, 'é': 1, 'Ω': 2, 'a': 0},
+    }).decode('utf-8')
+    assert '"floats":[1e-06,1e-05,0.0001,1e-300,5e-324,1234567890123456.0,1e+16,1.7976931348623157e+308,-0.0,0.0]' in extreme
+    assert '"ints":[9007199254740993,18446744073709551615]' in extreme
+    assert '"unicode":{"a":0,"é":1,"Ω":2,"漢":3}' in extreme
+
     for invalid in (None, 42, 'scalar', {'nan': float('nan')}, {'inf': float('inf')}):
         with pytest.raises(ValueError):
             py_data.canonical_json_bytes(invalid)

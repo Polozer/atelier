@@ -4,7 +4,7 @@
 //! defines only the py_data op schema rules (PyDataSpec -> OpDefinition), the validator and
 //! worker implementation identities, and the frozen-snapshot output validator (validate_py_data_outputs
 //! and validate_py_data_unit_outputs).
-use crate::keys::{ImplementationIdentity, PreparedUnit, canonical_bytes};
+use crate::keys::{ImplementationIdentity, PreparedUnit};
 use crate::launch::PYTHON_JOB_LOOP_VERSION;
 use crate::results::FrozenOutput;
 use crate::source_hashes::{sha256, valid_digest};
@@ -294,11 +294,16 @@ impl PyDataSpec {
 /// @cc [owner:fontanierh,label:correctness] py-data-class-driven-frozen-validation
 /// Output validation for py_data MUST verify that the PreparedUnit is keyed with py_data/1 and
 /// PY_DATA_VALIDATOR_VERSION, read only B1-frozen PreparedObject snapshots, and validate each
-/// output by its declared item class rather than file extension alone: JsonData requires canonical
-/// UTF-8 JSON object/array bytes, RouteData requires a canonical route object with at least two
+/// output by its declared item class rather than file extension alone. JSON validation for
+/// JsonData and RouteData is semantic and finite, not lexical against Rust re-serialization: it
+/// MUST accept valid UTF-8 JSON objects/arrays with finite numbers (including Python exponent
+/// forms, signed zeros and 64-bit integers) while refusing duplicate object keys at any nesting
+/// depth, non-finite numbers, lone-surrogate escapes and top-level scalars. RouteData additionally
+/// requires a route object with at least two
 /// finite 3D waypoints and monotone non-decreasing positive distances, RuntimeData requires a
 /// framed ATD1 v1 binary payload with complete non-empty records, and Data requires non-empty
-/// bytes. See tests/py_data.rs.
+/// bytes. See tests/py_data.rs::validator_and_staging_refuse_missing_extra_links_and_malformed_domain_data
+/// and tests/py_data.rs::clean_rebuild_byte_equality_across_workspaces_and_locators.
 pub fn check_py_data_unit_identity(unit: &PreparedUnit) -> Result<(), String> {
     let ingredients = unit.ingredients();
     if ingredients.op.kind != PY_DATA_OP_KIND || ingredients.op.version != PY_DATA_OP_VERSION {
@@ -333,7 +338,7 @@ pub fn validate_py_data_payload(class: &str, path: &str, bytes: &[u8]) -> Result
     match parsed_class {
         PyDataClass::Data => Ok(()),
         PyDataClass::JsonData => {
-            let _ = validate_canonical_json(bytes, path, false)?;
+            let _ = validate_json_payload(bytes, path, false)?;
             Ok(())
         }
         PyDataClass::RouteData => validate_route_data(bytes, path),
@@ -374,13 +379,104 @@ pub fn validate_py_data_outputs(outputs: &[FrozenOutput<'_>]) -> Result<(), Stri
     Ok(())
 }
 
-fn validate_canonical_json(
-    bytes: &[u8],
-    path: &str,
-    require_object: bool,
-) -> Result<Value, String> {
-    let value: Value = serde_json::from_slice(bytes)
+struct StrictJsonSeed;
+
+impl<'de> serde::de::DeserializeSeed<'de> for StrictJsonSeed {
+    type Value = Value;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(StrictJsonVisitor)
+    }
+}
+
+struct StrictJsonVisitor;
+
+impl<'de> serde::de::Visitor<'de> for StrictJsonVisitor {
+    type Value = Value;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("any valid finite JSON value without duplicate object keys")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(Value::Bool(value))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(Value::Number(value.into()))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(Value::Number(value.into()))
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        serde_json::Number::from_f64(value)
+            .map(Value::Number)
+            .ok_or_else(|| E::custom("non-finite JSON float"))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(Value::String(value.to_owned()))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(Value::String(value))
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(Value::Null)
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut elements = Vec::new();
+        while let Some(elem) = seq.next_element_seed(StrictJsonSeed)? {
+            elements.push(elem);
+        }
+        Ok(Value::Array(elements))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        let mut object = serde_json::Map::new();
+        let mut seen = BTreeSet::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if !seen.insert(key.clone()) {
+                return Err(serde::de::Error::custom(format!(
+                    "duplicate JSON object key {key:?}"
+                )));
+            }
+            let value = map.next_value_seed(StrictJsonSeed)?;
+            object.insert(key, value);
+        }
+        Ok(Value::Object(object))
+    }
+}
+
+fn validate_json_payload(bytes: &[u8], path: &str, require_object: bool) -> Result<Value, String> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|error| format!("{path}: JSON payload is not valid UTF-8: {error}"))?;
+    let mut deserializer = serde_json::Deserializer::from_str(text);
+    let value = serde::de::DeserializeSeed::deserialize(StrictJsonSeed, &mut deserializer)
         .map_err(|error| format!("{path}: invalid JSON payload: {error}"))?;
+    deserializer
+        .end()
+        .map_err(|error| format!("{path}: trailing content after JSON payload: {error}"))?;
     if require_object && !value.is_object() {
         return Err(format!("{path}: expected a JSON object"));
     }
@@ -389,17 +485,11 @@ fn validate_canonical_json(
             "{path}: top-level JsonData payload must be an object or array"
         ));
     }
-    let canonical = canonical_bytes(&value).map_err(|error| format!("{path}: {error}"))?;
-    if canonical != bytes {
-        return Err(format!(
-            "{path}: JSON payload is not in canonical sorted-key UTF-8 form"
-        ));
-    }
     Ok(value)
 }
 
 fn validate_route_data(bytes: &[u8], path: &str) -> Result<(), String> {
-    let value = validate_canonical_json(bytes, path, true)?;
+    let value = validate_json_payload(bytes, path, true)?;
     let object = value.as_object().unwrap();
     let route_id = object
         .get("route_id")

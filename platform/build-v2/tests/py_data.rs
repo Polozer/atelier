@@ -132,7 +132,15 @@ def run(context):
     py_data.write_runtime_binary(context, 'ferry_runtime.bin', [rec_meta, rec_dist])
 "#;
 
-struct Workspace(PathBuf);
+struct Workspace(
+    PathBuf,
+    std::cell::RefCell<
+        Option<(
+            DirectWorker,
+            Channel<std::io::PipeReader, std::io::PipeWriter>,
+        )>,
+    >,
+);
 
 impl Workspace {
     fn new() -> Self {
@@ -142,16 +150,64 @@ impl Workspace {
             SERIAL.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&path).unwrap();
-        Self(path)
+        Self(path, std::cell::RefCell::new(None))
     }
 
     fn path(&self, name: &str) -> PathBuf {
         self.0.join(name)
     }
+
+    fn run_job(&self, sandboxed: bool, staged: &StagedJob) -> Result<JobOutcome, String> {
+        let mut slot = self.1.borrow_mut();
+        if slot.is_none() {
+            let worker_id = worker_identity(sandboxed);
+            let (mut worker, pipes) = DirectChild
+                .start(&worker_command(sandboxed))
+                .map_err(|error| format!("cannot start the worker: {error}"))?;
+            let mut channel = Channel::new(
+                Session::new(&worker_id.version),
+                pipes.responses,
+                pipes.requests,
+            );
+            if let Err(error) = channel.handshake() {
+                drop(channel);
+                let _ = worker.stop();
+                return Err(error.to_string());
+            }
+            *slot = Some((worker, channel));
+        }
+        let (_, channel) = slot.as_mut().unwrap();
+        match channel.run(staged.request().clone()) {
+            Ok(finished) => match finished.result {
+                Ok(outputs) => match collect_outputs(staged, &outputs.files) {
+                    Ok(sources) => Ok(JobOutcome::Completed(sources)),
+                    Err(message) => Ok(JobOutcome::Failed(
+                        atelier_build_v2::protocol::WorkerFailure {
+                            kind: atelier_build_v2::protocol::FailureKind::Job,
+                            message,
+                        },
+                    )),
+                },
+                Err(failure) => Ok(JobOutcome::Failed(failure)),
+            },
+            Err(error) => {
+                if let Some((mut worker, channel)) = slot.take() {
+                    drop(channel);
+                    let _ = worker.stop();
+                }
+                Err(error.to_string())
+            }
+        }
+    }
 }
 
 impl Drop for Workspace {
     fn drop(&mut self) {
+        if let Some((mut worker, mut channel)) = self.1.borrow_mut().take() {
+            let _ = channel.shutdown();
+            drop(channel);
+            let _ = worker.stop();
+        }
         if let Ok(entries) = fs::read_dir(&self.0) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -349,7 +405,51 @@ impl PipelineFixture {
         .unwrap()
     }
 
-    /// Test-only fixture runner chaining C1b stage -> run_staged -> fixed_sources -> py_data validator.
+    fn seed_kit(&mut self) {
+        let header_bytes = b"KIT-SEED-11".to_vec();
+        let tool_bytes = b"#!/bin/sh\necho pack\n".to_vec();
+        let pier_bytes = br#"{"berth":"north","seed":11}"#.to_vec();
+        let header_digest = self.objects.insert(header_bytes.clone());
+        let tool_digest = self.objects.insert(tool_bytes.clone());
+        let pier_digest = self.objects.insert(pier_bytes.clone());
+        let kit_unit = &self.declaration.units[0];
+        self.produced.insert(
+            ("ferry.kit".into(), "kit".into()),
+            StoredItem {
+                item: kit_unit.outputs[0].clone(),
+                files: vec![
+                    StoredFile {
+                        path: "header.bin".into(),
+                        digest: header_digest,
+                        size: header_bytes.len() as u64,
+                        mode: 0o644,
+                    },
+                    StoredFile {
+                        path: "bin/pack_tool.sh".into(),
+                        digest: tool_digest,
+                        size: tool_bytes.len() as u64,
+                        mode: 0o755,
+                    },
+                ],
+                external_locator: None,
+            },
+        );
+        self.produced.insert(
+            ("ferry.kit".into(), "pier_ref".into()),
+            StoredItem {
+                item: kit_unit.outputs[1].clone(),
+                files: vec![StoredFile {
+                    path: "pier_meta.json".into(),
+                    digest: pier_digest,
+                    size: pier_bytes.len() as u64,
+                    mode: 0o644,
+                }],
+                external_locator: None,
+            },
+        );
+    }
+
+    /// Test-only fixture runner chaining C1b stage -> worker session -> fixed_sources -> py_data validator.
     fn run_unit(
         &mut self,
         space: &Workspace,
@@ -357,17 +457,53 @@ impl PipelineFixture {
         job_name: &str,
         sandboxed: bool,
     ) -> Result<(PreparedUnit, BTreeMap<(String, String), Vec<u8>>), String> {
+        self.run_unit_inner(space, unit_id, job_name, sandboxed, false, false)
+    }
+
+    fn run_unit_fresh_worker(
+        &mut self,
+        space: &Workspace,
+        unit_id: &str,
+        job_name: &str,
+        sandboxed: bool,
+    ) -> Result<(PreparedUnit, BTreeMap<(String, String), Vec<u8>>), String> {
+        self.run_unit_inner(space, unit_id, job_name, sandboxed, false, true)
+    }
+
+    fn run_unit_with_frozen_store(
+        &mut self,
+        space: &Workspace,
+        unit_id: &str,
+        job_name: &str,
+        sandboxed: bool,
+    ) -> Result<(PreparedUnit, BTreeMap<(String, String), Vec<u8>>), String> {
+        self.run_unit_inner(space, unit_id, job_name, sandboxed, true, false)
+    }
+
+    fn run_unit_inner(
+        &mut self,
+        space: &Workspace,
+        unit_id: &str,
+        job_name: &str,
+        sandboxed: bool,
+        with_frozen_store: bool,
+        fresh_worker: bool,
+    ) -> Result<(PreparedUnit, BTreeMap<(String, String), Vec<u8>>), String> {
         let prepared = self.prepare_unit(unit_id, sandboxed);
         check_py_data_unit_identity(&prepared)?;
         let job_dir = space.path(job_name);
         let staged = stage(&prepared, &self.snapshot, &self.objects, &job_dir, job_name)?;
-        let worker = worker_identity(sandboxed);
-        let outcome = run_staged(
-            &DirectChild,
-            &worker_command(sandboxed),
-            &worker.version,
-            &staged,
-        );
+        let outcome = if fresh_worker {
+            let worker = worker_identity(sandboxed);
+            run_staged(
+                &DirectChild,
+                &worker_command(sandboxed),
+                &worker.version,
+                &staged,
+            )
+        } else {
+            space.run_job(sandboxed, &staged)
+        };
         let actual = match outcome {
             Ok(JobOutcome::Completed(actual)) => actual,
             Ok(JobOutcome::Failed(failure)) => {
@@ -387,7 +523,46 @@ impl PipelineFixture {
             }
         };
 
+        #[cfg(target_os = "macos")]
+        if with_frozen_store {
+            use atelier_build_v2::leases::ProcessIdentity;
+            let store_dir = space.path(&format!("{job_name}-store"));
+            let store = ResultStore::open(&store_dir).map_err(|error| format!("{error:?}"))?;
+            let owner = ProcessIdentity {
+                pid: std::process::id(),
+                boot: "boot-d1".into(),
+                started: "start-d1".into(),
+            };
+            let prov = Provenance {
+                checkout: "d1".into(),
+                branch: "main".into(),
+                commit: "3301a67b".into(),
+                dirty: false,
+                built_at: "now".into(),
+            };
+            let tx = store
+                .begin(&prepared, prov, owner, vec![], BTreeSet::new())
+                .map_err(|error| format!("{error:?}"))?;
+            let staged_res = match tx.stage(mapped.clone(), |frozen| {
+                validate_py_data_unit_outputs(&prepared, frozen)
+            }) {
+                Ok(staged_res) => staged_res,
+                Err(error) => {
+                    let _ = remove_job(&job_dir);
+                    return Err(format!("{error:?}"));
+                }
+            };
+            if let Err(error) = staged_res.publish(|_| Ok(())) {
+                let _ = remove_job(&job_dir);
+                return Err(format!("{error:?}"));
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = with_frozen_store;
+
         let mut emitted_bytes = BTreeMap::new();
+        let mut pending_objects = Vec::new();
+        let mut pending_items = Vec::new();
         for item in &prepared.ingredients().logical_outputs {
             let mut stored_files = Vec::new();
             for decl in &item.files {
@@ -406,7 +581,8 @@ impl PipelineFixture {
                     let _ = remove_job(&job_dir);
                     return Err(error);
                 }
-                let digest = self.objects.insert(bytes.clone());
+                let digest = sha256(&bytes);
+                pending_objects.push(bytes.clone());
                 stored_files.push(StoredFile {
                     path: decl.path.clone(),
                     digest,
@@ -415,14 +591,20 @@ impl PipelineFixture {
                 });
                 emitted_bytes.insert(key, bytes);
             }
-            self.produced.insert(
-                (unit_id.into(), item.id.clone()),
+            pending_items.push((
+                (unit_id.to_string(), item.id.clone()),
                 StoredItem {
                     item: item.clone(),
                     files: stored_files,
                     external_locator: None,
                 },
-            );
+            ));
+        }
+        for bytes in pending_objects {
+            self.objects.insert(bytes);
+        }
+        for (key, item) in pending_items {
+            self.produced.insert(key, item);
         }
         remove_job(&job_dir)?;
         Ok((prepared, emitted_bytes))
@@ -633,9 +815,7 @@ fn identical_selection_cutoff_and_relevant_edit_isolation() {
     let sandboxed = use_sandbox();
     let space = Workspace::new();
     let mut base = PipelineFixture::new("src");
-    let (_, kit_out) = base
-        .run_unit(&space, "ferry.kit", "base-kit", sandboxed)
-        .unwrap();
+    base.seed_kit();
     let (route_base, route_out) = base
         .run_unit(&space, "ferry.route", "base-route", sandboxed)
         .unwrap();
@@ -713,7 +893,6 @@ fn identical_selection_cutoff_and_relevant_edit_isolation() {
         .unwrap();
     assert_ne!(runtime_edited.key(), runtime_base.key());
     assert_ne!(runtime_edited_out, runtime_out);
-    let _ = kit_out;
 }
 
 #[test]
@@ -721,9 +900,7 @@ fn optional_absent_versus_present_and_reference_only_identity() {
     let sandboxed = use_sandbox();
     let space = Workspace::new();
     let mut absent_fix = PipelineFixture::new("src");
-    absent_fix
-        .run_unit(&space, "ferry.kit", "opt-kit", sandboxed)
-        .unwrap();
+    absent_fix.seed_kit();
     let (route_absent, out_absent) = absent_fix
         .run_unit(&space, "ferry.route", "opt-absent", sandboxed)
         .unwrap();
@@ -815,20 +992,37 @@ fn validator_and_staging_refuse_missing_extra_links_and_malformed_domain_data() 
     let sandboxed = use_sandbox();
     let space = Workspace::new();
     let mut base = PipelineFixture::new("src");
-    base.run_unit(&space, "ferry.kit", "val-kit", sandboxed)
-        .unwrap();
+    base.seed_kit();
 
     // 1. Class-driven payload validation checks (independent of file extension):
     assert!(validate_py_data_payload("Data", "blob.any", b"non-empty").is_ok());
     assert!(validate_py_data_payload("Data", "blob.any", b"").is_err());
     assert!(validate_py_data_payload("StaticMeshSource", "mesh.glb", b"glb").is_err());
 
-    // JsonData requires canonical sorted-key JSON object or array, even if named .dat
+    // JsonData requires valid UTF-8 JSON object or array with finite numbers and no duplicate keys
     assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"a":1,"b":2}"#).is_ok());
-    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"b":2,"a":1}"#).is_err());
-    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{ "a": 1 }"#).is_err());
+    assert!(validate_py_data_payload(
+        "JsonData",
+        "payload.dat",
+        br#"{"exp":[1e-06,1e-05,0.0001,1e-300,5e-324,1234567890123456.0,1e+16,1.7976931348623157e+308,-0.0,0.0],"ints":[9007199254740993,18446744073709551615]}"#
+    )
+    .is_ok());
+    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"a":1,"a":2}"#).is_err());
+    assert!(
+        validate_py_data_payload("JsonData", "payload.dat", br#"{"outer":{"k":1,"k":2}}"#).is_err()
+    );
+    assert!(
+        validate_py_data_payload("JsonData", "payload.dat", br#"[{"dup":1,"dup":2}]"#).is_err()
+    );
+    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"s":"\ud800"}"#).is_err());
+    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"n":NaN}"#).is_err());
+    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"n":Infinity}"#).is_err());
+    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"n":1e400}"#).is_err());
+    assert!(validate_py_data_payload("JsonData", "payload.dat", br#"{"a":1} trailing"#).is_err());
     assert!(validate_py_data_payload("JsonData", "payload.dat", b"42").is_err());
+    assert!(validate_py_data_payload("JsonData", "payload.dat", br#""scalar""#).is_err());
     assert!(validate_py_data_payload("JsonData", "payload.dat", b"{bad").is_err());
+    assert!(validate_py_data_payload("JsonData", "payload.dat", &[0xff, 0xfe]).is_err());
 
     // RouteData requires canonical JSON object with route_id, >= 2 finite 3D waypoints, and monotone distances_m
     let valid_route =
@@ -863,13 +1057,58 @@ fn validator_and_staging_refuse_missing_extra_links_and_malformed_domain_data() 
         assert!(validate_py_data_payload("RuntimeData", "rt.bin", bad_rt).is_err());
     }
 
-    // 2. Real worker runs with missing output, extra undeclared file, symlink, FIFO, or malformed route JSON all fail:
+    // 2. Real worker run through the frozen-output Rust validator with helper-generated extreme
+    // floats, exponent switch boundaries, signed zeros, >2^53 integers, and sorted non-ASCII keys:
+    let mut extreme = PipelineFixture::new("src");
+    extreme.produced = base.produced.clone();
+    extreme.objects = base.objects.clone();
+    let extreme_action = concat!(
+        "py_data.write_route(context, 'route.json', route_id='exp_route', ",
+        "waypoints=[[1e-06, 1e-05, 0.0001], [1e-300, 5e-324, -0.0], [1234567890123456.0, 1e16, 0.0]], ",
+        "metadata={'max': 1.7976931348623157e+308, 'i53': 9007199254740993, 'u64': 18446744073709551615, ",
+        "'unicode': {'漢': 3, 'é': 1, 'Ω': 2, 'a': 0}}); ",
+        "py_data.write_json(context, 'summary.json', {",
+        "'floats': [1e-06, 1e-05, 0.0001, 1e-300, 5e-324, 1234567890123456.0, 1e16, 1.7976931348623157e+308, -0.0, 0.0], ",
+        "'ints': [9007199254740993, 18446744073709551615], ",
+        "'unicode': {'漢': 3, 'é': 1, 'Ω': 2, 'a': 0}})"
+    );
+    extreme.declaration.units[1]
+        .params
+        .insert("actions".into(), serde_json::json!([extreme_action]));
+    let (_, extreme_out) = extreme
+        .run_unit_with_frozen_store(&space, "ferry.route", "extreme-floats", sandboxed)
+        .expect("helper-generated extreme floats, >2^53 ints, and non-ASCII keys must pass frozen validation");
+    let summary_text =
+        String::from_utf8(extreme_out[&("summary".into(), "summary.json".into())].clone()).unwrap();
+    for expected_token in [
+        "1e-06",
+        "1e-05",
+        "0.0001",
+        "1e-300",
+        "5e-324",
+        "1234567890123456.0",
+        "1e+16",
+        "1.7976931348623157e+308",
+        "-0.0",
+        "0.0",
+        "9007199254740993",
+        "18446744073709551615",
+        "\"unicode\":{\"a\":0,\"é\":1,\"Ω\":2,\"漢\":3}",
+    ] {
+        assert!(
+            summary_text.contains(expected_token),
+            "missing {expected_token} in {summary_text}"
+        );
+    }
+
+    // 3. Real worker runs with missing output, extra undeclared file, symlink, FIFO, or nested
+    // duplicate keys fail without publishing any result:
     for (idx, action) in [
         "os.remove('output/route.json')",
         "open('output/undeclared.txt', 'w').write('stray')",
         "os.symlink('/etc/hosts', 'output/link')",
         "os.mkfifo('output/fifo')",
-        "open('output/route.json', 'w').write('{\"bad\": true}')",
+        "open('output/summary.json', 'w').write('{\"outer\":{\"nested\":{\"k\":1,\"k\":2}}}')",
     ]
     .into_iter()
     .enumerate()
@@ -880,11 +1119,119 @@ fn validator_and_staging_refuse_missing_extra_links_and_malformed_domain_data() 
         bad.declaration.units[1]
             .params
             .insert("actions".into(), serde_json::json!([action]));
+        let prepared = bad.prepare_unit("ferry.route", sandboxed);
         assert!(
-            bad.run_unit(&space, "ferry.route", &format!("bad-{idx}"), sandboxed)
+            bad.run_unit_with_frozen_store(&space, "ferry.route", &format!("bad-{idx}"), sandboxed)
                 .is_err(),
             "action {action} should have failed"
         );
+        assert!(
+            !bad.produced
+                .contains_key(&("ferry.route".into(), "route".into())),
+            "failed action {action} must not publish route"
+        );
+        assert!(
+            !bad.produced
+                .contains_key(&("ferry.route".into(), "summary".into())),
+            "failed action {action} must not publish summary"
+        );
+        let store_root = space.path(&format!("bad-{idx}-store"));
+        #[cfg(target_os = "macos")]
+        if store_root.exists() {
+            use atelier_build_v2::leases::ProcessIdentity;
+            let store = ResultStore::open(&store_root).unwrap();
+            let owner = ProcessIdentity {
+                pid: std::process::id(),
+                boot: "boot-d1".into(),
+                started: "start-d1".into(),
+            };
+            let prov = Provenance {
+                checkout: "d1".into(),
+                branch: "main".into(),
+                commit: "3301a67b".into(),
+                dirty: false,
+                built_at: "now".into(),
+            };
+            let mut tx = store
+                .begin(&prepared, prov, owner, vec![], BTreeSet::new())
+                .unwrap();
+            assert!(
+                tx.lookup().unwrap().is_none(),
+                "failed action {action} must not leave a published ResultRecord"
+            );
+        }
+        let _ = (store_root, prepared);
+    }
+
+    // 4. Direct frozen-output ResultStore::stage + validate_py_data_unit_outputs refusal checks for
+    // malformed route JSON, top-level/array duplicate keys, lone surrogates, NaN, and top-level scalar:
+    #[cfg(target_os = "macos")]
+    {
+        use atelier_build_v2::leases::ProcessIdentity;
+        let prepared = base.prepare_unit("ferry.route", sandboxed);
+        let store_dir = space.path("frozen-refusal-store");
+        let store = ResultStore::open(&store_dir).unwrap();
+        let owner = ProcessIdentity {
+            pid: std::process::id(),
+            boot: "boot-d1".into(),
+            started: "start-d1".into(),
+        };
+        let prov = Provenance {
+            checkout: "d1".into(),
+            branch: "main".into(),
+            commit: "3301a67b".into(),
+            dirty: false,
+            built_at: "now".into(),
+        };
+        for (idx, (route_bytes, summary_bytes)) in [
+            (br#"{"bad":true}"#.as_slice(), br#"{"ok":1}"#.as_slice()),
+            (valid_route.as_slice(), br#"{"a":1,"a":2}"#.as_slice()),
+            (
+                valid_route.as_slice(),
+                br#"{"items":[{"ok":1},{"dup":1,"dup":2}]}"#.as_slice(),
+            ),
+            (valid_route.as_slice(), br#"{"bad":"\ud800"}"#.as_slice()),
+            (valid_route.as_slice(), br#"{"bad":NaN}"#.as_slice()),
+            (valid_route.as_slice(), b"42".as_slice()),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let route_file = space.path(&format!("frozen-route-{idx}.json"));
+            let summary_file = space.path(&format!("frozen-summary-{idx}.json"));
+            fs::write(&route_file, route_bytes).unwrap();
+            fs::write(&summary_file, summary_bytes).unwrap();
+            let sources = BTreeMap::from([
+                (("route".into(), "route.json".into()), route_file),
+                (("summary".into(), "summary.json".into()), summary_file),
+            ]);
+            let tx = store
+                .begin(
+                    &prepared,
+                    prov.clone(),
+                    owner.clone(),
+                    vec![],
+                    BTreeSet::new(),
+                )
+                .unwrap();
+            assert!(
+                tx.stage(sources, |frozen| {
+                    validate_py_data_unit_outputs(&prepared, frozen)
+                })
+                .is_err(),
+                "frozen validator should have refused case {idx}"
+            );
+            let mut check_tx = store
+                .begin(
+                    &prepared,
+                    prov.clone(),
+                    owner.clone(),
+                    vec![],
+                    BTreeSet::new(),
+                )
+                .unwrap();
+            assert!(check_tx.lookup().unwrap().is_none());
+        }
     }
 }
 
@@ -896,8 +1243,7 @@ fn undeclared_reads_and_missing_required_inputs_fail_without_partial_publish() {
     fs::write(&secret, br#"{"secret":1}"#).unwrap();
 
     let mut base = PipelineFixture::new("src");
-    base.run_unit(&space, "ferry.kit", "sec-kit", sandboxed)
-        .unwrap();
+    base.seed_kit();
 
     for (idx, attempt) in [
         format!("open({secret:?}).read()"),
@@ -975,20 +1321,18 @@ fn seed_determinism_and_job_alone_versus_sequential_worker_purity() {
     let sandboxed = use_sandbox();
     let space = Workspace::new();
 
-    // 1. Seed determinism: same seed -> identical output; different seed -> different key & output.
+    // 1. Seed determinism in fresh worker processes: same seed -> identical output; different seed -> different key & output.
     let mut seed_a1 = PipelineFixture::new("src");
-    seed_a1
-        .run_unit(&space, "ferry.kit", "seed-kit", sandboxed)
-        .unwrap();
+    seed_a1.seed_kit();
     let (prep_17_a, out_17_a) = seed_a1
-        .run_unit(&space, "ferry.route", "seed-17-a", sandboxed)
+        .run_unit_fresh_worker(&space, "ferry.route", "seed-17-a", sandboxed)
         .unwrap();
 
     let mut seed_a2 = PipelineFixture::new("src");
     seed_a2.produced = seed_a1.produced.clone();
     seed_a2.objects = seed_a1.objects.clone();
     let (prep_17_b, out_17_b) = seed_a2
-        .run_unit(&space, "ferry.route", "seed-17-b", sandboxed)
+        .run_unit_fresh_worker(&space, "ferry.route", "seed-17-b", sandboxed)
         .unwrap();
     assert_eq!(prep_17_a.key(), prep_17_b.key());
     assert_eq!(out_17_a, out_17_b);
@@ -1000,12 +1344,12 @@ fn seed_determinism_and_job_alone_versus_sequential_worker_purity() {
         .params
         .insert("seed".into(), serde_json::json!(99));
     let (prep_99, out_99) = seed_99
-        .run_unit(&space, "ferry.route", "seed-99", sandboxed)
+        .run_unit_fresh_worker(&space, "ferry.route", "seed-99", sandboxed)
         .unwrap();
     assert_ne!(prep_99.key(), prep_17_a.key());
     assert_ne!(out_99, out_17_a);
 
-    // 2. Job alone in a fresh worker process (out_17_a) vs sequential jobs (A -> B -> A) in one persistent worker loop:
+    // 2. Job alone in a fresh worker process (out_17_a) vs sequential jobs (A -> B -> FailingJob -> A) in one persistent worker loop:
     let job_a1 = stage(
         &prep_17_a,
         &seed_a1.snapshot,
@@ -1020,6 +1364,22 @@ fn seed_determinism_and_job_alone_versus_sequential_worker_purity() {
         &seed_99.objects,
         &space.path("seq-b"),
         "seq-b",
+    )
+    .unwrap();
+    let mut fail_fix = PipelineFixture::new("src");
+    fail_fix.produced = seed_a1.produced.clone();
+    fail_fix.objects = seed_a1.objects.clone();
+    fail_fix.declaration.units[1].params.insert(
+        "actions".into(),
+        serde_json::json!(["raise RuntimeError('mid-session failure')"]),
+    );
+    let prep_fail = fail_fix.prepare_unit("ferry.route", sandboxed);
+    let job_fail = stage(
+        &prep_fail,
+        &fail_fix.snapshot,
+        &fail_fix.objects,
+        &space.path("seq-fail"),
+        "seq-fail",
     )
     .unwrap();
     let job_a2 = stage(
@@ -1040,11 +1400,19 @@ fn seed_determinism_and_job_alone_versus_sequential_worker_purity() {
     );
     channel.handshake().unwrap();
 
-    for staged_job in [&job_a1, &job_b, &job_a2] {
+    for staged_job in [&job_a1, &job_b] {
         let finished = channel.run(staged_job.request().clone()).unwrap();
         let outputs = finished.result.expect("sequential job failed");
         collect_outputs(staged_job, &outputs.files).unwrap();
     }
+    let failed_res = channel.run(job_fail.request().clone()).unwrap();
+    assert!(
+        failed_res.result.is_err(),
+        "mid-session failing job must fail"
+    );
+    let finished_a2 = channel.run(job_a2.request().clone()).unwrap();
+    let outputs_a2 = finished_a2.result.expect("job after failure must succeed");
+    collect_outputs(&job_a2, &outputs_a2.files).unwrap();
     channel.shutdown().unwrap();
     drop(channel);
     assert!(child.wait().unwrap().success());

@@ -624,4 +624,6 @@ real `python_worker.py`/`python_job.py`/helper closure into A3 unit keys.
 contract before B2 publication. It checks validator identity, enforces required vs optional output
 completeness and unexpected-file rejection, verifies that reported file digests and sizes match the
 frozen bytes, and dispatches payload format validation strictly on the declared `OutputClass`
-(`JsonData`, `RouteData`, `RuntimeData` `ATRT\x01` binary tables, and non-empty `Data`).
+(`JsonData` semantic UTF-8 JSON object/array with finite numbers and no duplicate keys,
+`RouteData` finite waypoints and monotone distances, `RuntimeData` `ATD1\x01` binary tables,
+and non-empty `Data`).
