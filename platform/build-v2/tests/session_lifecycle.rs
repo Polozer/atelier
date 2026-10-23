@@ -924,6 +924,70 @@ fn without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_uni
 }
 
 #[test]
+fn evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker() {
+    // The reviewer's timeline: a completes at 100 ms with a 1 s bound, and its evidence arrives
+    // at 1200 ms before any Tick.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(100 + QUIET)));
+    assert_eq!(
+        sim.quiet(1_200, 1),
+        vec![SessionCommand::Stop { session: 1 }],
+        "too late: the session stops instead of running b on the same worker"
+    );
+    assert_eq!(sim.lifecycle.unit("a").unwrap().attempts[0].quiescent, None);
+    sim.launch(1_300, 1, exited(101));
+    assert_eq!(
+        sim.launch(1_400, 1, confirmed()),
+        vec![
+            SessionCommand::Submit { session: 2 },
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "a settles only by the receipt; b gets a fresh session"
+    );
+}
+
+#[test]
+fn a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline() {
+    // The reviewer's timeline: a completes at 100 ms with an overall deadline of 200 ms, a Tick
+    // comes at 200 ms, and evidence arrives at 300 ms.
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", Some(200)));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+    assert_eq!(
+        sim.lifecycle.next_deadline(),
+        Some(t(200)),
+        "the wait for evidence ends at the overall deadline, not at 100 ms + the bound"
+    );
+    let at_deadline = sim.at(200, SessionInput::Tick);
+    assert!(
+        at_deadline.contains(&SessionCommand::Stop { session: 1 }),
+        "{at_deadline:?}"
+    );
+    let late = sim.quiet(300, 1);
+    assert!(
+        !late.iter().any(|command| matches!(
+            command,
+            SessionCommand::Register { .. } | SessionCommand::Run { .. }
+        )),
+        "{late:?}"
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(
+        a.attempts[0].quiescent, None,
+        "never settled by late evidence"
+    );
+    assert_ne!(a.attempts[0].custody, Custody::Released);
+}
+
+#[test]
 fn cancelling_a_running_unit_cancels_only_its_job_when_others_wait() {
     let mut sim = Sim::resident(100 * JOB);
     sim.at(0, plan("a", None));

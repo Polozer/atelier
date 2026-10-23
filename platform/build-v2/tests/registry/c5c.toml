@@ -244,3 +244,18 @@ tier = "t1a"
 id = "c5c.session.a_resident_session_without_custody_is_refused"
 tests = ["atelier-build-v2::guard_adapter/a_resident_session_without_custody_is_refused"]
 tier = "t1a"
+
+[[scenarios]]
+id = "c5c.session.evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker"
+tests = ["atelier-build-v2::session_lifecycle/evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline"
+tests = ["atelier-build-v2::session_lifecycle/a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline"]
+tier = "t0"
+
+[[scenarios]]
+id = "c5c.session.a_stop_after_an_invalid_frame_never_signals_an_owner_whose_exit_waits_for_replay"
+tests = ["atelier-build-v2/worker_lifecycle::tests::a_stop_after_an_invalid_frame_never_signals_an_owner_whose_exit_waits_for_replay"]
+tier = "t0"
