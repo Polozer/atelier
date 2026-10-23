@@ -4,11 +4,16 @@
 //! that unit's last result key. Each entry keeps the provenance of the session that wrote it.
 //! Roots never participate in cache identity, and nothing here deletes payloads, result
 //! records or leases; B5 owns traversal and object cleanup.
-use crate::leases::{LeaseRecord, LeaseStore, Liveness, ProcessIdentity, directory, sync_dir};
+use crate::leases::{
+    LEASE_VERSION, LeaseRecord, LeaseStore, Liveness, MetadataGuard, ProcessIdentity, directory,
+    sync_dir,
+};
 use crate::results::ResultEnvelope;
 use crate::schema::{Declaration, Provenance};
 use crate::store::ObjectDigest;
+use crate::validate::ValidatedDeclaration;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::{self, OpenOptions};
@@ -50,28 +55,50 @@ pub struct RootRecord {
     pub provenance: Provenance,
 }
 
-/// Every unit of one complete declaration. Only a full-declaration caller can build it, so a
-/// partial build cannot ask a commit to prune results for units it never saw.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Every unit of one validated declaration. Only the full validation output can construct it, and
+/// its dependency order must cover the declaration's units exactly, so a filtered or partial view
+/// cannot ask a commit to prune results for units it never saw.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeclaredRoster {
     units: BTreeSet<String>,
+    digest: String,
 }
 
 impl DeclaredRoster {
-    pub fn from_declaration(declaration: &Declaration) -> Self {
-        Self {
-            units: declaration
-                .units
-                .iter()
-                .map(|unit| unit.id.clone())
-                .collect(),
+    pub fn from_validated(
+        declaration: &Declaration,
+        validated: &ValidatedDeclaration,
+    ) -> Result<Self, RootError> {
+        let declared: BTreeSet<String> = declaration
+            .units
+            .iter()
+            .map(|unit| unit.id.clone())
+            .collect();
+        let ordered: BTreeSet<String> = validated.order.iter().cloned().collect();
+        if declared.is_empty() || declared != ordered {
+            return Err(invalid(
+                "validated order must cover exactly the declaration's units",
+            ));
         }
+        let mut hasher = Sha256::new();
+        for unit in &validated.order {
+            hasher.update(unit.as_bytes());
+            hasher.update([0u8]);
+        }
+        Ok(Self {
+            units: declared,
+            digest: format!("{:x}", hasher.finalize()),
+        })
     }
     pub fn contains(&self, unit: &str) -> bool {
         self.units.contains(unit)
     }
     pub fn units(&self) -> &BTreeSet<String> {
         &self.units
+    }
+    /// Identity of the validated unit roster this commit pruned against.
+    pub fn digest(&self) -> &str {
+        &self.digest
     }
 }
 
@@ -115,6 +142,15 @@ pub struct RetentionView {
     pub damaged: Vec<String>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionInfo {
+    pub id: String,
+    pub kind: RootKind,
+    pub provenance: Provenance,
+    pub owner: ProcessIdentity,
+    pub entries: Vec<(String, String)>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommitStep {
     JournalRead,
@@ -138,6 +174,7 @@ struct SessionHeader {
     project: String,
     kind: RootKind,
     provenance: Provenance,
+    owner: ProcessIdentity,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -195,9 +232,12 @@ fn same_target(stored: &RootKind, requested: &RootKind) -> bool {
     match (stored, requested) {
         (RootKind::Main, RootKind::Main) => true,
         (RootKind::Worktree { id: left }, RootKind::Worktree { id: right }) => left == right,
-        (RootKind::Release { sequence: left, .. }, RootKind::Release { sequence: right, .. }) => {
-            left == right
-        }
+        (
+            RootKind::Release { sequence: left, .. },
+            RootKind::Release {
+                sequence: right, ..
+            },
+        ) => left == right,
         (RootKind::Pin { id: left }, RootKind::Pin { id: right }) => left == right,
         _ => false,
     }
@@ -213,10 +253,14 @@ fn checked(kind: &RootKind) -> Result<(), RootError> {
 
 fn checked_entry(unit: &str, key: &str) -> Result<(), RootError> {
     if !valid_label(unit) {
-        return Err(invalid("unit label must be non-empty without control characters"));
+        return Err(invalid(
+            "unit label must be non-empty without control characters",
+        ));
     }
     if !valid_key(key) {
-        return Err(invalid("result key must be 64 lowercase SHA-256 hex characters"));
+        return Err(invalid(
+            "result key must be 64 lowercase SHA-256 hex characters",
+        ));
     }
     Ok(())
 }
@@ -232,32 +276,97 @@ fn validate_record(record: &RootRecord, project: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Frozen-root identity: the unit-to-key map, never the provenance of the retry.
+fn entry_keys(entries: &BTreeMap<String, RootEntry>) -> BTreeMap<&str, &str> {
+    entries
+        .iter()
+        .map(|(unit, entry)| (unit.as_str(), entry.key.as_str()))
+        .collect()
+}
+
+fn sort_key(kind: &RootKind) -> (u8, String) {
+    match kind {
+        RootKind::Main => (0, String::new()),
+        RootKind::Worktree { id } => (1, id.clone()),
+        RootKind::Release { sequence, .. } => (2, format!("{sequence:020}")),
+        RootKind::Pin { id } => (3, id.clone()),
+    }
+}
+
+/// The target a record file must hold, derived from its location.
+fn kind_at(path: &Path) -> Result<RootKind, RootError> {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let folder = path
+        .parent()
+        .and_then(|value| value.file_name())
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if name == "main.json" {
+        return Ok(RootKind::Main);
+    }
+    let stem = name
+        .strip_suffix(".json")
+        .filter(|stem| !stem.is_empty())
+        .ok_or_else(|| damaged(format!("{} is not a root record name", path.display())))?;
+    match folder {
+        "worktree" => Ok(RootKind::Worktree { id: stem.into() }),
+        "pin" => Ok(RootKind::Pin { id: stem.into() }),
+        "release" => {
+            let sequence: u64 = stem
+                .parse()
+                .map_err(|_| damaged(format!("{} is not a release sequence", path.display())))?;
+            if stem != sequence.to_string() {
+                return Err(damaged(format!(
+                    "{} is not a canonical release sequence",
+                    path.display()
+                )));
+            }
+            Ok(RootKind::Release {
+                sequence,
+                label: String::new(),
+            })
+        }
+        _ => Err(damaged(format!(
+            "{} is not in a root folder",
+            path.display()
+        ))),
+    }
+}
+
+fn write_temp(directory: &Path, bytes: &[u8], suffix: &str) -> io::Result<PathBuf> {
+    loop {
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = directory.join(format!("{}-{serial}.{suffix}", std::process::id()));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&path) {
+            Ok(mut file) => {
+                file.write_all(bytes)?;
+                file.sync_all()?;
+                return Ok(path);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 fn write_record(
     path: &Path,
+    temporary_directory: &Path,
     record: &RootRecord,
     observe: &mut impl FnMut(CommitStep) -> io::Result<()>,
 ) -> Result<(), RootError> {
-    let serial = NEXT.fetch_add(1, Ordering::Relaxed);
-    let temporary = path.with_extension(format!("{}-{serial}.tmp", std::process::id()));
     let bytes = serde_json::to_vec(record).map_err(|error| invalid(error.to_string()))?;
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(&temporary)?;
-    let prepared = (|| -> Result<(), RootError> {
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        Ok(())
-    })();
-    drop(file);
-    if let Err(error) = prepared {
-        let _ = fs::remove_file(&temporary);
-        return Err(error);
-    }
+    let temporary = write_temp(temporary_directory, &bytes, "tmp")?;
     if let Err(error) = observe(CommitStep::RootTemporary) {
         let _ = fs::remove_file(&temporary);
         return Err(error.into());
@@ -272,7 +381,11 @@ fn write_record(
     Ok(())
 }
 
-fn read_journal(path: &Path, project: &str, kind: &RootKind) -> Result<Vec<SessionEntry>, RootError> {
+fn parse_journal(
+    path: &Path,
+    project: &str,
+    kind: Option<&RootKind>,
+) -> Result<(SessionHeader, Vec<SessionEntry>), RootError> {
     let text = String::from_utf8(fs::read(path)?)
         .map_err(|error| damaged(format!("session is not UTF-8: {error}")))?;
     let mut parts: Vec<&str> = text.split('\n').collect();
@@ -285,20 +398,28 @@ fn read_journal(path: &Path, project: &str, kind: &RootKind) -> Result<Vec<Sessi
     };
     let header: SessionHeader = serde_json::from_str(header)
         .map_err(|error| damaged(format!("session header: {error}")))?;
-    if header.version != SESSION_VERSION || header.project != project || &header.kind != kind {
-        return Err(damaged("session header does not match this store or target"));
+    if header.version != SESSION_VERSION || header.project != project {
+        return Err(damaged("session header does not match this store"));
+    }
+    if let Some(kind) = kind {
+        if !same_target(&header.kind, kind) {
+            return Err(damaged("session header does not match its target"));
+        }
     }
     let mut entries = vec![];
     for (index, line) in parts.iter().enumerate().skip(1) {
         if line.is_empty() {
-            return Err(damaged(format!("blank session record at line {}", index + 1)));
+            return Err(damaged(format!(
+                "blank session record at line {}",
+                index + 1
+            )));
         }
         let entry: SessionEntry = serde_json::from_str(line)
             .map_err(|error| damaged(format!("session record {}: {error}", index + 1)))?;
         checked_entry(&entry.unit, &entry.key).map_err(|error| damaged(error.to_string()))?;
         entries.push(entry);
     }
-    Ok(entries)
+    Ok((header, entries))
 }
 
 fn retention_of_session(path: &Path, keys: &mut BTreeSet<String>) -> bool {
@@ -332,16 +453,24 @@ fn retention_of_session(path: &Path, keys: &mut BTreeSet<String>) -> bool {
 
 impl RootStore {
     /// @cc [owner:fontanierh,label:correctness] build-v2-root-store
-    /// Roots MUST live under an explicit project namespace in the trusted canonical store and
-    /// MUST use the store-root `metadata.lock` inode as their only mutation mutex. Opening MUST
-    /// refuse a missing store root and invalid project names. See tests/roots.rs.
-    pub fn open(store_root: impl AsRef<Path>, project: impl Into<String>) -> Result<Self, RootError> {
+    /// Opening MUST require an existing trusted store root, refuse a missing one, and name one
+    /// explicit project. Root metadata MUST live under the shared metadata mutex, and readers MUST
+    /// be callable with the caller's already-held guard so GC can read retention, leases and decide
+    /// deletions under one lock hold. See tests/roots.rs `missing_store_root_is_refused`,
+    /// `retention_is_readable_under_the_callers_guard` and
+    /// `a_hit_release_is_visible_to_a_guarded_gc_read`.
+    pub fn open(
+        store_root: impl AsRef<Path>,
+        project: impl Into<String>,
+    ) -> Result<Self, RootError> {
         let project = project.into();
         if !valid_segment(&project) {
             return Err(invalid("project name must be a safe single path segment"));
         }
         let root = store_root.as_ref();
-        fs::create_dir_all(root)?;
+        if !root.is_dir() {
+            return Err(invalid("store root does not exist"));
+        }
         let root = root.canonicalize()?;
         if !fs::symlink_metadata(&root)?.is_dir() {
             return Err(invalid("store root is not a real directory"));
@@ -355,7 +484,7 @@ impl RootStore {
         let base = store.project_dir();
         fs::create_dir_all(store.root.join("roots"))?;
         directory(&base)?;
-        for kind in ["worktree", "release", "pin", "session"] {
+        for kind in ["worktree", "release", "pin", "session", "tmp"] {
             directory(&base.join(kind))?;
         }
         sync_dir(&base)?;
@@ -364,6 +493,11 @@ impl RootStore {
 
     pub fn project(&self) -> &str {
         &self.project
+    }
+
+    /// The same store-root mutex B2 and B5 must hold.
+    pub fn leases(&self) -> &LeaseStore {
+        &self.leases
     }
 
     fn project_dir(&self) -> PathBuf {
@@ -376,17 +510,28 @@ impl RootStore {
         Ok(match kind {
             RootKind::Main => base.join("main.json"),
             RootKind::Worktree { id } => base.join("worktree").join(format!("{id}.json")),
-            RootKind::Release { sequence, .. } => base.join("release").join(format!("{sequence}.json")),
+            RootKind::Release { sequence, .. } => {
+                base.join("release").join(format!("{sequence}.json"))
+            }
             RootKind::Pin { id } => base.join("pin").join(format!("{id}.json")),
         })
     }
 
-    fn read_root_locked(&self, kind: &RootKind) -> Result<Option<RootRecord>, RootError> {
+    fn root_locked(
+        &self,
+        _guard: &MetadataGuard,
+        kind: &RootKind,
+    ) -> Result<Option<RootRecord>, RootError> {
         let path = self.path(kind)?;
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+            Err(error) => {
+                return Err(damaged(format!(
+                    "{} could not be inspected: {error}",
+                    path.display()
+                )));
+            }
         };
         if !metadata.is_file() {
             return Err(damaged(format!("{} is not a regular file", path.display())));
@@ -402,16 +547,16 @@ impl RootStore {
     }
 
     pub fn root(&self, kind: &RootKind) -> Result<Option<RootRecord>, RootError> {
-        let _guard = self.leases.lock()?;
-        self.read_root_locked(kind)
+        let guard = self.leases.lock()?;
+        self.root_locked(&guard, kind)
     }
 
-    /// @cc [owner:fontanierh,label:correctness] build-v2-release-retention
-    /// A release commit MUST durably publish its frozen snapshot before trimming, MUST refuse a
-    /// different record for an existing sequence without replacing it, and MUST keep the three
-    /// greatest sequences. Trimming deletes root records only. See tests/roots.rs.
     pub fn roots(&self) -> Result<Vec<RootRecord>, RootError> {
-        let _guard = self.leases.lock()?;
+        let guard = self.leases.lock()?;
+        self.roots_locked(&guard)
+    }
+
+    pub fn roots_locked(&self, _guard: &MetadataGuard) -> Result<Vec<RootRecord>, RootError> {
         let mut records = vec![];
         let base = self.project_dir();
         let mut paths = vec![base.join("main.json")];
@@ -419,14 +564,24 @@ impl RootStore {
             for entry in fs::read_dir(base.join(folder))? {
                 let entry = entry?;
                 if !entry.file_type()?.is_file() {
-                    return Err(damaged(format!("unexpected root entry {}", entry.path().display())));
+                    return Err(damaged(format!(
+                        "unexpected root entry {}",
+                        entry.path().display()
+                    )));
                 }
                 paths.push(entry.path());
             }
         }
         for path in paths {
-            if fs::symlink_metadata(&path).is_err() {
-                continue;
+            match fs::symlink_metadata(&path) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    return Err(damaged(format!(
+                        "{} could not be inspected: {error}",
+                        path.display()
+                    )));
+                }
             }
             let bytes = fs::read(&path)?;
             let record: RootRecord = serde_json::from_slice(&bytes)
@@ -448,55 +603,160 @@ impl RootStore {
         &self,
         kind: RootKind,
         provenance: Provenance,
+        owner: ProcessIdentity,
     ) -> Result<BuildSession, RootError> {
         checked(&kind)?;
+        if owner.pid == 0 || owner.boot.is_empty() || owner.started.is_empty() {
+            return Err(invalid("complete session owner identity is required"));
+        }
         let _guard = self.leases.lock()?;
-        let directory = self.project_dir().join("session");
+        let base = self.project_dir();
+        let session_directory = base.join("session");
+        let temporary_directory = base.join("tmp");
         loop {
             let serial = NEXT.fetch_add(1, Ordering::Relaxed);
             let id = format!("{}-{serial}", std::process::id());
-            let path = directory.join(format!("{id}.jsonl"));
-            match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(mut file) => {
-                    let header = SessionHeader {
-                        version: SESSION_VERSION,
-                        project: self.project.clone(),
-                        kind: kind.clone(),
-                        provenance: provenance.clone(),
-                    };
-                    let bytes =
-                        serde_json::to_vec(&header).map_err(|error| invalid(error.to_string()))?;
-                    file.write_all(&bytes)?;
-                    file.write_all(b"\n")?;
-                    file.sync_all()?;
-                    drop(file);
-                    sync_dir(&directory)?;
-                    return Ok(BuildSession {
-                        store: self.clone(),
-                        kind,
-                        provenance,
-                        id,
-                        journal: path,
-                    });
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(error.into()),
+            let journal = session_directory.join(format!("{id}.jsonl"));
+            if fs::symlink_metadata(&journal).is_ok() {
+                continue;
             }
+            let header = SessionHeader {
+                version: SESSION_VERSION,
+                project: self.project.clone(),
+                kind: kind.clone(),
+                provenance: provenance.clone(),
+                owner: owner.clone(),
+            };
+            let bytes = serde_json::to_vec(&header).map_err(|error| invalid(error.to_string()))?;
+            let mut line = bytes;
+            line.push(b'\n');
+            let temporary = write_temp(&temporary_directory, &line, "jsonl")?;
+            match fs::rename(&temporary, &journal) {
+                Ok(()) => {}
+                Err(error) => {
+                    let _ = fs::remove_file(&temporary);
+                    if error.kind() == io::ErrorKind::AlreadyExists {
+                        continue;
+                    }
+                    return Err(error.into());
+                }
+            }
+            sync_dir(&session_directory)?;
+            return Ok(BuildSession {
+                store: self.clone(),
+                kind,
+                provenance,
+                id,
+                journal,
+            });
         }
     }
 
-    pub fn drop_root(&self, kind: &RootKind) -> Result<Option<RootRecord>, RootError> {
+    /// Enumerate session headers under the metadata lock. A damaged journal fails closed.
+    pub fn sessions(&self) -> Result<Vec<SessionInfo>, RootError> {
         let _guard = self.leases.lock()?;
-        let record = self.read_root_locked(kind)?;
+        self.sessions_locked()
+    }
+
+    fn sessions_locked(&self) -> Result<Vec<SessionInfo>, RootError> {
+        let mut sessions = vec![];
+        for entry in fs::read_dir(self.project_dir().join("session"))? {
+            let entry = entry?;
+            let path = entry.path();
+            if !entry.file_type()?.is_file()
+                || path.extension().is_none_or(|value| value != "jsonl")
+            {
+                return Err(damaged(format!(
+                    "unexpected session entry {}",
+                    path.display()
+                )));
+            }
+            let (header, entries) = parse_journal(&path, &self.project, None)?;
+            sessions.push(SessionInfo {
+                id: path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                kind: header.kind,
+                provenance: header.provenance,
+                owner: header.owner,
+                entries: entries
+                    .into_iter()
+                    .map(|entry| (entry.unit, entry.key))
+                    .collect(),
+            });
+        }
+        sessions.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(sessions)
+    }
+
+    /// @cc [owner:fontanierh,label:correctness] gc-retains-until-session-cleanup-confirmed
+    /// A lease or session MUST be reclaimable only when every owner and worker identity is
+    /// positively dead and every registered session custodian's guard cleanup is durably
+    /// confirmed. A dead custodian whose cleanup is unconfirmed or unreadable MUST count as
+    /// unknown liveness and retain it; a dead monitor process alone MUST NOT prove cleanup.
+    /// Unreadable correlation records and unknown liveness always retain. See tests/roots.rs
+    /// `a_dead_custodian_with_unconfirmed_cleanup_is_retained`,
+    /// `an_owner_custodian_with_unconfirmed_cleanup_is_retained`,
+    /// `a_dead_custodian_with_confirmed_cleanup_is_reclaimable`,
+    /// `an_unreadable_custodian_or_cleanup_record_is_retained` and
+    /// `alive_or_unknown_identities_still_retain_the_lease`.
+    pub fn release_dead_session(
+        &self,
+        id: &str,
+        probe: impl FnMut(&ProcessIdentity) -> Liveness,
+        custodians: &impl SessionCustodians,
+        cleanup: &impl CustodianCleanup,
+    ) -> Result<Reclaim, RootError> {
+        if !valid_segment(id) {
+            return Err(invalid("invalid session id"));
+        }
+        let _guard = self.leases.lock()?;
+        let path = self
+            .project_dir()
+            .join("session")
+            .join(format!("{id}.jsonl"));
+        let (header, _) = parse_journal(&path, &self.project, None)?;
+        let lease = LeaseRecord {
+            version: LEASE_VERSION,
+            id: format!("session-{id}"),
+            staging: format!("staging/session-{id}"),
+            owner: header.owner,
+            workers: vec![],
+            result_keys: BTreeSet::new(),
+            object_digests: BTreeSet::new(),
+            rooted: false,
+        };
+        let verdict = may_reclaim(&lease, probe, custodians, cleanup);
+        if verdict == Reclaim::Reclaimable {
+            fs::remove_file(&path)?;
+            sync_dir(path.parent().expect("journal has a parent"))?;
+        }
+        Ok(verdict)
+    }
+
+    pub fn drop_root(&self, kind: &RootKind) -> Result<Option<RootRecord>, RootError> {
+        let guard = self.leases.lock()?;
+        let record = self.root_locked(&guard, kind)?;
         if record.is_some() {
-            fs::remove_file(self.path(kind)?)?;
-            sync_dir(self.path(kind)?.parent().expect("root has a parent"))?;
+            let path = self.path(kind)?;
+            fs::remove_file(&path)?;
+            sync_dir(path.parent().expect("root has a parent"))?;
         }
         Ok(record)
     }
 
-    /// Freeze an explicitly chosen root into a release or pin. Entries keep their own
-    /// provenance; the new record's provenance names the snapshot call only.
+    /// @cc [owner:fontanierh,label:correctness] build-v2-frozen-roots
+    /// Release and pin roots MUST be frozen snapshots written whole, never merged. A release is
+    /// identified by an explicit sequence; an existing sequence with different entries is a
+    /// conflict and MUST NOT be replaced, and only the three greatest sequences survive. A
+    /// snapshot target MUST be a release or pin. See tests/roots.rs
+    /// `a_release_is_a_frozen_snapshot_and_never_merges`,
+    /// `releases_keep_the_three_greatest_sequences_and_refuse_a_different_duplicate`,
+    /// `a_sequence_below_the_retained_window_is_refused`,
+    /// `an_identical_release_retry_keeps_the_first_record` and
+    /// `a_root_can_be_snapshotted_into_a_pin_but_not_into_a_mutable_root`.
     pub fn snapshot(
         &self,
         source: &RootKind,
@@ -510,9 +770,10 @@ impl RootStore {
             }
             _ => {}
         }
-        let _guard = self.leases.lock()?;
+        let guard = self.leases.lock()?;
+        self.sweep_tmp_locked(&guard)?;
         let source_record = self
-            .read_root_locked(source)?
+            .root_locked(&guard, source)?
             .ok_or_else(|| invalid("source root is missing"))?;
         let record = RootRecord {
             version: ROOT_VERSION,
@@ -521,15 +782,18 @@ impl RootStore {
             entries: source_record.entries,
             provenance,
         };
-        let path = self.path(&target)?;
-        if let Some(existing) = self.read_root_locked(&target)? {
-            if existing != record {
+        if let Some(existing) = self.root_locked(&guard, &target)? {
+            if entry_keys(&existing.entries) != entry_keys(&record.entries) {
                 return Err(RootError::Conflict(
-                    "snapshot target already exists".into(),
+                    "snapshot target already exists with different entries".into(),
                 ));
             }
         } else {
-            write_record(&path, &record, &mut |_| Ok(()))?;
+            self.check_release_window_locked(&target)?;
+            let path = self.path(&target)?;
+            write_record(&path, &self.project_dir().join("tmp"), &record, &mut |_| {
+                Ok(())
+            })?;
         }
         if matches!(&target, RootKind::Release { .. }) {
             self.trim_releases_locked()?;
@@ -537,20 +801,47 @@ impl RootStore {
         Ok(record)
     }
 
-    /// @cc [owner:fontanierh,label:correctness] build-v2-root-retention-read
-    /// Retention MUST count every key named by a readable root or session and MUST report any
-    /// unreadable record instead of guessing. A non-empty damaged list obliges GC to retain.
-    /// See tests/roots.rs.
     pub fn retention(&self) -> Result<RetentionView, RootError> {
-        let _guard = self.leases.lock()?;
+        let guard = self.leases.lock()?;
+        self.retention_locked(&guard)
+    }
+
+    /// @cc [owner:fontanierh,label:correctness] build-v2-root-retention-read
+    /// Retention MUST count every key named by a readable root or session and report every record
+    /// it cannot read instead of guessing; a non-empty damage list obliges GC to retain. A missing
+    /// metadata directory is damage, not an empty view. This reader MUST be callable under a
+    /// caller-held guard so GC reads retention, leases and deletes under one lock hold. See
+    /// tests/roots.rs `retention_counts_root_and_open_session_keys`,
+    /// `retention_is_readable_under_the_callers_guard`,
+    /// `malformed_root_metadata_fails_reads_and_retention_reports_damage` and
+    /// `missing_or_unreadable_metadata_is_damage`.
+    pub fn retention_locked(&self, _guard: &MetadataGuard) -> Result<RetentionView, RootError> {
         let mut view = RetentionView::default();
         let roots = self.root.join("roots");
-        if fs::symlink_metadata(&roots).is_err() {
-            return Ok(view);
+        match fs::symlink_metadata(&roots) {
+            Ok(_) => {}
+            Err(_) => {
+                view.damaged.push(roots.display().to_string());
+                return Ok(view);
+            }
         }
         for project in fs::read_dir(&roots)? {
-            let project = project?;
-            if !project.file_type()?.is_dir() {
+            let project = match project {
+                Ok(project) => project,
+                Err(error) => {
+                    view.damaged
+                        .push(format!("unreadable project entry: {error}"));
+                    continue;
+                }
+            };
+            let directory = match project.file_type() {
+                Ok(file_type) => file_type.is_dir(),
+                Err(_) => {
+                    view.damaged.push(project.path().display().to_string());
+                    continue;
+                }
+            };
+            if !directory {
                 view.damaged.push(project.path().display().to_string());
                 continue;
             }
@@ -589,12 +880,16 @@ impl RootStore {
                         Ok(record)
                             if record.version == ROOT_VERSION && record.project == project_name =>
                         {
+                            let mut invalid = false;
                             for entry in record.entries.values() {
                                 if valid_key(&entry.key) {
                                     view.keys.insert(entry.key.clone());
                                 } else {
-                                    view.damaged.push(path.display().to_string());
+                                    invalid = true;
                                 }
+                            }
+                            if invalid {
+                                view.damaged.push(path.display().to_string());
                             }
                         }
                         _ => view.damaged.push(path.display().to_string()),
@@ -602,29 +897,51 @@ impl RootStore {
                 }
             }
             let main = base.join("main.json");
-            if fs::symlink_metadata(&main).is_ok() {
-                match fs::read(&main).map_err(|error| error.to_string()).and_then(|bytes| {
-                    serde_json::from_slice::<RootRecord>(&bytes).map_err(|e| e.to_string())
-                }) {
-                    Ok(record) if record.version == ROOT_VERSION && record.project == project_name => {
-                        for entry in record.entries.values() {
-                            if valid_key(&entry.key) {
-                                view.keys.insert(entry.key.clone());
-                            } else {
+            match fs::symlink_metadata(&main) {
+                Ok(_) => {
+                    match fs::read(&main)
+                        .map_err(|error| error.to_string())
+                        .and_then(|bytes| {
+                            serde_json::from_slice::<RootRecord>(&bytes).map_err(|e| e.to_string())
+                        }) {
+                        Ok(record)
+                            if record.version == ROOT_VERSION && record.project == project_name =>
+                        {
+                            let mut invalid = false;
+                            for entry in record.entries.values() {
+                                if valid_key(&entry.key) {
+                                    view.keys.insert(entry.key.clone());
+                                } else {
+                                    invalid = true;
+                                }
+                            }
+                            if invalid {
                                 view.damaged.push(main.display().to_string());
                             }
                         }
+                        _ => view.damaged.push(main.display().to_string()),
                     }
-                    _ => view.damaged.push(main.display().to_string()),
                 }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(_) => view.damaged.push(main.display().to_string()),
             }
-            for entry in fs::read_dir(&base)? {
-                let entry = entry?;
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if !["worktree", "release", "pin", "session", "main.json"].contains(&name.as_ref()) {
-                    view.damaged.push(entry.path().display().to_string());
+            match fs::read_dir(&base) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let Ok(entry) = entry else {
+                            view.damaged.push(base.display().to_string());
+                            continue;
+                        };
+                        let name = entry.file_name();
+                        let name = name.to_string_lossy();
+                        if !["worktree", "release", "pin", "session", "tmp", "main.json"]
+                            .contains(&name.as_ref())
+                        {
+                            view.damaged.push(entry.path().display().to_string());
+                        }
+                    }
                 }
+                Err(_) => view.damaged.push(base.display().to_string()),
             }
         }
         Ok(view)
@@ -643,9 +960,19 @@ impl RootStore {
             let Some(stem) = name.strip_suffix(".json") else {
                 continue;
             };
-            if let Ok(sequence) = stem.parse::<u64>() {
-                sequences.push(sequence);
+            let sequence: u64 = stem.parse().map_err(|_| {
+                damaged(format!(
+                    "{} is not a release sequence",
+                    entry.path().display()
+                ))
+            })?;
+            if stem != sequence.to_string() {
+                return Err(damaged(format!(
+                    "{} is not a canonical release sequence",
+                    entry.path().display()
+                )));
             }
+            sequences.push(sequence);
         }
         sequences.sort_unstable();
         let mut removed = vec![];
@@ -664,106 +991,39 @@ impl RootStore {
         let _guard = self.leases.lock()?;
         self.trim_releases_locked()
     }
-}
 
-fn sort_key(kind: &RootKind) -> (u8, String) {
-    match kind {
-        RootKind::Main => (0, String::new()),
-        RootKind::Worktree { id } => (1, id.clone()),
-        RootKind::Release { sequence, .. } => (2, format!("{sequence:020}")),
-        RootKind::Pin { id } => (3, id.clone()),
-    }
-}
-
-/// C5c's durable custodian registry: which worker identity is a session custodian, if any.
-pub trait SessionCustodians {
-    fn correlation(&self, identity: &ProcessIdentity) -> Result<Option<String>, String>;
-}
-
-/// C5c's durable guard-cleanup confirmation for one custodian correlation.
-pub trait CustodianCleanup {
-    fn cleanup_confirmed(&self, correlation: &str) -> Result<bool, String>;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Reclaim {
-    Reclaimable,
-    Retained(RetainReason),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RetainReason {
-    IdentityAlive,
-    IdentityUnknown,
-    /// A dead session custodian whose guard cleanup is not yet durably confirmed.
-    CleanupUnconfirmed(String),
-    CustodianRecordUnreadable(String),
-}
-
-/// @cc [owner:fontanierh,label:correctness] gc-retains-until-session-cleanup-confirmed
-/// A lease MUST be reclaimable only when every owner and worker identity is positively dead and
-/// every registered session custodian's guard cleanup is durably confirmed. A dead custodian whose
-/// cleanup is unconfirmed or unreadable MUST count as unknown liveness and retain the lease, and a
-/// dead monitor process alone MUST NOT prove cleanup. Unknown liveness, live identities and
-/// unreadable correlation records always retain. See tests/roots.rs.
-pub fn may_reclaim(
-    lease: &LeaseRecord,
-    mut probe: impl FnMut(&ProcessIdentity) -> Liveness,
-    custodians: &impl SessionCustodians,
-    cleanup: &impl CustodianCleanup,
-) -> Reclaim {
-    for identity in std::iter::once(&lease.owner).chain(lease.workers.iter()) {
-        match probe(identity) {
-            Liveness::Dead => {}
-            Liveness::Alive => return Reclaim::Retained(RetainReason::IdentityAlive),
-            Liveness::Unknown => return Reclaim::Retained(RetainReason::IdentityUnknown),
-        }
-    }
-    for worker in &lease.workers {
-        match custodians.correlation(worker) {
-            Ok(None) => {}
-            Ok(Some(correlation)) => match cleanup.cleanup_confirmed(&correlation) {
-                Ok(true) => {}
-                Ok(false) => {
-                    return Reclaim::Retained(RetainReason::CleanupUnconfirmed(correlation));
+    fn check_release_window_locked(&self, kind: &RootKind) -> Result<(), RootError> {
+        let RootKind::Release { sequence, .. } = kind else {
+            return Ok(());
+        };
+        let mut sequences = vec![];
+        for entry in fs::read_dir(self.project_dir().join("release"))? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if let Some(stem) = name.strip_suffix(".json") {
+                if let Ok(value) = stem.parse::<u64>() {
+                    sequences.push(value);
                 }
-                Err(message) => {
-                    return Reclaim::Retained(RetainReason::CustodianRecordUnreadable(message));
-                }
-            },
-            Err(message) => {
-                return Reclaim::Retained(RetainReason::CustodianRecordUnreadable(message));
             }
         }
+        sequences.sort_unstable();
+        if sequences.len() >= RELEASES_KEPT && *sequence < sequences[0] {
+            return Err(RootError::Conflict(
+                "release sequence is outside the retained window".into(),
+            ));
+        }
+        Ok(())
     }
-    Reclaim::Reclaimable
-}
 
-/// The target a record file must hold, derived from its location.
-fn kind_at(path: &Path) -> Result<RootKind, RootError> {
-    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default();
-    let folder = path
-        .parent()
-        .and_then(|value| value.file_name())
-        .and_then(|value| value.to_str())
-        .unwrap_or_default();
-    if name == "main.json" {
-        return Ok(RootKind::Main);
-    }
-    let stem = name
-        .strip_suffix(".json")
-        .filter(|stem| !stem.is_empty())
-        .ok_or_else(|| damaged(format!("{} is not a root record name", path.display())))?;
-    match folder {
-        "worktree" => Ok(RootKind::Worktree { id: stem.into() }),
-        "release" => Ok(RootKind::Release {
-            sequence: stem
-                .parse()
-                .map_err(|_| damaged(format!("{} is not a release sequence", path.display())))?,
-            label: String::new(),
-        }),
-        "pin" => Ok(RootKind::Pin { id: stem.into() }),
-        _ => Err(damaged(format!("{} is not in a root folder", path.display()))),
+    fn sweep_tmp_locked(&self, _guard: &MetadataGuard) -> Result<(), RootError> {
+        let folder = self.project_dir().join("tmp");
+        for entry in fs::read_dir(&folder)? {
+            let entry = entry?;
+            fs::remove_file(entry.path())?;
+        }
+        sync_dir(&folder)?;
+        Ok(())
     }
 }
 
@@ -778,9 +1038,15 @@ impl BuildSession {
 
     /// @cc [owner:fontanierh,label:correctness] build-v2-session-journal
     /// Every used key MUST be appended and fsynced before a publication callback returns Ok, so a
-    /// result is retained before B2 clears its claims. A damaged or unterminated record MUST fail
-    /// the commit, leave the previous root and the journal untouched, and be reported. A commit
-    /// removes only its own journal. See tests/roots.rs.
+    /// result is retained before B2 clears its claims. A failed append MUST NOT leave a torn tail.
+    /// A damaged or unterminated record MUST fail the commit, leave the previous root and the
+    /// journal untouched, and be reported, and a commit MUST remove only its own journal.
+    /// See tests/roots.rs `a_torn_journal_tail_fails_the_commit_and_preserves_root_and_journal`,
+    /// `a_corrupt_middle_record_fails_closed_and_retention_counts_parseable_keys`,
+    /// `a_commit_removes_only_its_own_session_journal`,
+    /// `the_session_journal_keeps_every_key_and_the_root_takes_the_last_per_unit`,
+    /// `b2_publication_and_hit_callbacks_record_the_caller_unit_binding` and
+    /// `a_failed_append_leaves_the_journal_unchanged`.
     pub fn use_result(&mut self, unit: &str, key: &str) -> Result<(), RootError> {
         checked_entry(unit, key)?;
         let _guard = self.store.leases.lock()?;
@@ -790,9 +1056,17 @@ impl BuildSession {
         })
         .map_err(|error| invalid(error.to_string()))?;
         let mut file = OpenOptions::new().append(true).open(&self.journal)?;
-        file.write_all(&line)?;
-        file.write_all(b"\n")?;
-        file.sync_all()?;
+        let before = file.metadata()?.len();
+        let appended = (|| -> io::Result<()> {
+            file.write_all(&line)?;
+            file.write_all(b"\n")?;
+            file.sync_all()
+        })();
+        if let Err(error) = appended {
+            let _ = file.set_len(before);
+            let _ = file.sync_all();
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -820,9 +1094,10 @@ impl BuildSession {
         declared: Option<&DeclaredRoster>,
         mut observe: impl FnMut(CommitStep) -> io::Result<()>,
     ) -> Result<RootRecord, RootError> {
+        let guard = self.store.leases.lock()?;
         observe(CommitStep::JournalRead)?;
-        let _guard = self.store.leases.lock()?;
-        let entries = read_journal(&self.journal, &self.store.project, &self.kind)?;
+        self.store.sweep_tmp_locked(&guard)?;
+        let entries = parse_journal(&self.journal, &self.store.project, Some(&self.kind))?.1;
         let mut latest: BTreeMap<String, String> = BTreeMap::new();
         for entry in entries {
             latest.insert(entry.unit, entry.key);
@@ -831,7 +1106,7 @@ impl BuildSession {
             RootKind::Main | RootKind::Worktree { .. } => {
                 let mut current = self
                     .store
-                    .read_root_locked(&self.kind)?
+                    .root_locked(&guard, &self.kind)?
                     .map(|record| record.entries)
                     .unwrap_or_default();
                 for (unit, key) in latest {
@@ -869,28 +1144,31 @@ impl BuildSession {
             provenance: self.provenance.clone(),
         };
         validate_record(&record, &self.store.project).map_err(damaged)?;
-        let path = self.store.path(&self.kind)?;
-        let existing = self.store.read_root_locked(&self.kind)?;
-        if matches!(&self.kind, RootKind::Release { .. }) {
+        let existing = self.store.root_locked(&guard, &self.kind)?;
+        let frozen = matches!(&self.kind, RootKind::Release { .. } | RootKind::Pin { .. });
+        if frozen {
             if let Some(existing) = &existing {
-                if existing != &record {
+                if entry_keys(&existing.entries) != entry_keys(&record.entries) {
                     return Err(RootError::Conflict(
-                        "release sequence already exists with different content".into(),
+                        "frozen root already exists with different entries".into(),
                     ));
                 }
             }
         }
-        if matches!(&self.kind, RootKind::Pin { .. }) {
-            if let Some(existing) = &existing {
-                if existing != &record {
-                    return Err(RootError::Conflict(
-                        "pin already exists with different content".into(),
-                    ));
-                }
-            }
-        }
-        if existing.as_ref() != Some(&record) {
-            write_record(&path, &record, &mut observe)?;
+        let write = match &existing {
+            None => true,
+            Some(existing) if frozen => false,
+            Some(existing) => existing != &record,
+        };
+        if write {
+            self.store.check_release_window_locked(&self.kind)?;
+            let path = self.store.path(&self.kind)?;
+            write_record(
+                &path,
+                &self.store.project_dir().join("tmp"),
+                &record,
+                &mut observe,
+            )?;
         }
         if matches!(&self.kind, RootKind::Release { .. }) {
             self.store.trim_releases_locked()?;
@@ -910,3 +1188,57 @@ impl BuildSession {
     }
 }
 
+/// C5c's durable custodian registry: which identity is a session custodian, if any.
+pub trait SessionCustodians {
+    fn correlation(&self, identity: &ProcessIdentity) -> Result<Option<String>, String>;
+}
+
+/// C5c's durable guard-cleanup confirmation for one custodian correlation.
+pub trait CustodianCleanup {
+    fn cleanup_confirmed(&self, correlation: &str) -> Result<bool, String>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reclaim {
+    Reclaimable,
+    Retained(RetainReason),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RetainReason {
+    IdentityNotConfirmedDead,
+    /// A dead session custodian whose guard cleanup is not yet durably confirmed.
+    CleanupUnconfirmed(String),
+    CustodianRecordUnreadable(String),
+}
+
+/// The only public reclaim decision. LeaseRecord::identities_all_dead states the base identity
+/// rule; this adds the custodian cleanup rule for the owner and every registered worker.
+pub fn may_reclaim(
+    lease: &LeaseRecord,
+    mut probe: impl FnMut(&ProcessIdentity) -> Liveness,
+    custodians: &impl SessionCustodians,
+    cleanup: &impl CustodianCleanup,
+) -> Reclaim {
+    if !lease.identities_all_dead(&mut probe) {
+        return Reclaim::Retained(RetainReason::IdentityNotConfirmedDead);
+    }
+    for identity in std::iter::once(&lease.owner).chain(lease.workers.iter()) {
+        match custodians.correlation(identity) {
+            Ok(None) => {}
+            Ok(Some(correlation)) => match cleanup.cleanup_confirmed(&correlation) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Reclaim::Retained(RetainReason::CleanupUnconfirmed(correlation));
+                }
+                Err(message) => {
+                    return Reclaim::Retained(RetainReason::CustodianRecordUnreadable(message));
+                }
+            },
+            Err(message) => {
+                return Reclaim::Retained(RetainReason::CustodianRecordUnreadable(message));
+            }
+        }
+    }
+    Reclaim::Reclaimable
+}

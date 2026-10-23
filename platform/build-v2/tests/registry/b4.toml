@@ -1,35 +1,39 @@
 schema_version = 1
 
 [[scenarios]]
-id = "b4.roots.partial_build_keeps_other_units_and_their_provenance"
+id = "b4.roots.partial_build_merges_and_keeps_other_units_with_their_own_provenance"
 tests = ["atelier-build-v2::roots/partial_build_merges_and_keeps_other_units_with_their_own_provenance"]
 
 [[scenarios]]
-id = "b4.roots.complete_roster_prunes_only_undeclared_units"
+id = "b4.roots.complete_roster_prunes_units_that_are_no_longer_declared"
 tests = ["atelier-build-v2::roots/complete_roster_prunes_units_that_are_no_longer_declared"]
 
 [[scenarios]]
-id = "b4.roots.release_is_a_frozen_snapshot"
+id = "b4.roots.none_never_prunes"
+tests = ["atelier-build-v2::roots/none_never_prunes"]
+
+[[scenarios]]
+id = "b4.roots.a_release_is_a_frozen_snapshot_and_never_merges"
 tests = ["atelier-build-v2::roots/a_release_is_a_frozen_snapshot_and_never_merges"]
 
 [[scenarios]]
-id = "b4.roots.commit_removes_only_its_own_session"
+id = "b4.roots.a_commit_removes_only_its_own_session_journal"
 tests = ["atelier-build-v2::roots/a_commit_removes_only_its_own_session_journal"]
 
 [[scenarios]]
-id = "b4.roots.torn_journal_tail_fails_closed"
+id = "b4.roots.a_torn_journal_tail_fails_the_commit_and_preserves_root_and_journal"
 tests = ["atelier-build-v2::roots/a_torn_journal_tail_fails_the_commit_and_preserves_root_and_journal"]
 
 [[scenarios]]
-id = "b4.roots.middle_corruption_fails_closed_with_parseable_retention"
+id = "b4.roots.a_corrupt_middle_record_fails_closed_and_retention_counts_parseable_keys"
 tests = ["atelier-build-v2::roots/a_corrupt_middle_record_fails_closed_and_retention_counts_parseable_keys"]
 
 [[scenarios]]
-id = "b4.roots.faults_at_each_commit_boundary_keep_journal"
+id = "b4.roots.faults_at_each_commit_boundary_keep_the_journal_and_never_lose_retention"
 tests = ["atelier-build-v2::roots/faults_at_each_commit_boundary_keep_the_journal_and_never_lose_retention"]
 
 [[scenarios]]
-id = "b4.roots.concurrent_commits_serialize"
+id = "b4.roots.concurrent_commits_to_one_target_serialize_without_losing_entries"
 tests = ["atelier-build-v2::roots/concurrent_commits_to_one_target_serialize_without_losing_entries"]
 
 [[scenarios]]
@@ -37,62 +41,101 @@ id = "b4.roots.projects_and_worktrees_are_isolated"
 tests = ["atelier-build-v2::roots/projects_and_worktrees_are_isolated"]
 
 [[scenarios]]
-id = "b4.roots.release_retention_keeps_three_sequences"
+id = "b4.roots.releases_keep_the_three_greatest_sequences_and_refuse_a_different_duplicate"
 tests = ["atelier-build-v2::roots/releases_keep_the_three_greatest_sequences_and_refuse_a_different_duplicate"]
 
 [[scenarios]]
-id = "b4.roots.pins_survive_until_explicit_drop"
+id = "b4.roots.a_sequence_below_the_retained_window_is_refused"
+tests = ["atelier-build-v2::roots/a_sequence_below_the_retained_window_is_refused"]
+
+[[scenarios]]
+id = "b4.roots.an_identical_release_retry_keeps_the_first_record"
+tests = ["atelier-build-v2::roots/an_identical_release_retry_keeps_the_first_record"]
+
+[[scenarios]]
+id = "b4.roots.a_release_fault_after_publish_before_trim_recovers_on_retry"
+tests = ["atelier-build-v2::roots/a_release_fault_after_publish_before_trim_recovers_on_retry"]
+
+[[scenarios]]
+id = "b4.roots.pins_survive_trimming_until_an_exact_explicit_drop"
 tests = ["atelier-build-v2::roots/pins_survive_trimming_until_an_exact_explicit_drop"]
 
 [[scenarios]]
-id = "b4.roots.malformed_metadata_fails_safely"
+id = "b4.roots.malformed_root_metadata_fails_reads_and_retention_reports_damage"
 tests = ["atelier-build-v2::roots/malformed_root_metadata_fails_reads_and_retention_reports_damage"]
 
 [[scenarios]]
-id = "b4.roots.retention_counts_roots_and_sessions"
-tests = ["atelier-build-v2::roots/retention_counts_root_and_open_session_keys"]
-
-[[scenarios]]
-id = "b4.roots.provenance_only_changes_keep_keys"
-tests = ["atelier-build-v2::roots/provenance_only_changes_keep_the_same_result_keys"]
-
-[[scenarios]]
-id = "b4.roots.keys_labels_and_targets_are_validated"
-tests = ["atelier-build-v2::roots/keys_labels_and_target_names_are_validated"]
-
-[[scenarios]]
-id = "b4.roots.snapshot_into_pin_or_release_only"
-tests = ["atelier-build-v2::roots/a_root_can_be_snapshotted_into_a_pin_but_not_into_a_mutable_root"]
-
-[[scenarios]]
-id = "b4.roots.journal_keeps_every_key_and_root_takes_the_last"
-tests = ["atelier-build-v2::roots/the_session_journal_keeps_every_key_and_the_root_takes_the_last_per_unit"]
-
-[[scenarios]]
-id = "b4.roots.records_must_live_under_their_own_target"
+id = "b4.roots.a_record_filed_under_another_target_fails_the_listing"
 tests = ["atelier-build-v2::roots/a_record_filed_under_another_target_fails_the_listing"]
 
 [[scenarios]]
-id = "b4.roots.abandon_releases_only_its_own_session"
+id = "b4.roots.retention_counts_root_and_open_session_keys"
+tests = ["atelier-build-v2::roots/retention_counts_root_and_open_session_keys"]
+
+[[scenarios]]
+id = "b4.roots.abandoning_a_session_releases_only_its_own_in_flight_retention"
 tests = ["atelier-build-v2::roots/abandoning_a_session_releases_only_its_own_in_flight_retention"]
 
 [[scenarios]]
-id = "b4.roots.b2_publish_and_hit_callbacks_bind_the_caller_unit"
+id = "b4.roots.b2_publication_and_hit_callbacks_record_the_caller_unit_binding"
 tests = ["atelier-build-v2::roots/b2_publication_and_hit_callbacks_record_the_caller_unit_binding"]
 
 [[scenarios]]
-id = "b4.roots.gc_retains_a_dead_custodian_until_cleanup_is_confirmed"
+id = "b4.roots.a_dead_custodian_with_unconfirmed_cleanup_is_retained"
 tests = ["atelier-build-v2::roots/a_dead_custodian_with_unconfirmed_cleanup_is_retained"]
 
 [[scenarios]]
-id = "b4.roots.gc_reclaims_after_custodian_cleanup_is_confirmed"
+id = "b4.roots.an_owner_custodian_with_unconfirmed_cleanup_is_retained"
+tests = ["atelier-build-v2::roots/an_owner_custodian_with_unconfirmed_cleanup_is_retained"]
+
+[[scenarios]]
+id = "b4.roots.a_draining_child_retains_until_its_cleanup_is_confirmed"
+tests = ["atelier-build-v2::roots/a_draining_child_retains_until_its_cleanup_is_confirmed"]
+
+[[scenarios]]
+id = "b4.roots.a_dead_custodian_with_confirmed_cleanup_is_reclaimable"
 tests = ["atelier-build-v2::roots/a_dead_custodian_with_confirmed_cleanup_is_reclaimable"]
 
 [[scenarios]]
-id = "b4.roots.gc_retains_on_unreadable_custodian_records"
+id = "b4.roots.an_unreadable_custodian_or_cleanup_record_is_retained"
 tests = ["atelier-build-v2::roots/an_unreadable_custodian_or_cleanup_record_is_retained"]
 
 [[scenarios]]
-id = "b4.roots.gc_retains_live_or_unknown_identities"
+id = "b4.roots.alive_or_unknown_identities_still_retain_the_lease"
 tests = ["atelier-build-v2::roots/alive_or_unknown_identities_still_retain_the_lease"]
 
+[[scenarios]]
+id = "b4.roots.missing_store_root_is_refused"
+tests = ["atelier-build-v2::roots/missing_store_root_is_refused"]
+
+[[scenarios]]
+id = "b4.roots.retention_is_readable_under_the_callers_guard"
+tests = ["atelier-build-v2::roots/retention_is_readable_under_the_callers_guard"]
+
+[[scenarios]]
+id = "b4.roots.a_hit_release_is_visible_to_a_guarded_gc_read"
+tests = ["atelier-build-v2::roots/a_hit_release_is_visible_to_a_guarded_gc_read"]
+
+[[scenarios]]
+id = "b4.roots.missing_or_unreadable_metadata_is_damage"
+tests = ["atelier-build-v2::roots/missing_or_unreadable_metadata_is_damage"]
+
+[[scenarios]]
+id = "b4.roots.crash_temporary_file_is_swept_and_does_not_damage"
+tests = ["atelier-build-v2::roots/crash_temporary_file_is_swept_and_does_not_damage"]
+
+[[scenarios]]
+id = "b4.roots.an_empty_session_journal_is_damage_and_retains"
+tests = ["atelier-build-v2::roots/an_empty_session_journal_is_damage_and_retains"]
+
+[[scenarios]]
+id = "b4.roots.sessions_release_only_a_confirmed_dead_owner"
+tests = ["atelier-build-v2::roots/sessions_release_only_a_confirmed_dead_owner"]
+
+[[scenarios]]
+id = "b4.roots.a_failed_append_leaves_the_journal_unchanged"
+tests = ["atelier-build-v2::roots/a_failed_append_leaves_the_journal_unchanged"]
+
+[[scenarios]]
+id = "b4.roots.a_roster_requires_a_complete_validated_declaration"
+tests = ["atelier-build-v2::roots/a_roster_requires_a_complete_validated_declaration"]

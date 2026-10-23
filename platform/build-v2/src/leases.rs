@@ -44,8 +44,10 @@ pub struct LeaseRecord {
 }
 
 impl LeaseRecord {
-    pub fn may_reclaim(&self, mut probe: impl FnMut(&ProcessIdentity) -> Liveness) -> bool {
-        // No timestamp participates: even one unknown worker prevents reclamation.
+    /// Base identity rule only: every owner and worker must be positively dead. This is not a
+    /// reclamation decision; `roots::may_reclaim` is the only public one, because a dead session
+    /// custodian still needs durably confirmed guard cleanup. No timestamp participates.
+    pub fn identities_all_dead(&self, mut probe: impl FnMut(&ProcessIdentity) -> Liveness) -> bool {
         std::iter::once(&self.owner)
             .chain(self.workers.iter())
             .all(|process| probe(process) == Liveness::Dead)
