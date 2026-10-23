@@ -1139,9 +1139,12 @@ mod tests {
         .unwrap();
         let scope = workspace.0.join(&work.lease().staging);
         let payload = b"sealed selected group bytes";
-        let plan = serde_json::json!({"schema":1,"parent":"Village_Edges","complete":true,"triangle_limit":32768,"source_triangles":3,"source_collision_hulls":0,"pieces":[{"name":"Village_Edges","payload":"Village_Edges.npz","sha256":sha256(payload),"triangles":3,"collision_hulls":0}]});
+        let sibling_bytes = b"unneeded sibling payload";
+        let plan = serde_json::json!({"schema":1,"parent":"Village_Edges","complete":true,"triangle_limit":32768,"source_triangles":6,"source_collision_hulls":0,"pieces":[{"name":"Village_Edges","payload":"Village_Edges.npz","sha256":sha256(payload),"triangles":3,"collision_hulls":0},{"name":"Sibling","payload":"Sibling.npz","sha256":sha256(sibling_bytes),"triangles":3,"collision_hulls":0}]});
         let source = workspace.0.join("source.npz");
         fs::write(&source, payload).unwrap();
+        let sibling = workspace.0.join("sibling.npz");
+        fs::write(&sibling, sibling_bytes).unwrap();
         let manifest = workspace.0.join("plan.json");
         fs::write(&manifest, serde_json::to_vec(&plan).unwrap()).unwrap();
         let completion = work
@@ -1154,6 +1157,10 @@ mod tests {
                     ActualOutput {
                         path: "geometry/Village_Edges.npz".into(),
                         source: source.clone(),
+                    },
+                    ActualOutput {
+                        path: "geometry/Sibling.npz".into(),
+                        source: sibling,
                     },
                 ],
                 |fixed| {
@@ -1207,6 +1214,35 @@ mod tests {
         assert!(!workspace.0.join("results").exists());
         let evidence: Value =
             serde_json::from_slice(&fs::read(scope.join("completion.json")).unwrap()).unwrap();
+        let sibling_named = evidence["objects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|object| object["digest"] == sha256(sibling_bytes))
+            .unwrap()["path"]
+            .as_str()
+            .unwrap();
+        fs::remove_file(scope.join(sibling_named)).unwrap();
+        assert!(completion.available_groups().is_err());
+        let selected_only = completion.objects_for(&[&child.inputs()[0]]).unwrap();
+        let after_loss = crate::staging::stage(
+            &child,
+            &snapshot,
+            &selected_only,
+            &workspace.0.join("after-sibling-loss"),
+            "selected",
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(
+                after_loss
+                    .job_dir()
+                    .join("inputs/payload/Village_Edges.npz")
+            )
+            .unwrap(),
+            payload
+        );
+        crate::staging::remove_job(after_loss.job_dir()).unwrap();
         let named = evidence["objects"]
             .as_array()
             .unwrap()

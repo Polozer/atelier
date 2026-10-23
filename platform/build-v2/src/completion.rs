@@ -1,5 +1,7 @@
 //! Validated local outputs remain independent of cache publication availability.
-use crate::groups::{OutputGroupContract, PlanRoster, ValidatedGroup, restore_recorded};
+use crate::groups::{
+    OutputGroupContract, PlanRoster, ValidatedGroup, recorded_identity, restore_recorded,
+};
 use crate::install::LeaseIdentity;
 use crate::keys::{InputPayload, PreparedInput, PreparedUnit, normalized_mode};
 use crate::leases::{LeaseRecord, LeaseStore, ProcessIdentity, sync_dir};
@@ -232,7 +234,11 @@ impl FrozenCompletion {
             })
             .collect()
     }
-    /// Bind exact selected item views before staging preserved complete local work downstream.
+    /// @cc [owner:fontanierh,label:correctness] frozen-selected-source-is-not-full-group-availability
+    /// Source selection MUST bind exact selected metadata from this sealed complete validation,
+    /// check only selected payload snapshots and clone without copying/rehashing. Missing unrelated
+    /// members MUST NOT block a surviving selected source or mint a full available group token.
+    /// See sealed_local_group_stages_selected_bytes_without_cas_and_refuses_missing_frozen_members.
     pub fn objects_for<'a>(
         &'a self,
         inputs: &[&PreparedInput],
@@ -242,10 +248,18 @@ impl FrozenCompletion {
                 self.envelope.result.key.clone(),
             ));
         }
-        let groups = self.available_groups()?;
         let mut views = self.envelope.result.outputs.clone();
-        for group in groups.values() {
-            for piece in group.stored().projections.keys() {
+        // Source selection needs only already-validated recorded views, not full-group availability.
+        for (contract, stored) in self
+            .envelope
+            .result
+            .ingredients
+            .output_groups
+            .iter()
+            .zip(&self.envelope.result.output_groups)
+        {
+            let group = recorded_identity(contract, stored).map_err(ResultError::Invalid)?;
+            for piece in group.pieces() {
                 views.push(group.project(piece).map_err(ResultError::Invalid)?);
             }
         }

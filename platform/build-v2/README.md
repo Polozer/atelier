@@ -614,3 +614,9 @@ named member against its fully validated private frozen snapshots, including nor
 clone-only C1b staging. These are local byte capabilities, not CAS hits; missing/corrupt named local
 snapshots refuse rather than becoming available from recorded metadata alone. The producer can stay
 completed while a downstream miss uses preserved store-only/group bytes without rerunning it.
+
+`ReceiptReader::current_identities` issues a sealed metadata observation using the shared Current
+validator under temporary read custody. It retains no guard or FD, so identity-only hits cannot block
+later installs. Stage-time CurrentSources reacquires and revalidates exact selected content/modes.
+FrozenObjects selection checks only selected bytes from sealed recorded views: loss of an unrelated
+sibling refuses a full available group token but does not prevent staging a surviving selected member.

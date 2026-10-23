@@ -1187,6 +1187,10 @@ fn current_sources_pin_without_cache_and_clone_only_certified_unchanged_items() 
         },
     )
     .unwrap();
+    let observed = reader.current_identities(&guard, &unit).unwrap().unwrap();
+    assert_eq!(observed.key(), unit.key());
+    // Metadata observation alone retains no lock, even when consumer staging never happens.
+    installer.recover(&guard, &view("first", &graph)).unwrap();
     let sources = reader.pin_current_sources(&guard, &unit).unwrap().unwrap();
     let receipt = &sources.receipts()[0];
     let input = PreparedInput {
@@ -1282,14 +1286,7 @@ fn current_sources_pin_without_cache_and_clone_only_certified_unchanged_items() 
     .unwrap();
     let produced = BTreeMap::from([(
         ("export".into(), "mesh".into()),
-        StoredItem {
-            item: declaration.units[0].outputs[0].clone(),
-            files: match &input.payload {
-                InputPayload::Item { files, .. } => files.clone(),
-                _ => unreachable!(),
-            },
-            external_locator: None,
-        },
+        observed.items()[0].clone(),
     )]);
     let implementation = ImplementationIdentity {
         version: atelier_build_v2::launch::PYTHON_JOB_LOOP_VERSION.into(),

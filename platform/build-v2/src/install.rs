@@ -11,7 +11,7 @@ use crate::keys::{InputPayload, PreparedInput, PreparedUnit, canonical_bytes};
 use crate::leases::ProcessIdentity;
 use crate::paths::{Claims, claim, conflict, folded, logical_path, relative_path};
 use crate::results::{ResultEnvelope, ResultError, ResultStore, WriteTransaction};
-use crate::schema::{ContentSource, Destination, Input, Item, Provenance, StoredFile};
+use crate::schema::{ContentSource, Destination, Input, Item, Provenance, StoredFile, StoredItem};
 use crate::source_hashes::sha256;
 use crate::staging::{ObjectSource, SourceError, SourceErrorKind};
 use crate::store::{ObjectDigest, ObjectStore, StoreError};
@@ -298,6 +298,21 @@ pub enum CurrentStatus {
     Current(Vec<ItemReceipt>),
     Dirty,
     NotMaterialized,
+}
+
+/// Sealed identity observation only: no retained checkout guard, FD or byte-availability claim.
+/// Source staging must separately reacquire and revalidate CurrentSources.
+pub struct CurrentIdentities {
+    key: String,
+    items: Vec<StoredItem>,
+}
+impl CurrentIdentities {
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+    pub fn items(&self) -> &[StoredItem] {
+        &self.items
+    }
 }
 
 /// Sealed checkout-byte availability. Custody ends after staging independent job clones.
@@ -769,6 +784,53 @@ impl ReceiptReader {
         self.guard(guard)?;
         let _reader = self.locks.try_read_content()?;
         self.current_locked(unit)
+    }
+
+    /// @cc [owner:fontanierh,label:correctness;safety] current-identity-observation-releases-custody
+    /// Identity observation MUST reuse complete Current validation and retain no guard or FD.
+    /// Returning metadata MUST NOT certify future byte availability; staging separately reacquires
+    /// and revalidates CurrentSources. See current_sources_pin_without_cache_and_clone_only_certified_unchanged_items.
+    pub fn current_identities(
+        &self,
+        guard: &BuildGuard,
+        unit: &PreparedUnit,
+    ) -> Result<Option<CurrentIdentities>, InstallError> {
+        self.guard(guard)?;
+        let _read = self.locks.try_read_content()?;
+        let CurrentStatus::Current(receipts) = self.current_locked(unit)? else {
+            return Ok(None);
+        };
+        let mut items = vec![];
+        for item in unit
+            .ingredients()
+            .logical_outputs
+            .iter()
+            .filter(|item| item.destination == Destination::Checkout)
+        {
+            let owner = OwnerId::new(self.policy.project.clone(), &item.logical_path)?;
+            let receipt = receipts
+                .iter()
+                .find(|receipt| receipt.owner == owner)
+                .ok_or_else(|| invalid("missing certified current item"))?;
+            items.push(StoredItem {
+                item: item.clone(),
+                files: receipt
+                    .files
+                    .iter()
+                    .map(|file| StoredFile {
+                        path: file.output_path.clone(),
+                        digest: file.digest.clone(),
+                        size: file.size,
+                        mode: file.mode,
+                    })
+                    .collect(),
+                external_locator: None,
+            });
+        }
+        Ok(Some(CurrentIdentities {
+            key: unit.key().into(),
+            items,
+        }))
     }
 
     fn plan_owned(
