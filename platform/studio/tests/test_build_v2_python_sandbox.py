@@ -48,6 +48,16 @@ def run(context):
     loop.close()
 
 
+def test_job_logs_reach_the_loop_log_file_outside_the_job(tmp_path):
+    script = 'import sys\ndef run(context):\n    print("job says hi")\n    print("job warns", file=sys.stderr)\n' \
+             '    context.output("piece.txt").write_text("ok")\n'
+    with open(tmp_path / 'worker.log', 'wb') as log:
+        worker = Loop(log=log)
+        assert worker.run(stage(tmp_path / 'job', script=script))['type'] == 'completed'
+        worker.close()
+    assert {'job says hi', 'job warns'} <= set((tmp_path / 'worker.log').read_text().splitlines())
+
+
 def test_sandboxed_jobs_give_the_same_bytes_under_other_ids_and_folders(tmp_path, loop):
     first = stage(tmp_path / 'one/job')
     second = stage(tmp_path / 'two/other/place', job_id='job-2')

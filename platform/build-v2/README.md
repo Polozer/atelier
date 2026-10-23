@@ -276,6 +276,59 @@ decode to the same values; canonical vectors also pin Rust's own text. The pipe 
 [tests/fixtures/fake_worker.py](tests/fixtures/fake_worker.py) with its protocol on two inherited pipe
 descriptors and logs on stdout/stderr, under a five-second watchdog; the Rust T0 job needs `python3`.
 
+## Staging and the Python job loop (C1b, C2a)
+
+`staging::stage(&PreparedUnit, frozen_code, objects, job_dir, job_id)` creates a fresh job folder (it
+must not exist) holding exactly the unit's declared code and inputs at their declared job-relative
+paths, plus an empty writable `output/`. Code bytes come from the frozen snapshot A3 keyed, checked
+against the keyed digests; live sources are never reread. `Bytes` inputs (raw, selected or reference
+descriptors) are files; `Item` inputs are directories of exactly their recorded members, cloned through
+an `ObjectSource` with their recorded size; optional absence creates nothing. Files stage 0444 (item
+executables 0555) and every directory except `output/` is made 0555. `PinnedObjects` clones B1 objects
+while a live B2 `WriteTransaction` (which claims the upstream result keys) is borrowed; restores clone
+and hash nothing. Staging failure removes only its own fresh folder. The request it returns names the
+staged paths and drops output `install_path`s; locators, selectors and logical paths never appear.
+
+`staging::collect_outputs` walks `output/` without following links and requires the worker's reported
+files to equal the regular files found; each maps to its declaring item, giving the complete
+`OutputSources` manifest that B2's `WriteTransaction::stage` freezes, hashes and validates once.
+`remove_job` deletes a job folder after B2 has staged or refused its outputs.
+
+`launch::StartWorker` is the launcher seam: start a `WorkerCommand` (program, args, complete
+environment, working folder) with a dedicated pipe, appending `--request-fd N --response-fd M`, and
+later `stop` or `wait` it. C7's supervised launcher implements it with admission, guards and deadlines;
+`DirectChild` starts an owned child for tests and local tools only. `launch::run_staged` runs one
+staged job: handshake, the staged request, then `collect_outputs` on `completed`; failures, protocol
+breaks and output mismatches give no manifest, and a broken worker is stopped. Nothing is published
+or deleted there.
+
+`platform/studio/atelier/build_v2/python_worker.py` is the Python job loop. It makes both protocol
+descriptors non-inheritable at startup, sends `hello` (`atelier-python-job-1`), and for each `run`
+sends `started`, runs the job in its own child process and sends one terminal response; `cancel` kills
+that child and answers `cancelled`. The child runs `python -P -s -S -B` with the bootstrap
+`python_job.py` passed as source text, in the job folder, with only `LC_ALL=C`, `TZ=UTC`,
+`PYTHONHASHSEED=0` and two Python I/O settings. The entry script defines `run(context)`; the
+`JobContext` (documented in `python_job.py`) exposes slot paths (`None` when absent), read-only params,
+declared outputs and the seed, never the job ID, folder or any locator. Only platform modules and the
+unit's declared code load, and the checkout is never on `sys.path`. Wall-clock reads return a fixed
+instant, `random` is seeded with the declared `seed` (default 0), and OS entropy, `uuid1/4` and
+`secrets` raise; this makes ordinary scripts reproducible, not the OS deterministic.
+
+On macOS each child runs under a deny-default `sandbox-exec` profile: it may read the installed
+interpreter and its libraries, a few platform files (locale, time zone, user database) and its job
+folder, and write only `output/`. Any other existing path read, stat or listing, and any network use,
+kills the child, which the loop reports as `failed{dependency}` (the loop itself is never killed, so
+C7 sees no crash). The kernel reports a missing path as ENOENT without a sandbox decision, so a Python
+path guard (an audit hook plus checked `os.stat`/`lstat`/`access`) also ends the job, uncatchably, on
+any undeclared read, existence check, listing or write, present or missing, and on process starts,
+links and sockets. Elsewhere jobs fail with `dependency`: there is no unsandboxed fallback, except the
+explicit `--no-sandbox-portable-test` flag for portable tests of the loop, which proves no isolation.
+The loop checks output membership and the controller checks it again.
+
+Known gaps: native extension code that probes a missing undeclared path through the C library is not
+detected (an existing one is still killed). Linux has no sandbox yet. The worker implementation
+digest, B3 installs, A4b group results, A6 live-edit revalidation and C3/C7 supervision are not here.
+
 ## B2 fixed-result publication and leases
 
 `ResultStore::begin(&PreparedUnit, provenance, owner, workers, upstream_keys)` persists a unique

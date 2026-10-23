@@ -63,3 +63,16 @@ External outputs MUST refuse until their typed adapter exists. Cached group toke
 only after named object checks and durable pins under the GC mutex, without plan reads, output
 tree walks or rehashing. See tests/results.rs and
 groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest.
+
+@cc [owner:fontanierh,label:correctness] build-v2-python-job-isolation
+Each Python job MUST run in its own child of the job loop, in its staged folder, with the declared
+environment only, loading only installed platform modules and the unit's declared code; the checkout
+MUST NOT be on its import path. On macOS the child MUST run under a deny-default sandbox, and any
+undeclared read, existence check (of a present or missing path), listing, network use or process
+start MUST fail the job as `dependency` rather than return a value; writes outside `output/` MUST
+fail. There MUST be no unsandboxed fallback except the explicit portable-test flag. Wall-clock reads
+MUST be fixed, OS entropy refused and `random` seeded from the declared seed. The loop MUST make both
+protocol descriptors non-inheritable before any job runs, and MUST report only declared, regular
+output files. Native extension code probing a missing path is a documented gap. See
+platform/studio/tests/test_build_v2_python_worker.py, test_build_v2_python_sandbox.py and
+tests/staging.rs.

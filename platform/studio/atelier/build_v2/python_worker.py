@@ -173,6 +173,24 @@ def output_files(job_dir, outputs):
     return sorted(found)
 
 
+def forward_log(chunk):
+    sys.stderr.buffer.write(chunk)
+    sys.stderr.buffer.flush()
+
+
+def drain(logs):
+    """Forward what an exited child left in its log pipe, without waiting on any descendant."""
+    os.set_blocking(logs.fileno(), False)
+    while True:
+        try:
+            chunk = os.read(logs.fileno(), 65536)
+        except BlockingIOError:
+            return
+        if not chunk:
+            return
+        forward_log(chunk)
+
+
 class Worker:
     def __init__(self, requests, responses, sandboxed):
         self.requests = requests
@@ -223,39 +241,50 @@ class Worker:
                        json.dumps(job_config(job, job_dir, result_write))]
             if self.sandboxed:
                 command = [SANDBOX_EXEC, '-p', sandbox_profile(job_dir)] + command
+            # The child gets its own log pipe: inherited stdout/stderr files would be undeclared
+            # paths to the sandbox. The loop forwards those logs to its own stderr. It stays in the
+            # loop's process group, so a guard that stops the worker stops the job too.
             child = subprocess.Popen(command, cwd=job_dir, env=dict(JOB_ENVIRONMENT), stdin=subprocess.DEVNULL,
-                                     pass_fds=(result_write,))  # same process group: guards stop both
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=(result_write,))
         finally:
             os.close(result_write)
-        with os.fdopen(result_read, 'rb') as results, selectors.DefaultSelector() as selector:
-            selector.register(results, selectors.EVENT_READ)
-            selector.register(self.requests, selectors.EVENT_READ)
+        with os.fdopen(result_read, 'rb') as results, child.stdout as logs, \
+                selectors.DefaultSelector() as selector:
+            for stream in (results, logs, self.requests):
+                selector.register(stream, selectors.EVENT_READ)
             report = b''
             while True:
                 for key, _ in selector.select():
+                    if key.fileobj is logs:
+                        chunk = os.read(logs.fileno(), 65536)
+                        if chunk:
+                            forward_log(chunk)
+                        else:
+                            selector.unregister(logs)
+                        continue
                     if key.fileobj is results:
                         chunk = os.read(results.fileno(), 65536)
                         if chunk:
                             report += chunk
                             continue
                         selector.unregister(results)
-                        return self.finish(job, job_dir, child, report)
+                        status = child.wait()
+                        drain(logs)
+                        return self.finish(job, job_dir, status, report)
                     request = protocol.read_frame(self.requests, protocol.REQUEST)
                     if request is not None and request['type'] == 'cancel' and request['job_id'] != job_id:
                         continue  # a late cancel for an earlier job gets no reply
-                    if request == {'type': 'cancel', 'job_id': job_id}:
-                        child.kill()
-                        child.wait()
-                        self.fail(job_id, 'cancelled', 'cancelled by the controller')
-                        return None
                     child.kill()
                     child.wait()
+                    drain(logs)
+                    if request == {'type': 'cancel', 'job_id': job_id}:
+                        self.fail(job_id, 'cancelled', 'cancelled by the controller')
+                        return None
                     if request is None:
                         raise SystemExit(0)  # the controller closed the pipe
                     raise JobRefused('protocol', f'unexpected {request["type"]} while job {job_id} runs')
 
-    def finish(self, job, job_dir, child, report):
-        status = child.wait()
+    def finish(self, job, job_dir, status, report):
         if status == -signal.SIGKILL and self.sandboxed:
             raise JobRefused('dependency', SANDBOX_KILLED)
         if status < 0:

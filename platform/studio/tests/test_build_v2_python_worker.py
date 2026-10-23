@@ -45,12 +45,13 @@ def stage(root, script=ECHO, inputs=None, code=None, **job):
 class Loop:
     """A direct owned worker child over two inherited pipes, as the launcher starts it."""
 
-    def __init__(self, *flags):
+    def __init__(self, *flags, log=None):
         request_read, self.request_write = os.pipe()
         self.response_read, response_write = os.pipe()
         self.process = subprocess.Popen(
             [sys.executable, '-I', str(WORKER), '--request-fd', str(request_read), '--response-fd',
-             str(response_write), *flags], pass_fds=(request_read, response_write), stdin=subprocess.DEVNULL)
+             str(response_write), *flags], pass_fds=(request_read, response_write), stdin=subprocess.DEVNULL,
+            stdout=log, stderr=log)
         os.close(request_read)
         os.close(response_write)
         self.requests = os.fdopen(self.request_write, 'wb', buffering=0)
