@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import argparse
 import ast
+import json
 
 import pytest
 
@@ -47,6 +48,22 @@ def test_service_requires_complete_source_library_and_real_reader_closure(tmp_pa
         assert GAME / relative in service.inputs
     assert any(path.name == 'file_copy.py' for path in service.inputs)
     assert 'world.belmonte_train_furniture_lods' in rows['world.belmonte_train_assembly'].needs
+
+
+def test_complete_recipe_replans_after_a_selected_source_publishes_membership(tmp_path):
+    folder = tmp_path / 'belmonte-train-sources/locomotive/packets'
+    folder.mkdir(parents=True)
+    key = 'SM_BT_Locomotive_LOD0'
+    (folder / 'inventory.json').write_text(json.dumps(dict(schema=1, complete=True, coach='locomotive',
+        pieces=[dict(name=key, source=key + '.source')])))
+    ctx, steps, rows = recipe(tmp_path)
+    production = build.order(steps, ['world.belmonte_train'])
+    assert len(production) == 18
+    assert isinstance(rows['world.belmonte_train'].needs, list)
+    for name in ('world.belmonte_train.geometry.' + key, 'world.belmonte_train.export.' + key):
+        assert rows[name] in production
+        build_batches.validate(rows[name])
+        build_cache.roots(ctx, rows[name])
 
 
 def test_legacy_blend_review_has_an_explicit_disjoint_authoring_root(tmp_path):

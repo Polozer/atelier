@@ -137,6 +137,6 @@ def steps(ctx):
                 ASSETS / 'planning/furniture-dimensions.json', TRAIN / 'budgets.py',
                 TRAIN / 'textures.py', *export_assembly.runtime_inputs()],
         reads=[*owners, *('world.belmonte_train.export.' + asset.key for asset in assets)],
-        needs=source_names if not assets else (), products=[Product('belmonte_train.library', outputs)],
+        needs=source_names if not assets else [], products=[Product('belmonte_train.library', outputs)],
         about='complete file-only train library, signed shell/texture/fit gates and original service filenames'))
     return result
