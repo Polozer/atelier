@@ -12,11 +12,14 @@ use crate::source_hashes::SourceHashCache;
 use crate::validate::SourceSnapshot;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Demand {
     Stored,
     Checkout,
 }
+
+/// Explicit final requirements only. Empty means internal identity resolution, not Stored.
+pub type FinalDemands = BTreeSet<Demand>;
 
 /// Runtime declarations supply only execution identity and explicit staged names.
 /// `profile` groups compatible work; semantic worker options must already be keyed.
@@ -43,8 +46,8 @@ pub struct Request<'a> {
     snapshot: &'a SourceSnapshot,
     versions: &'a SourceVersions,
     runtimes: &'a BTreeMap<String, Runtime>,
-    /// Every explicit selected root must state its demand. Other units default to Stored.
-    demands: &'a BTreeMap<String, Demand>,
+    /// Every selected root states final requirements; internal units have none.
+    demands: &'a BTreeMap<String, FinalDemands>,
 }
 impl<'a> Request<'a> {
     /// Selection and the immutable snapshot are bound together; callers cannot pair
@@ -55,7 +58,7 @@ impl<'a> Request<'a> {
         snapshot: &'a SourceSnapshot,
         versions: &'a SourceVersions,
         runtimes: &'a BTreeMap<String, Runtime>,
-        demands: &'a BTreeMap<String, Demand>,
+        demands: &'a BTreeMap<String, FinalDemands>,
     ) -> Result<Self, String> {
         let selected = graph.select(targets, snapshot)?;
         for id in selected.order() {
@@ -85,9 +88,14 @@ pub struct CheckedView<'a> {
 }
 
 pub enum Lookup<C, T> {
+    /// Exact identity observation only; never available bytes or a final demand.
+    Recorded(C),
     Current(C),
     Hit(C),
-    Miss { ticket: T, reason: NonHitReason },
+    Miss {
+        ticket: T,
+        reason: NonHitReason,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -114,14 +122,26 @@ pub struct Published<C> {
 pub trait Backend {
     type Checked;
     type Ticket;
+    /// Independent staged files, with no retained CurrentSources guard or descriptors.
+    type Inputs: 'static;
     type Completion;
 
     fn lookup(
         &mut self,
         unit: &PreparedUnit,
-        demand: Demand,
+        demand: &FinalDemands,
     ) -> Result<Lookup<Self::Checked, Self::Ticket>, String>;
+    /// Current identity is observed under short custody, released BEFORE lookup returns.
+    /// Do not keep CurrentSources guards alive for identity-only consumers that may hit.
     fn view<'a>(&'a self, checked: &'a Self::Checked) -> CheckedView<'a>;
+    /// Called only for an actual consumer miss immediately before dispatch. Reacquire and
+    /// revalidate selected sources here; release all CurrentSources guards/FDs before return.
+    /// Unsupported/changed sources refuse here, without rerunning an identity-known producer.
+    fn prepare_inputs(
+        &mut self,
+        unit: &PreparedUnit,
+        ticket: &mut Self::Ticket,
+    ) -> Result<StagedInputs<Self::Inputs>, InputFailure>;
     /// Move sealed outputs into the scheduling identity context; tokens are never cloned or deserialized here.
     fn into_outputs(
         &mut self,
@@ -129,7 +149,7 @@ pub trait Backend {
     ) -> (Vec<StoredItem>, BTreeMap<String, ValidatedGroup>);
     fn publish(
         &mut self,
-        work: Work<Self::Ticket>,
+        work: Work<Self::Ticket, Self::Inputs>,
         completion: Self::Completion,
     ) -> Result<Published<Self::Checked>, String>;
     /// Apply only this explicit demand and retain required roots/claims through existing APIs.
@@ -138,19 +158,40 @@ pub trait Backend {
         &mut self,
         unit: &PreparedUnit,
         checked: &mut Self::Checked,
-        demand: Demand,
+        demand: &FinalDemands,
     ) -> Result<Effects, String>;
 }
 
-/// An original lookup ticket bound by the scheduler to one exact prepared unit.
-/// Only this module constructs work; executors return the same owned handle in their event.
-pub struct Work<T> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InputFailure {
+    Unavailable(String),
+    Changed(String),
+    Invalid(String),
+}
+
+/// Independent input files issued by the backend staging adapter, never by receipt parsing.
+pub struct StagedInputs<I> {
+    pub inputs: I,
+    pub staged_units: usize,
+}
+
+struct Pending<T> {
     unit: String,
     prepared: PreparedUnit,
     ticket: T,
     compatibility: Compatibility,
 }
-impl<T> Work<T> {
+
+/// The original miss ticket plus independent staged input capability for one prepared unit.
+/// Only this module constructs work; executors return that same owned handle in an event.
+pub struct Work<T, I> {
+    unit: String,
+    prepared: PreparedUnit,
+    ticket: T,
+    inputs: I,
+    compatibility: Compatibility,
+}
+impl<T, I> Work<T, I> {
     pub fn unit(&self) -> &str {
         &self.unit
     }
@@ -163,27 +204,21 @@ impl<T> Work<T> {
     pub fn ticket_mut(&mut self) -> &mut T {
         &mut self.ticket
     }
+    pub fn inputs(&self) -> &I {
+        &self.inputs
+    }
     pub fn compatibility(&self) -> &Compatibility {
         &self.compatibility
     }
-    pub fn into_ticket(self) -> T {
-        self.ticket
+    pub fn into_parts(self) -> (T, I) {
+        (self.ticket, self.inputs)
     }
 }
 
-pub enum Event<T, C> {
-    Completed {
-        work: Work<T>,
-        completion: C,
-        effects: Effects,
-    },
-    Failed {
-        work: Work<T>,
-        reason: String,
-    },
-    Cancelled {
-        work: Work<T>,
-    },
+pub enum Event<T, I, C> {
+    Completed { work: Work<T, I>, completion: C },
+    Failed { work: Work<T, I>, reason: String },
+    Cancelled { work: Work<T, I> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,12 +235,12 @@ pub trait Control {
 /// Every submitted handle MUST return one terminal event, including queued cancellation.
 /// Flow::Stop forbids starting more work; it does not waive settlement of owned handles.
 /// A returned error or omitted outcome does not certify cleanup; scheduling stops with unresolved work blocked.
-pub trait Executor<T, C> {
+pub trait Executor<T, I, C> {
     fn batch(
         &mut self,
-        work: Vec<Work<T>>,
+        work: Vec<Work<T, I>>,
         control: &dyn Control,
-        emit: &mut dyn FnMut(Event<T, C>) -> Flow,
+        emit: &mut dyn FnMut(Event<T, I, C>) -> Flow,
     ) -> Result<(), String>;
 }
 
@@ -213,19 +248,27 @@ pub trait Executor<T, C> {
 pub enum State {
     Waiting,
     Miss(NonHitReason),
+    Identity,
     Current,
     Hit,
     Executed(Publication),
     Failed(String),
+    InputRefused(InputFailure),
     Blocked(Vec<String>),
     Cancelled,
 }
 impl State {
     fn resolved(&self) -> bool {
-        matches!(self, Self::Current | Self::Hit | Self::Executed(_))
+        matches!(
+            self,
+            Self::Identity | Self::Current | Self::Hit | Self::Executed(_)
+        )
     }
     fn unsuccessful(&self) -> bool {
-        matches!(self, Self::Failed(_) | Self::Blocked(_) | Self::Cancelled)
+        matches!(
+            self,
+            Self::Failed(_) | Self::InputRefused(_) | Self::Blocked(_) | Self::Cancelled
+        )
     }
 }
 
@@ -237,11 +280,13 @@ pub struct Report {
     pub batches: Vec<Vec<String>>,
     pub publications: Vec<String>,
     pub effects: Effects,
+    /// Explicit final requirements not fulfilled; semantic output identity may still be usable.
+    pub unsatisfied: BTreeMap<String, FinalDemands>,
     pub fatal: Option<String>,
 }
 
-fn demand(request: &Request<'_>, unit: &str) -> Demand {
-    request.demands.get(unit).copied().unwrap_or(Demand::Stored)
+fn demand(request: &Request<'_>, unit: &str) -> FinalDemands {
+    request.demands.get(unit).cloned().unwrap_or_default()
 }
 
 fn integrate<B: Backend>(
@@ -249,7 +294,7 @@ fn integrate<B: Backend>(
     unit_id: &str,
     prepared: &PreparedUnit,
     mut checked: B::Checked,
-    requested: Demand,
+    requested: &FinalDemands,
     current: bool,
     items: &mut ProducedItems,
     groups: &mut ProducedGroups,
@@ -265,10 +310,14 @@ fn integrate<B: Backend>(
     if current && (effects.installed_units != 0 || effects.receipt_writes != 0) {
         return Err("Current settlement unexpectedly rewrote checkout state".into());
     }
-    if requested == Demand::Stored && effects.installed_units != 0 {
-        return Err("Stored demand unexpectedly installed checkout files".into());
+    if !requested.contains(&Demand::Checkout)
+        && (effects.installed_units != 0 || effects.receipt_writes != 0)
+    {
+        return Err("No Checkout demand authorized installed files".into());
     }
-    report.effects.staged_units += effects.staged_units;
+    if effects.staged_units != 0 {
+        return Err("final settlement cannot stage job inputs".into());
+    }
     report.effects.installed_units += effects.installed_units;
     report.effects.receipt_writes += effects.receipt_writes;
     let view = backend.view(&checked);
@@ -290,10 +339,12 @@ fn integrate<B: Backend>(
 /// upstream input keys. Every currently ready lookup MUST finish before any miss is sent
 /// to an executor; only compatible misses share a batch. Original miss tickets MUST be
 /// preserved, and each completion MUST publish independently before downstream preparation.
-/// Current/hit units MUST not launch jobs. Current MUST NOT satisfy Stored availability.
+/// Identity/Current/hit units MUST not launch jobs. Internal identity resolution MUST NOT require Stored.
+/// Recorded/Current MUST NOT certify explicit Stored availability. Selected bytes MUST be staged
+/// only for actual consumer misses, with independent inputs and no retained checkout read custody.
 /// Failure/cancellation MUST retain prior publication.
 /// See tests/scheduler.rs; real lifecycle, dynamic targets and A6 integration remain pending.
-pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
+pub fn run<B: Backend, E: Executor<B::Ticket, B::Inputs, B::Completion>>(
     request: Request<'_>,
     backend: &mut B,
     executor: &mut E,
@@ -301,17 +352,20 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
     hashes: &mut SourceHashCache,
 ) -> Result<Report, String> {
     let membership: BTreeSet<_> = request.selected.order().iter().cloned().collect();
-    if !request
-        .selected
-        .roots()
-        .iter()
-        .all(|id| request.demands.contains_key(id))
-        || !request.demands.keys().all(|id| membership.contains(id))
+    if !request.selected.roots().iter().all(|id| {
+        request
+            .demands
+            .get(id)
+            .is_some_and(|flags| !flags.is_empty())
+    }) || !request
+        .demands
+        .keys()
+        .all(|id| request.selected.roots().contains(id))
     {
         return Err("explicit root demands must belong to the selected graph".into());
     }
     for (id, mode) in request.demands {
-        if *mode == Demand::Checkout
+        if mode.contains(&Demand::Checkout)
             && !request
                 .graph
                 .unit(id)
@@ -405,19 +459,23 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                 report.keys.insert(id.clone(), prepared.key().into());
                 report.lookups.push(id.clone());
                 let mode = demand(&request, id);
-                match backend.lookup(&prepared, mode) {
-                    Ok(reused @ (Lookup::Current(_) | Lookup::Hit(_))) => {
+                match backend.lookup(&prepared, &mode) {
+                    Ok(reused @ (Lookup::Recorded(_) | Lookup::Current(_) | Lookup::Hit(_))) => {
                         // Retain the distinction without asking the backend to look up twice.
                         let (checked, state) = match reused {
+                            Lookup::Recorded(checked) => (checked, State::Identity),
                             Lookup::Current(checked) => (checked, State::Current),
                             Lookup::Hit(checked) => (checked, State::Hit),
                             Lookup::Miss { .. } => unreachable!(),
                         };
-                        if state == State::Current && mode == Demand::Stored {
+                        if (state == State::Current && mode.contains(&Demand::Stored))
+                            || (state == State::Identity && !mode.is_empty())
+                        {
                             report.states.insert(
                                 id.clone(),
                                 State::Failed(
-                                    "Current does not satisfy Stored availability".into(),
+                                    "Identity/Current does not satisfy explicit final requirements"
+                                        .into(),
                                 ),
                             );
                             continue;
@@ -427,7 +485,7 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                             id,
                             &prepared,
                             checked,
-                            mode,
+                            &mode,
                             state == State::Current,
                             &mut items,
                             &mut groups,
@@ -444,7 +502,7 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                     }
                     Ok(Lookup::Miss { ticket, reason }) => {
                         report.states.insert(id.clone(), State::Miss(reason));
-                        pending.push(Work {
+                        pending.push(Pending {
                             unit: id.clone(),
                             prepared,
                             ticket,
@@ -469,7 +527,7 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
         if pending.is_empty() {
             break;
         }
-        let mut batches: BTreeMap<Compatibility, Vec<Work<B::Ticket>>> = BTreeMap::new();
+        let mut batches: BTreeMap<Compatibility, Vec<Pending<B::Ticket>>> = BTreeMap::new();
         for work in pending.drain(..) {
             batches
                 .entry(work.compatibility.clone())
@@ -486,6 +544,40 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                 }
                 continue;
             }
+            let mut ready = Vec::new();
+            for Pending {
+                unit,
+                prepared,
+                mut ticket,
+                compatibility,
+            } in batch
+            {
+                match backend.prepare_inputs(&prepared, &mut ticket) {
+                    Ok(staged) => {
+                        report.effects.staged_units += staged.staged_units;
+                        ready.push(Work {
+                            unit,
+                            prepared,
+                            ticket,
+                            inputs: staged.inputs,
+                            compatibility,
+                        });
+                    }
+                    Err(reason) => {
+                        report.states.insert(unit, State::InputRefused(reason));
+                    }
+                }
+            }
+            if ready.is_empty() {
+                continue;
+            }
+            if control.cancelled() {
+                for work in ready {
+                    report.states.insert(work.unit, State::Cancelled);
+                }
+                continue;
+            }
+            let batch = ready;
             report
                 .batches
                 .push(batch.iter().map(|work| work.unit.clone()).collect());
@@ -504,11 +596,7 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                     return Flow::Stop;
                 }
                 match event {
-                    Event::Completed {
-                        work,
-                        completion,
-                        effects,
-                    } => {
+                    Event::Completed { work, completion } => {
                         let id = work.unit.clone();
                         let prepared = work.prepared.clone();
                         match backend.publish(work, completion) {
@@ -517,7 +605,7 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                                 &id,
                                 &prepared,
                                 published.checked,
-                                demand(&request, &id),
+                                &demand(&request, &id),
                                 false,
                                 &mut items,
                                 &mut groups,
@@ -537,7 +625,6 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
                                 report.states.insert(id, State::Failed(error));
                             }
                         }
-                        report.effects.staged_units += effects.staged_units;
                     }
                     Event::Failed { work, reason } => {
                         report.states.insert(work.unit, State::Failed(reason));
@@ -579,6 +666,19 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
             if *state == State::Waiting || matches!(state, State::Miss(_)) {
                 *state = State::Blocked(vec!["executor lifecycle unresolved".into()]);
             }
+        }
+    }
+    for (id, requested) in request.demands {
+        let mut unmet = requested.clone();
+        match &report.states[id] {
+            State::Hit | State::Executed(Publication::Cached) => unmet.clear(),
+            State::Current | State::Executed(Publication::NotCached(_)) => {
+                unmet.remove(&Demand::Checkout);
+            }
+            _ => {}
+        }
+        if !unmet.is_empty() {
+            report.unsatisfied.insert(id.clone(), unmet);
         }
     }
     Ok(report)

@@ -6,13 +6,19 @@ use atelier_build_v2::{
     source_hashes::*, validate::*,
 };
 use sha2::{Digest, Sha256};
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+};
 use support::{
     adapter::{AdapterError, BuildAdapter, BuildOutcome, BuildRequest, FakeAdapter, Observation},
     check::{Scenario, Step, run_scenario},
     snapshot::FrozenSnapshot,
     spec::{self, Edge, EdgeRole, InputSpec, OutputSpec, Plan, SavedUnit, StoreHealth, UnitSpec},
-    work::{ProducedItem, ProducedItems, output_payloads, resolve_input, unit_identity},
+    work::{
+        ProducedItem, ProducedItems, ResolvedInput, output_payloads, resolve_input, unit_identity,
+    },
 };
 struct Authority {
     unit: String,
@@ -27,6 +33,7 @@ struct Adapter {
     overbuild: bool,
 }
 struct Cache<'a> {
+    request: &'a BuildRequest<'a>,
     saved: &'a mut BTreeMap<String, Authority>,
     produced: Rc<RefCell<ProducedItems>>,
     healthy: bool,
@@ -50,8 +57,13 @@ impl Clone for Authority {
 impl Backend for Cache<'_> {
     type Checked = Authority;
     type Ticket = String;
+    type Inputs = Vec<ResolvedInput>;
     type Completion = BTreeMap<String, ProducedItem>;
-    fn lookup(&mut self, u: &PreparedUnit, _: Demand) -> Result<Lookup<Authority, String>, String> {
+    fn lookup(
+        &mut self,
+        u: &PreparedUnit,
+        _: &FinalDemands,
+    ) -> Result<Lookup<Authority, String>, String> {
         let id = &u.request("diagnostic", "job").unit;
         if self.healthy && !self.overbuild {
             if let Some(a) = self.saved.get(id).filter(|a| a.key == u.key()) {
@@ -61,6 +73,29 @@ impl Backend for Cache<'_> {
         Ok(Lookup::Miss {
             ticket: u.key().into(),
             reason: NonHitReason::MissingRecord,
+        })
+    }
+    fn prepare_inputs(
+        &mut self,
+        unit: &PreparedUnit,
+        ticket: &mut String,
+    ) -> Result<StagedInputs<Vec<ResolvedInput>>, InputFailure> {
+        assert_eq!(ticket.as_str(), unit.key());
+        let spec = self
+            .request
+            .units
+            .iter()
+            .find(|u| u.id == unit.request("diagnostic", "job").unit)
+            .unwrap();
+        let inputs = spec
+            .inputs
+            .iter()
+            .map(|i| resolve_input(i, self.request.snapshot, &self.produced.borrow()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(InputFailure::Invalid)?;
+        Ok(StagedInputs {
+            inputs,
+            staged_units: 1,
         })
     }
     fn view<'a>(&'a self, a: &'a Authority) -> CheckedView<'a> {
@@ -78,7 +113,7 @@ impl Backend for Cache<'_> {
     }
     fn publish(
         &mut self,
-        w: Work<String>,
+        w: Work<String, Vec<ResolvedInput>>,
         payloads: Self::Completion,
     ) -> Result<Published<Authority>, String> {
         assert_eq!(w.ticket(), w.prepared().key());
@@ -128,7 +163,7 @@ impl Backend for Cache<'_> {
         &mut self,
         _: &PreparedUnit,
         a: &mut Authority,
-        _: Demand,
+        _: &FinalDemands,
     ) -> Result<Effects, String> {
         for (id, p) in &a.payloads {
             self.produced
@@ -148,12 +183,14 @@ impl atelier_build_v2::scheduler::Control for Control {
         false
     }
 }
-impl Executor<String, BTreeMap<String, ProducedItem>> for Jobs<'_> {
+impl Executor<String, Vec<ResolvedInput>, BTreeMap<String, ProducedItem>> for Jobs<'_> {
     fn batch(
         &mut self,
-        work: Vec<Work<String>>,
+        work: Vec<Work<String, Vec<ResolvedInput>>>,
         _: &dyn atelier_build_v2::scheduler::Control,
-        emit: &mut dyn FnMut(Event<String, BTreeMap<String, ProducedItem>>) -> Flow,
+        emit: &mut dyn FnMut(
+            Event<String, Vec<ResolvedInput>, BTreeMap<String, ProducedItem>>,
+        ) -> Flow,
     ) -> Result<(), String> {
         for w in work {
             let unit = self
@@ -162,19 +199,11 @@ impl Executor<String, BTreeMap<String, ProducedItem>> for Jobs<'_> {
                 .iter()
                 .find(|u| u.id == w.unit())
                 .unwrap();
-            let inputs = unit
-                .inputs
-                .iter()
-                .map(|i| resolve_input(i, self.request.snapshot, &self.produced.borrow()))
-                .collect::<Result<Vec<_>, _>>()?;
-            let payloads = output_payloads(unit, &inputs);
+            let inputs = w.inputs();
+            let payloads = output_payloads(unit, inputs);
             if emit(Event::Completed {
                 work: w,
                 completion: payloads,
-                effects: Effects {
-                    staged_units: 1,
-                    ..Effects::default()
-                },
             }) == Flow::Stop
             {
                 break;
@@ -400,7 +429,7 @@ impl BuildAdapter for Adapter {
         let demands = selected
             .roots()
             .iter()
-            .map(|id| (id.clone(), Demand::Stored))
+            .map(|id| (id.clone(), BTreeSet::from([Demand::Stored])))
             .collect();
         let order = selected.order().to_vec();
         let roots = selected.roots().iter().cloned().collect();
@@ -423,6 +452,7 @@ impl BuildAdapter for Adapter {
             .collect();
         let produced = Rc::new(RefCell::new(ProducedItems::new()));
         let mut cache = Cache {
+            request: r,
             saved: &mut self.cache,
             produced: produced.clone(),
             healthy: r.store == StoreHealth::Available,

@@ -55,3 +55,19 @@ tests = ["atelier-build-v2::scheduler/completed_batch_refreshes_new_ready_hit_be
 [[scenarios]]
 id = "a9a.current-is-not-stored"
 tests = ["atelier-build-v2::scheduler/current_checkout_cannot_satisfy_explicit_stored_demand"]
+
+[[scenarios]]
+id = "a9a.mixed-final-and-conditional-source"
+tests = ["atelier-build-v2::scheduler/mixed_checkout_targets_use_identity_for_hits_and_stage_only_actual_consumer_misses"]
+
+[[scenarios]]
+id = "a9a.internal-identity-no-availability"
+tests = ["atelier-build-v2::scheduler/internal_recorded_identity_needs_no_stored_availability_or_stage_on_hit"]
+
+[[scenarios]]
+id = "a9a.dual-final-requirements"
+tests = ["atelier-build-v2::scheduler/dual_explicit_requirements_need_stored_proof_and_checkout_settlement"]
+
+[[scenarios]]
+id = "a9a.not-cached-final-accounting"
+tests = ["atelier-build-v2::scheduler/local_completion_keeps_identity_usable_without_claiming_stored_final_satisfaction"]

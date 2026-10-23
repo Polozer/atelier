@@ -570,27 +570,41 @@ retirement authority still come from B3/D4 callers, never path-prefix inference.
 
 ## Static scheduling core (A9a)
 
-The unused `scheduler` module binds a selected A4 static graph and immutable snapshot
-in one request, resolves exact A3 keys using producer output identities, and looks up
-all currently ready units before dispatching compatible misses. Hit-unlocked frontiers
-are followed before dispatch. Each completion publishes independently; unrelated work
-can succeed after a unit fails, while dependent units stay blocked. Cancellation retains
-completed publications. Current cannot satisfy Stored availability, even when its
-checkout is valid. A later Current-but-evicted input adapter needs a distinct source
-purpose; implicit prerequisites currently require Stored availability. Backend-owned
-opaque checked/miss handles preserve cache and
-install authority: this module cannot construct production StoredHit or group tokens.
-The supplied executor owns worker sessions, retries, admission, deadlines and cleanup.
+The unused `scheduler` module binds one A4 selected graph and immutable snapshot,
+resolves exact A3 keys from producer output identities, and looks up all ready units
+before submitting a compatible miss batch. After each batch it refreshes the frontier,
+retaining original undispatched miss tickets. Completions publish independently;
+failures block dependents while preserving unrelated publications. Missing terminal
+outcomes stop further dispatch because cleanup is unresolved. Cancellation requires
+explicit terminal settlement for every submitted handle.
 
-Tests use a separate fake backend with real A3/A4 code. They distinguish Current, stored
-hits and execution, record lookup/dispatch/publication order, and count reported staging,
-install and receipt effects. Incorrect backend key or materialization claims are rejected;
-these counters do not certify native I/O. Existing `t0.output-cutoff` remains pending for
-the full A9 integration. Production A5/B7/C1 adapters, resident C5c batching, recorded
-identity availability, A6 mid-build edits, dynamic cold targets, persisted retirement
-ownership remain separate acceptance work. A test-only BuildAdapter maps static fixture
-declarations into this scheduler and is judged by the unchanged A8 model plus its clean
-fake worker oracle; a deliberately overbuilding adapter is rejected. These checks do not
-add native materialization observation to A8. A known
-prepared Current result short-circuits execution, but this static core still resolves
-its dependency identity closure; it does not claim target-first cold identity discovery.
+Three purposes remain separate. Explicit final demands are sets of Stored and/or
+Checkout, while internal prerequisites have no final demand. Recorded identity and
+short-lived Current observations can resolve consumer keys without stored availability.
+Recorded cannot satisfy a final demand; Current cannot certify Stored. Identity-only
+Current observations must release their short checkout read custody before lookup
+returns. No public receipt vector constructs byte availability.
+
+Only an actual consumer miss calls `prepare_inputs`, immediately before dispatch.
+The backend acquires and revalidates selected source capabilities, stages independent
+job files, then releases CurrentSources guards/descriptors before returning opaque
+Inputs with the original miss ticket. Consumer hits never acquire or stage those bytes.
+Unavailable or changed sources return typed input refusals before child dispatch,
+without rerunning an identity-known producer. The real Current/Frozen/CAS adapter is
+still pending; fake test capabilities cannot become production StoredHit or group seals.
+Final-demand accounting is separate from valid output identity: NotCached completion
+can feed downstream staging but leaves an explicit Stored requirement unsatisfied.
+
+Tests exercise mixed Checkout targets, Recorded/Current identity with unavailable
+stores, conditional supported/unsupported/changed sources, dual explicit demands,
+lookup/dispatch order, content cutoff, reference ordering, failures and cancellation.
+A test-only BuildAdapter passes static fixtures through the real scheduler and the
+unchanged independent A8 model plus clean oracle; an intentionally overbuilding adapter
+is rejected. Reported staging/install/receipt counters do not certify native I/O.
+
+Full `t0.output-cutoff` remains pending. Production A5/B7/C1 adapters, metadata-only
+group key preparation, resident C5c lifecycle, A6 edits, dynamic cold targets, persisted
+retirement and native materialization proof remain separate acceptance work. The
+executor owns admission, sessions, retry, deadlines and cleanup. This slice resolves
+identity closure before target lookup; it does not claim target-first cold discovery
+or activate production v1.
