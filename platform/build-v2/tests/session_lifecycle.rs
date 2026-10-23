@@ -702,32 +702,52 @@ fn a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_publishe
         sim.worker(100, 1, completed("a")),
         vec![SessionCommand::Shutdown { session: 1 }]
     );
+    // No receipt within the limit: held, and b (no deadline of its own) gives up in this same
+    // input, with nothing further to wake on.
     assert_eq!(
         sim.at(100 + CLEAN, SessionInput::Tick),
         vec![
             SessionCommand::Stop { session: 1 },
-            SessionCommand::Settled { unit: "a".into() }
-        ],
-        "no receipt within the limit: held"
+            SessionCommand::Settled { unit: "a".into() },
+            SessionCommand::Settled { unit: "b".into() }
+        ]
     );
+    assert_eq!(sim.lifecycle.next_deadline(), None);
+    let b = sim.lifecycle.unit("b").unwrap();
+    assert!(b.abort.unwrap().contains("unconfirmed"));
     let published = sim.lifecycle.unit("a").unwrap();
     assert!(matches!(published.attempts[0].custody, Custody::Held(_)));
-    assert_eq!(
-        sim.launch(9_000, 1, confirmed()),
-        vec![SessionCommand::Settled { unit: "b".into() }],
-        "b gives up; no new session"
-    );
+    assert_eq!(sim.launch(9_000, 1, confirmed()), vec![]);
     assert_eq!(
         sim.lifecycle.sessions()[0].custody,
         Custody::Released,
         "the late receipt is kept as evidence on the session's own record"
     );
     assert_eq!(sim.lifecycle.unit("a").unwrap(), published, "unchanged");
-    let b = sim.lifecycle.unit("b").unwrap();
-    assert!(b.abort.unwrap().contains("unconfirmed"));
     assert_eq!(
         sim.at(9_100, plan("c", None)),
         vec![SessionCommand::Settled { unit: "c".into() }]
     );
     assert_eq!(sim.submits(), vec![1]);
+}
+
+#[test]
+fn a_unit_already_past_its_deadline_is_never_requeued() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", Some(1_000)));
+    sim.at(10, plan("b", Some(1_990)));
+    sim.at(10, SessionInput::Close);
+    // The admission owner ends before admission at 2 s, before any tick reached b's deadline.
+    assert_eq!(
+        sim.launch(2_000, 1, confirmed()),
+        vec![
+            SessionCommand::Settled { unit: "a".into() },
+            SessionCommand::Settled { unit: "b".into() }
+        ]
+    );
+    assert_eq!(
+        sim.lifecycle.unit("b").unwrap().outcome.end,
+        End::Failed(Stop::OverallDeadline)
+    );
+    assert_eq!(sim.submits(), vec![1], "no session for an expired unit");
 }

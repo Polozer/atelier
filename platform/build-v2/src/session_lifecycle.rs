@@ -487,7 +487,11 @@ impl SessionLifecycle {
         let pumped = self.pump(now, &mut out);
         self.ending_cap = None;
         pumped?;
-        self.settle(now, &mut out);
+        if self.settle(now, &mut out) {
+            // A session held just now: the held gate ends the waiting units in this same input,
+            // so a missing receipt can never leave them waiting with no deadline to wake on.
+            self.pump(now, &mut out)?;
+        }
         for unit in &mut self.units {
             if unit.published.is_none() && unit.settled() {
                 unit.published = unit.record();
@@ -518,6 +522,15 @@ impl SessionLifecycle {
     /// Assign waiting units to the live session, end a session nothing needs, and queue a
     /// session for waiting units.
     fn pump(&mut self, now: MonoTime, out: &mut Vec<SessionCommand>) -> Result<(), LifecycleError> {
+        if self.held.is_some() {
+            // The held gate (session-held-is-sticky): even while the held session is still
+            // unwinding, no waiting unit may wait for another session.
+            self.abort_waiting(
+                now,
+                "a previous session's cleanup is unconfirmed, so no new session may start",
+                out,
+            )?;
+        }
         if let Some(s) = self.live() {
             let slot = &self.sessions[s];
             if slot.record.admitted && !slot.ending() && slot.active.is_none() && !slot.used {
@@ -551,13 +564,6 @@ impl SessionLifecycle {
         }
         if !self.units.iter().any(UnitSlot::waiting) {
             return Ok(());
-        }
-        if self.held.is_some() {
-            return self.abort_waiting(
-                now,
-                "a previous session's cleanup is unconfirmed, so no new session may start",
-                out,
-            );
         }
         match self.sessions.last().map(|s| s.record.custody.clone()) {
             // The previous session's receipt is still due: no second admission meanwhile.
@@ -853,11 +859,17 @@ impl SessionLifecycle {
                             (Some(limit), Some(deadline)) => deadline <= limit,
                             (Some(_), None) => false,
                         };
-                        if unit.waiting() && covered {
+                        if !unit.waiting() {
+                            continue;
+                        }
+                        if covered {
                             self.units[index]
                                 .abort
                                 .get_or_insert("the admission owner ended before admission".into());
                             self.decide(now, index, PolicyEvent::CancelRequested, out)?;
+                        } else if reached(unit.overall_deadline, now) {
+                            // Already past its deadline: it ends now, never requeued.
+                            self.decide(now, index, PolicyEvent::Tick, out)?;
                         }
                     }
                 }
@@ -1006,13 +1018,17 @@ impl SessionLifecycle {
         }
     }
 
-    fn settle(&mut self, now: MonoTime, out: &mut Vec<SessionCommand>) {
+    /// Hold every session whose settlement limit passed; `true` if any was held now.
+    fn settle(&mut self, now: MonoTime, out: &mut Vec<SessionCommand>) -> bool {
+        let mut held = false;
         for s in 0..self.sessions.len() {
             let slot = &mut self.sessions[s];
             if slot.record.custody == Custody::Pending && reached(slot.settle_by, now) {
                 slot.stop(out);
                 self.hold(s, "no confirmed cleanup receipt within the cleanup limit");
+                held = true;
             }
         }
+        held
     }
 }

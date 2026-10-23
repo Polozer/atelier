@@ -67,3 +67,7 @@ tests = ["atelier-build-v2::session_lifecycle/an_expired_units_deadline_never_bo
 [[scenarios]]
 id = "c5c.session.a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record"
 tests = ["atelier-build-v2::session_lifecycle/a_late_confirmed_receipt_never_reopens_a_held_lifecycle_or_changes_a_published_record"]
+
+[[scenarios]]
+id = "c5c.session.a_unit_already_past_its_deadline_is_never_requeued"
+tests = ["atelier-build-v2::session_lifecycle/a_unit_already_past_its_deadline_is_never_requeued"]
