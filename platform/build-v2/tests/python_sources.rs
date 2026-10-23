@@ -68,3 +68,52 @@ fn capture_refuses_traversal_and_never_follows_a_named_or_ancestor_link() {
     }
     assert_eq!(fs::read(outside.0.join("secret")).unwrap(), b"outside");
 }
+
+#[test]
+fn same_size_and_mtime_replacement_has_a_new_source_version_and_digest() {
+    use atelier_build_v2::source_hashes::SourceHashCache;
+    let space = Space::new();
+    let source = space.0.join("source");
+    fs::write(&source, b"before").unwrap();
+    let old_time = fs::metadata(&source).unwrap().modified().unwrap();
+    let before = capture_sources(&space.0, ["source"]).unwrap();
+    // Both inodes coexist before replacement, so inode inequality is deterministic.
+    let replacement = space.0.join("replacement");
+    fs::write(&replacement, b"after!").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&replacement)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(old_time))
+        .unwrap();
+    fs::rename(&replacement, &source).unwrap();
+    let after = capture_sources(&space.0, ["source"]).unwrap();
+    assert_eq!(
+        before.versions["source"].size,
+        after.versions["source"].size
+    );
+    assert_eq!(
+        before.versions["source"].mtime_ns,
+        after.versions["source"].mtime_ns
+    );
+    assert_ne!(
+        before.versions["source"].inode,
+        after.versions["source"].inode
+    );
+    let bytes = |captured: &atelier_build_v2::python_sources::CapturedSources| {
+        let SnapshotEntry::File(bytes) = &captured.snapshot["source"] else {
+            panic!()
+        };
+        bytes.clone()
+    };
+    let mut hashes = SourceHashCache::default();
+    let first = hashes
+        .digest(before.versions.get("source"), &bytes(&before))
+        .unwrap();
+    let second = hashes
+        .digest(after.versions.get("source"), &bytes(&after))
+        .unwrap();
+    assert_ne!(first, second);
+    assert_eq!(hashes.stats.versions_hashed, 2);
+    assert_eq!(hashes.stats.memo_hits, 0);
+}

@@ -68,6 +68,14 @@ pub fn capture_sources<'a>(
     root: &Path,
     names: impl IntoIterator<Item = &'a str>,
 ) -> Result<CapturedSources, String> {
+    capture_with(root, names, |_| {})
+}
+
+fn capture_with<'a>(
+    root: &Path,
+    names: impl IntoIterator<Item = &'a str>,
+    mut after_read: impl FnMut(&str),
+) -> Result<CapturedSources, String> {
     let root = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -108,6 +116,7 @@ pub fn capture_sources<'a>(
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
             .map_err(|error| format!("cannot read declared source {name}: {error}"))?;
+        after_read(name);
         let after = version(&file.metadata().map_err(|error| error.to_string())?)?;
         if before != after || after.size != bytes.len() as u64 {
             return Err(format!("declared source changed during capture: {name}"));
@@ -120,4 +129,40 @@ pub fn capture_sources<'a>(
             .insert(name.into(), SnapshotEntry::File(bytes));
     }
     Ok(captured)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn edit_between_source_read_and_observation_refuses_the_entire_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "atelier-v2-capture-edit-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("source");
+        fs::write(&path, b"before").unwrap();
+        let before_time = fs::metadata(&path).unwrap().modified().unwrap();
+        let result = capture_with(&root, ["source"], |_| {
+            fs::write(&path, b"after!").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(
+                    fs::FileTimes::new()
+                        .set_modified(before_time + std::time::Duration::from_secs(1)),
+                )
+                .unwrap();
+        });
+        assert!(result.is_err_and(|error| error.contains("changed during capture")));
+        assert_eq!(fs::read(&path).unwrap(), b"after!");
+        fs::remove_dir_all(root).unwrap();
+    }
 }
