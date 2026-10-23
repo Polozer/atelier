@@ -122,6 +122,10 @@ fn fixture_mixed(
             }],
         });
     }
+    prepare_fixture(project, declaration)
+}
+
+fn prepare_fixture(project: &str, declaration: Declaration) -> (BuildGraph, PreparedUnit) {
     let registry = BTreeMap::from([(
         ("blob".into(), "1".into()),
         OpDefinition {
@@ -1757,17 +1761,34 @@ fn interrupted_local_install_retains_completion_and_uses_existing_quarantine_rec
     let mut plan = installer
         .prepare_local(&guard, completion, &view("first", &graph), vec![])
         .unwrap();
-    assert!(
-        plan.commit_with(
-            &guard,
-            |event| if event == InstallEvent::CloneCreated(0) {
+    let mut clone_cut_reached = false;
+    let result = plan.commit_with(
+        &guard,
+        |event| {
+            if event == InstallEvent::CloneCreated(0) {
+                clone_cut_reached = true;
                 Err(std::io::Error::other("fault after local clone"))
             } else {
                 Ok(())
-            },
-            |_| panic!("fault cannot root")
-        )
-        .is_err()
+            }
+        },
+        |_| panic!("fault cannot root"),
+    );
+    let journal_present = workspace
+        .path("build/build-v2/install/journal.json")
+        .is_file();
+    assert!(
+        clone_cut_reached,
+        "intended CloneCreated cut was not reached; precondition error is not a failed transaction: {result:?}; journal_present={journal_present}"
+    );
+    assert!(
+        matches!(&result, Err(InstallError::Io(error))
+        if error.kind()==std::io::ErrorKind::Other && error.to_string()=="fault after local clone"),
+        "expected the exact injected post-clone error: {result:?}"
+    );
+    assert!(
+        journal_present,
+        "post-clone failure must preserve its durable journal"
     );
     assert!(installer.locks().try_read_content().is_err());
     installer.recover(&guard, &view("first", &graph)).unwrap();
@@ -1786,6 +1807,156 @@ fn interrupted_local_install_retains_completion_and_uses_existing_quarantine_rec
             .is_file()
     );
     installer.locks().try_read_content().unwrap();
+}
+
+#[test]
+fn busy_before_install_start_is_distinct_from_a_journaled_failure_and_recovery() {
+    use atelier_build_v2::checkout_locks::LockError;
+
+    let workspace = Workspace::new();
+    let reader = ReceiptReader::open(
+        &workspace.0,
+        InstallPolicy {
+            project: namespace("first"),
+            allowed_install_roots: vec![
+                "games/first/Content".into(),
+                "games/first/Binaries".into(),
+            ],
+        },
+    )
+    .unwrap();
+    let guard = reader.locks().try_build_exclusive().unwrap();
+    let optional = |version: &str| {
+        let (graph, _) = fixture("first", version);
+        let mut declaration = graph.declaration().clone();
+        for item in &mut declaration.units[0].outputs {
+            for file in &mut item.files {
+                file.required = false;
+            }
+        }
+        prepare_fixture("first", declaration)
+    };
+    let freeze = |unit: &PreparedUnit| {
+        reader
+            .begin_completion(&guard, unit, identity())
+            .unwrap()
+            .freeze(
+                vec![],
+                |outputs| {
+                    assert!(outputs.is_empty());
+                    Ok(())
+                },
+                |_, _, _| panic!("no groups in this fixture"),
+            )
+            .unwrap()
+    };
+
+    // Optional absent files are valid existing semantics: no APFS snapshot/clone is fabricated.
+    let (old_graph, old_unit) = optional("metadata-old");
+    let mut old_plan = reader
+        .prepare_local(
+            &guard,
+            freeze(&old_unit),
+            &view("first", &old_graph),
+            vec![],
+        )
+        .unwrap();
+    assert!(matches!(
+        old_plan
+            .commit(&guard, |_| panic!("local completion is not cached"))
+            .unwrap(),
+        InstallOutcome::InstalledLocally {
+            retention_error: None
+        }
+    ));
+    let index_path = workspace.path("build/build-v2/install/index.json");
+    let index_before = fs::read(&index_path).unwrap();
+    let (graph, unit) = optional("metadata-new");
+    let completion = freeze(&unit);
+    let lease = completion.lease().clone();
+    let lease_path = workspace
+        .path("build/build-v2/install/completions/leases")
+        .join(format!("{}.json", lease.id));
+    let lease_before = fs::read(&lease_path).unwrap();
+    let mut plan = reader
+        .prepare_local(&guard, completion, &view("first", &graph), vec![])
+        .unwrap();
+    let journal_path = workspace.path("build/build-v2/install/journal.json");
+
+    let held_reader = reader.locks().try_read_content().unwrap();
+    let mut hook_reached = false;
+    let result = plan.commit_with(
+        &guard,
+        |_| {
+            hook_reached = true;
+            Ok(())
+        },
+        |_| panic!("a precondition refusal cannot root"),
+    );
+    assert!(
+        matches!(&result, Err(InstallError::Lock(LockError::Busy))),
+        "{result:?}"
+    );
+    assert!(
+        !hook_reached,
+        "Busy must precede every transaction fault hook"
+    );
+    assert!(!journal_path.exists(), "no journal was started on Busy");
+    reader.locks().try_read_content().unwrap();
+    assert_eq!(fs::read(&index_path).unwrap(), index_before);
+    assert_eq!(fs::read(&lease_path).unwrap(), lease_before);
+    drop(held_reader);
+
+    const FAULT: &str = "injected after durable journal creation";
+    let mut journal_cut_reached = false;
+    let result = plan.commit_with(
+        &guard,
+        |event| {
+            if event == InstallEvent::JournalCreated {
+                journal_cut_reached = true;
+                assert!(journal_path.is_file());
+                // The writer is held during the callback as well as the durable barrier existing.
+                assert!(matches!(
+                    reader.locks().try_read_content(),
+                    Err(LockError::Busy)
+                ));
+                Err(std::io::Error::other(FAULT))
+            } else {
+                Ok(())
+            }
+        },
+        |_| panic!("a journaled fault cannot root"),
+    );
+    assert!(
+        journal_cut_reached,
+        "intended journal cut was not reached: {result:?}"
+    );
+    assert!(
+        matches!(&result, Err(InstallError::Io(error))
+        if error.kind()==std::io::ErrorKind::Other && error.to_string()==FAULT),
+        "{result:?}"
+    );
+    let journal_before = fs::read(&journal_path).unwrap();
+    assert!(matches!(
+        reader.locks().try_read_content(),
+        Err(LockError::RecoveryRequired)
+    ));
+    assert_eq!(fs::read(&journal_path).unwrap(), journal_before);
+    assert_eq!(fs::read(&index_path).unwrap(), index_before);
+    assert_eq!(fs::read(&lease_path).unwrap(), lease_before);
+    reader.recover(&guard, &view("first", &graph)).unwrap();
+    assert!(!journal_path.exists());
+    reader.locks().try_read_content().unwrap();
+    assert_eq!(fs::read(&index_path).unwrap(), index_before);
+    assert_eq!(fs::read(&lease_path).unwrap(), lease_before);
+    assert!(
+        workspace
+            .path("build/build-v2/install/completions")
+            .join(&lease.staging)
+            .join("completion.json")
+            .is_file()
+    );
+    assert!(!workspace.path("games/first/Content/Shared.bin").exists());
 }
 
 #[cfg(target_os = "macos")]
