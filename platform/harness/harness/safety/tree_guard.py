@@ -173,12 +173,37 @@ def custody_descriptors(values):
     return found
 
 
+CUSTODY_PAUSE_SECONDS = (.25, 5.)  # first and longest pause between custody observations
+CUSTODY_REFRESH_SECONDS = 15.  # an unchanged hold rewrites its receipt at most this often
+
+
+def _quietly(action, fallback=None):
+    """Run a diagnostic or bookkeeping step; on a custody path nothing may unwind the holder."""
+    try:
+        return action()
+    except BaseException:
+        return fallback
+
+
+def _text(value):
+    """A bounded description that never raises, whatever repr or str do."""
+    def describe():
+        text = repr(value) if isinstance(value, BaseException) else str(value)
+        return str.__str__(text)[:500]
+    return _quietly(describe) or _quietly(lambda: '<unprintable ' + type(value).__name__ + '>') or '<unprintable>'
+
+
+def _log(message):
+    _quietly(lambda: print(message, file=sys.stderr, flush=True))
+
+
 def _write_quietly(report, value):
+    """Publish the receipt if possible. A failed report, serialisation or log never releases custody."""
     try:
         write_report(report, value)
         return True
-    except Exception as error:  # A missing or unwritable receipt never releases custody.
-        print(f'custody receipt not written: {error!r}', file=sys.stderr, flush=True)
+    except BaseException as error:
+        _log('custody receipt not written: ' + _text(error))
         return False
 
 
@@ -188,10 +213,18 @@ def _custody_pause(seconds):
 
 def _close_custody(custody):
     for fd, _ in custody:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
+        _quietly(lambda: os.close(fd))
+
+
+def _monitor_identity():
+    from atelier.harness.safety import process_tree
+    return [os.getpid(), process_tree.started(os.getpid())]
+
+
+def _observation(remaining, quiet, drained):
+    """What a refresh must publish promptly when it changes; footprints alone do not count."""
+    pins = _quietly(lambda: sorted((p['pid'], p['started']) for p in remaining), None)
+    return 'observed', _text(remaining if pins is None else pins), _text(quiet), _text(drained)
 
 
 def keep_custody(tree, report, value, custody, code):
@@ -199,46 +232,53 @@ def keep_custody(tree, report, value, custody, code):
 
     The terminal outcome in `value` (state, termination_reason, cleanup_complete) is already
     final. Late cleanup is recorded separately as `late_cleanup_complete` and never changes it.
+    Every report, log, repr and serialisation step here is best-effort: none can end the hold.
     """
-    files = [list(identity) for _, identity in custody]
-    if value.get('cleanup_complete') is True:
-        value['custody'] = dict(held=False, released='cleanup_complete', lock_files=files)
+    files = _quietly(lambda: [list(identity) for _, identity in custody], [])
+    if _quietly(lambda: value.get('cleanup_complete') is True, False):
+        _quietly(lambda: value.__setitem__('custody', dict(held=False, released='cleanup_complete', lock_files=files)))
         _write_quietly(report, value)
         _close_custody(custody)
         return code
-    try:
-        from atelier.harness.safety import process_tree
-        monitor = [os.getpid(), process_tree.started(os.getpid())]
-    except Exception:
-        monitor = [os.getpid(), None]
-    reason = value.get('termination_reason') or value.get('state')
-    record = value['custody'] = dict(held=True, reason=f'owned cleanup unverified after {reason}',
-                                     lock_files=files, monitor=monitor, since=time.time(),
-                                     last_observation=None, last_error=None, remaining=None)
-    _write_quietly(report, value)
-    print(f'custody held by monitor {monitor} for {report}: {record["reason"]}', file=sys.stderr, flush=True)
+    first, longest = CUSTODY_PAUSE_SECONDS
+    monitor = _quietly(_monitor_identity) or [os.getpid(), None]
+    reason = _text(_quietly(lambda: value.get('termination_reason') or value.get('state'), 'unknown'))
+    record = dict(held=True, reason='owned cleanup unverified after ' + reason, lock_files=files,
+                  monitor=monitor, since=time.time(), last_observation=None, last_error=None, remaining=None,
+                  refreshed=time.time(), pause_seconds=first)
+    _quietly(lambda: value.__setitem__('custody', record))
+    published = time.monotonic() if _write_quietly(report, value) else None
+    _log('custody held by monitor ' + _text(monitor) + ' for ' + _text(report) + ': ' + record['reason'])
+    pause, previous = first, None
     while True:
-        verified = False
         try:
-            drained = drain_owned(tree)
-            remaining = tree.sample()
-            reporters = getattr(tree, 'reporters', None)
-            quiet = reporters is None or reporters.empty()
-            verified = drained and not remaining and quiet
-            record.update(last_observation=time.time(), remaining=remaining, late_reporters_empty=quiet,
-                          last_error=None)
-        except BaseException as error:  # Retry; never unwind while custody is held.
-            record['last_error'] = repr(error)
-        record['refreshed'] = time.time()
-        if verified:
-            break
-        _write_quietly(report, value)
-        try:
-            _custody_pause(.25)
+            verified = False
+            try:
+                drained = drain_owned(tree)
+                remaining = tree.sample()
+                reporters = getattr(tree, 'reporters', None)
+                quiet = reporters is None or reporters.empty()
+                verified = bool(drained and not remaining and quiet)
+                record.update(last_observation=time.time(), remaining=remaining, late_reporters_empty=quiet,
+                              last_error=None)
+                observation = _observation(remaining, quiet, drained)
+            except BaseException as error:  # Retry; never unwind while custody is held.
+                record['last_error'] = _text(error)
+                observation = 'error', record['last_error']
+            if verified:
+                break
+            if observation != previous:
+                pause = first  # a change is published at once and watched closely again
+            if observation != previous or published is None or time.monotonic() - published >= CUSTODY_REFRESH_SECONDS:
+                record.update(refreshed=time.time(), pause_seconds=pause)
+                published = time.monotonic() if _write_quietly(report, value) else None
+            previous = observation
+            _quietly(lambda: _custody_pause(pause))
+            pause = min(pause * 2, longest)
         except BaseException:
-            pass
-    record.update(held=False, released='late_cleanup_complete', released_at=time.time())
-    value['late_cleanup_complete'] = True
+            _quietly(lambda: _custody_pause(longest))  # even bookkeeping failure keeps holding
+    _quietly(lambda: record.update(held=False, released='late_cleanup_complete', released_at=time.time()))
+    _quietly(lambda: value.__setitem__('late_cleanup_complete', True))
     _write_quietly(report, value)
     _close_custody(custody)
     return code
@@ -256,9 +296,10 @@ def run_child(pid, started, report, duration=None, limit_gib=10., controller=Non
     That bounded terminal outcome is the job's result. An opt-in custody monitor MUST publish it
     unchanged, then MAY continue without a time bound, keeping its checkout custody descriptors
     until pinned cleanup, including late reporters, is verified on two empty samples. Timeouts,
-    telemetry or receipt failures, TERM/HUP and controller loss MUST NOT release custody, and late
-    cleanup MUST NOT change the recorded state, termination reason or exit status. SIGKILL or an
-    OS crash of the monitor itself is outside this guarantee.
+    telemetry, receipt, log, repr or serialisation failures, TERM/HUP and controller loss MUST NOT
+    release custody; the hold backs off to a bounded pause, refreshes its receipt on a throttle and
+    publishes any change at once. Late cleanup MUST NOT change the recorded state, termination
+    reason or exit status. SIGKILL or an OS crash of the monitor itself is outside this guarantee.
     """
     from atelier.harness.safety import process_tree
     adopted = adopt_reporters(launch_nonce)
@@ -331,12 +372,15 @@ def run_child(pid, started, report, duration=None, limit_gib=10., controller=Non
         if not custody:
             drain_owned(tree)
             raise
-        failed = dict(owner=pid, owner_started=started, time=time.time(), observed_monotonic=time.monotonic(),
-                      elapsed_seconds=time.monotonic() - began, footprint_bytes=0, peak_bytes=peak,
-                      limit_bytes=limit, state='cleanup_incomplete', termination_reason='monitor_error',
-                      error=repr(error), processes=[], cleanup_complete=False)
-        if controller is not None:
-            failed['controller'] = list(controller)
+        failed = dict(state='cleanup_incomplete', termination_reason='monitor_error', cleanup_complete=False)
+
+        def describe():
+            failed.update(owner=pid, owner_started=started, time=time.time(), observed_monotonic=time.monotonic(),
+                          elapsed_seconds=time.monotonic() - began, footprint_bytes=0, peak_bytes=peak,
+                          limit_bytes=limit, error=_text(error), processes=[])
+            if controller is not None:
+                failed['controller'] = list(controller)
+        _quietly(describe)
         return keep_custody(tree, report, failed, custody, 1)
 
 

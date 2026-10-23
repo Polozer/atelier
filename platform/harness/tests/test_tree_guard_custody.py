@@ -182,6 +182,143 @@ def test_complete_cleanup_releases_immediately_with_its_receipt(tmp_path, monkey
     assert not refused(lock_path)
 
 
+class Unprintable(Exception):
+    def __repr__(self):
+        raise RuntimeError('repr failed')
+
+    __str__ = __repr__
+
+
+class FullStream:
+    """A stderr whose every write fails, like a full or revoked log."""
+    def write(self, text):
+        raise OSError('log full')
+
+    def flush(self):
+        raise OSError('log full')
+
+
+def failing_outputs(monkeypatch, attempts):
+    def full_report(path, value):
+        attempts.append(json.loads(json.dumps(value, default=repr)))
+        raise OSError('receipt full')
+    monkeypatch.setattr(tree_guard, 'write_report', full_report)
+    monkeypatch.setattr(tree_guard.sys, 'stderr', FullStream())
+
+
+def scripted(values):
+    def step(*args, **kwargs):
+        value = next(values)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+    return step
+
+
+def holding_pause(lock_path, pauses):
+    def pause(seconds):
+        assert refused(lock_path), 'exclusion must hold while cleanup is unverified'
+        pauses.append(seconds)
+    return pause
+
+
+def test_failed_reports_logs_and_reprs_never_end_the_hold(tmp_path, monkeypatch):
+    """front-man's repro: both the receipt and the log fail while cleanup is unknown."""
+    lock_path = tmp_path / 'checkout.lock'
+    original, duplicate = lock(lock_path)
+    os.close(original)
+    attempts, pauses = [], []
+    failing_outputs(monkeypatch, attempts)
+    monkeypatch.setattr(tree_guard, 'drain_owned', scripted(iter([Unprintable(), False, OSError('x'), True])))
+    monkeypatch.setattr(tree_guard, '_custody_pause', holding_pause(lock_path, pauses))
+    tree = fake_tree(scripted(iter([[], []])))
+    value = dict(state='cleanup_incomplete', termination_reason='memory_limit', cleanup_complete=False,
+                 unserialisable={1, 2})
+    assert tree_guard.keep_custody(tree, tmp_path / 'tree.json', value, custody_of(duplicate), 1) == 1
+    assert len(pauses) == 3 and attempts, 'it kept retrying and kept trying to publish'
+    assert value['state'] == 'cleanup_incomplete' and value['termination_reason'] == 'memory_limit'
+    assert value['cleanup_complete'] is False and value['late_cleanup_complete'] is True
+    assert value['custody']['released'] == 'late_cleanup_complete'
+    assert '<unprintable Unprintable>' in [a['custody'].get('last_error') for a in attempts]
+    with pytest.raises(OSError):
+        os.fstat(duplicate)
+    assert not refused(lock_path)
+
+
+def test_monitor_error_with_failed_outputs_still_holds_until_verified(tmp_path, monkeypatch):
+    """The same failures through run_child's exception fallback, with an unprintable error."""
+    lock_path = tmp_path / 'checkout.lock'
+    original, duplicate = lock(lock_path)
+    os.close(original)
+    attempts, pauses = [], []
+    failing_outputs(monkeypatch, attempts)
+
+    def same(pin):
+        raise Unprintable()
+    tree = SimpleNamespace(root=(1, 10), same=same, reporters=None, sample=scripted(iter([[], [{'pid': 2}], []])))
+    monkeypatch.setattr(tree_guard, 'OwnedTree', lambda *args: tree)
+    monkeypatch.setattr(tree_guard, 'drain_owned', scripted(iter([False, False, True])))
+    monkeypatch.setattr(tree_guard, '_custody_pause', holding_pause(lock_path, pauses))
+    assert tree_guard.run_child(1, 10, tmp_path / 'tree.json', custody=custody_of(duplicate)) == 1
+    assert len(pauses) == 2
+    final = attempts[-1]
+    assert final['state'] == 'cleanup_incomplete' and final['termination_reason'] == 'monitor_error'
+    assert final['error'] == '<unprintable Unprintable>' and final['cleanup_complete'] is False
+    assert final['late_cleanup_complete'] is True and final['custody']['released'] == 'late_cleanup_complete'
+    assert not refused(lock_path)
+
+
+def test_hold_backs_off_throttles_unchanged_refreshes_and_publishes_changes_at_once(tmp_path, monkeypatch):
+    lock_path = tmp_path / 'checkout.lock'
+    original, duplicate = lock(lock_path)
+    os.close(original)
+    stuck = [dict(pid=2, started=20, footprint_bytes=1)]
+    moved = [dict(pid=2, started=20, footprint_bytes=999)]  # a footprint change alone is not a state change
+    other = [dict(pid=3, started=30, footprint_bytes=1)]
+    samples = [stuck] * 3 + [moved] * 3 + [other] * 3 + [[]]
+    monkeypatch.setattr(tree_guard, 'drain_owned', scripted(iter([False] * 9 + [True])))
+    tree = fake_tree(scripted(iter(samples)))
+    writes, pauses = [], []
+    original_write = tree_guard.write_report
+
+    def counted(path, value):
+        writes.append(json.loads(json.dumps(value)))
+        original_write(path, value)
+    monkeypatch.setattr(tree_guard, 'write_report', counted)
+    monkeypatch.setattr(tree_guard, '_custody_pause', holding_pause(lock_path, pauses))
+    value = dict(state='cleanup_incomplete', termination_reason='child_exited', cleanup_complete=False)
+    assert tree_guard.keep_custody(tree, tmp_path / 'tree.json', value, custody_of(duplicate), 1) == 1
+    assert pauses == [.25, .5, 1., 2., 4., 5., .25, .5, 1.], 'backoff to 5 s, reset on a real change'
+    held = [w['custody'] for w in writes if w['custody']['held']]
+    # the initial hold, the first observation, then only the change to another process
+    assert [h['remaining'][0]['pid'] if h['remaining'] else None for h in held] == [None, 2, 3]
+    assert writes[-1]['custody']['released'] == 'late_cleanup_complete'
+    assert not refused(lock_path)
+
+
+def test_an_unchanged_hold_still_refreshes_its_receipt_on_the_throttle(tmp_path, monkeypatch):
+    lock_path = tmp_path / 'checkout.lock'
+    original, duplicate = lock(lock_path)
+    os.close(original)
+    clock = [1000.]
+    monkeypatch.setattr(tree_guard.time, 'monotonic', lambda: clock[0])
+    stuck = [dict(pid=2, started=20, footprint_bytes=1)]
+    monkeypatch.setattr(tree_guard, 'drain_owned', scripted(iter([False] * 4 + [True])))
+    tree = fake_tree(scripted(iter([stuck] * 4 + [[]])))
+    writes = []
+    original_write = tree_guard.write_report
+    monkeypatch.setattr(tree_guard, 'write_report', lambda path, value: (writes.append(1), original_write(path, value)))
+
+    def pause(seconds):
+        clock[0] += 8.  # two unchanged pauses reach the refresh interval
+    monkeypatch.setattr(tree_guard, '_custody_pause', pause)
+    value = dict(state='cleanup_incomplete', termination_reason='child_exited', cleanup_complete=False)
+    tree_guard.keep_custody(tree, tmp_path / 'tree.json', value, custody_of(duplicate), 1)
+    # initial, first observation, one throttled refresh after 16 s unchanged, then the release
+    assert len(writes) == 4
+    assert not refused(lock_path)
+
+
 def test_term_and_hup_while_holding_never_end_the_custodian(tmp_path):
     lock_path = tmp_path / 'checkout.lock'
     original, duplicate = lock(lock_path)

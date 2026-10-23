@@ -24,7 +24,7 @@ from pathlib import Path
 from atelier.harness.capacity_protocol import process_start
 
 def run(command, folder, timeout=0., purpose=None, env=None, limit_gib=10., kind='job', on_slot=None,
-        on_poll=None, pass_fds=(), queue_seconds=None, custody_fds=()):
+        on_poll=None, pass_fds=(), queue_seconds=None, custody_fds=(), invocation_id=None):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     scenario = os.environ['FAKE_GUARD']
@@ -40,15 +40,24 @@ def run(command, folder, timeout=0., purpose=None, env=None, limit_gib=10., kind
                                  stdout=log, stderr=subprocess.STDOUT)
     start = process_start(child.pid)
     state = 'memory_limit' if scenario == 'memory' else 'running'
-    (folder / 'memory-health.json').write_text(json.dumps(dict(pid=child.pid, process_start=start, state=state)))
-    tree = dict(owner=child.pid, owner_started=start, state='child_exited', cleanup_complete=scenario != 'unconfirmed',
-                processes=[])
+    (folder / 'memory-health.json').write_text(json.dumps(dict(pid=child.pid, process_start=start, state=state,
+                                                               time=time.time())))
+    tree = dict(owner=child.pid, owner_started=start, state='child_exited', cleanup_complete=True,
+                processes=[], footprint_bytes=0,
+                late_reporters=dict(adopted=[], unresolved=[], unresolved_pids=[], scan_failed=False))
+    files = [list(os.fstat(fd)[1:3][::-1]) for fd in custody_fds]
+    if files:
+        tree['custody'] = dict(held=False, released='cleanup_complete', lock_files=files)
+    if scenario == 'unconfirmed':
+        tree.update(state='cleanup_incomplete', termination_reason='child_exited', cleanup_complete=False)
     try:
         on_poll(child.pid)
         if scenario == 'memory':
             child.kill()
             child.wait()
-            tree.update(state='memory_limit')
+            # A stop keeps the offending sample and publishes the post-drain one separately.
+            tree.update(state='memory_limit', processes=[dict(pid=child.pid)], footprint_bytes=123,
+                        cleanup_processes=[], cleanup_footprint_bytes=0)
             raise SystemExit('process memory guard stopped the child')
         code = child.wait()
         if scenario == 'capacity':
@@ -58,8 +67,10 @@ def run(command, folder, timeout=0., purpose=None, env=None, limit_gib=10., kind
         if child.poll() is None:
             child.kill()
             child.wait()
-            tree.update(state='terminated')
+            tree.update(state='terminated', cleanup_processes=[], cleanup_footprint_bytes=0)
+        tree['time'] = time.time()
         (folder / 'memory-health-tree.json').write_text(json.dumps(tree))
+        (folder / 'execution-timings.json').write_text(json.dumps(dict(schema=1, invocation_id=invocation_id)))
 '''
 
 
@@ -173,17 +184,119 @@ def test_guard_stops_and_uncertain_cleanup_are_reported_as_such(tmp_path, scenar
     assert bridge.finish() == 1
 
 
-def test_classification_and_cleanup_rules_are_conservative():
+def test_classification_is_conservative():
     assert classify(None, {'state': 'memory_limit'}, None, False) == 'guard'
     assert classify(SystemExit('child exceeded 30 s'), {'state': 'running'}, None, False) == 'deadline'
     assert classify(SystemExit(143), None, None, False) == 'cancel'
     assert classify(None, None, None, True) == 'cancel'
     assert classify(None, {'state': 'running'}, {'state': 'child_exited'}, False) is None
-    tree = dict(owner=7, owner_started=70, state='child_exited', cleanup_complete=True, processes=[])
-    assert cleanup(None, (7, 70), {}, tree) == (True, None)
-    assert cleanup(SystemExit(143), None, None, None) == (True, None)
-    assert not cleanup(RuntimeError('broker'), None, None, None)[0]
-    assert not cleanup(None, (7, 70), {}, None)[0]
-    assert not cleanup(None, (8, 80), {}, tree)[0]
-    assert not cleanup(None, (7, 70), {}, {**tree, 'cleanup_complete': False})[0]
-    assert not cleanup(None, (7, 70), {}, {**tree, 'custody': {'held': True}})[0]
+
+
+INVOCATION = 'a' * 32
+FILES = [[1, 11], [1, 12]]
+
+
+def receipts(**tree):
+    """A consistent confirmed set: pinned child (7, 70), fresh receipts, an empty drained tree."""
+    base = dict(owner=7, owner_started=70, time=100., state='child_exited', cleanup_complete=True,
+                processes=[], footprint_bytes=0,
+                late_reporters=dict(adopted=[], unresolved=[], unresolved_pids=[], scan_failed=False))
+    base.update(tree)
+    return dict(error=None, child=(7, 70), process=dict(pid=7, process_start=70, time=100., state='running'),
+                tree=base, admitted=True, since=50., invocation=INVOCATION,
+                timings=dict(schema=1, invocation_id=INVOCATION), custody=None)
+
+
+def judge(error, child, process, tree, **rest):
+    return cleanup(error, child, process, tree, **rest)
+
+
+STOPPED = dict(state='memory_limit', processes=[{'pid': 8}], footprint_bytes=123, cleanup_processes=[],
+               cleanup_footprint_bytes=0)
+CUSTODY = dict(held=False, released='cleanup_complete', lock_files=[[1, 12], [1, 11]])
+
+
+@pytest.mark.parametrize('evidence', [
+    receipts(),
+    receipts(**STOPPED),
+    {**receipts(**STOPPED), 'error': SystemExit('child exceeded 30 s')},
+    {**receipts(custody=CUSTODY), 'custody': FILES},
+    dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50.,
+         invocation=INVOCATION, timings=None, custody=None),
+    # The real guard publishes its diagnostic timings even for a run cancelled in the queue.
+    dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50.,
+         invocation=INVOCATION, timings=dict(schema=1, invocation_id=INVOCATION), custody=None),
+], ids=['exited', 'stopped', 'deadline', 'custody', 'queued-cancel', 'queued-cancel-timings'])
+def test_cleanup_confirms_only_consistent_affirmative_evidence(evidence):
+    assert judge(**evidence) == (True, None)
+
+
+def mutate(path, value, **tree):
+    evidence = receipts(**tree)
+    evidence[path] = value
+    return evidence
+
+
+@pytest.mark.parametrize('evidence', [
+    # front-man's repro: a running, nonempty tree that claims cleanup_complete
+    receipts(state='running', processes=[{'pid': 8}], footprint_bytes=123),
+    receipts(processes=[{'pid': 8}]),
+    receipts(footprint_bytes=123),
+    receipts(footprint_bytes=False),
+    receipts(processes=None),
+    receipts(cleanup_processes=[], cleanup_footprint_bytes=0),
+    receipts(**{**STOPPED, 'cleanup_processes': [{'pid': 9}]}),
+    receipts(**{**STOPPED, 'cleanup_footprint_bytes': 4096}),
+    receipts(state='memory_limit', processes=[], footprint_bytes=0),
+    receipts(state='cleanup_incomplete', termination_reason='child_exited'),
+    receipts(termination_reason='child_exited'),
+    receipts(error='RuntimeError()'),
+    receipts(cleanup_complete=1),
+    receipts(state=None),
+    receipts(late_reporters=dict(adopted=[], unresolved=[{'pid': 9}], unresolved_pids=[], scan_failed=False)),
+    receipts(late_reporters=dict(adopted=[], unresolved=[], unresolved_pids=[9], scan_failed=False)),
+    receipts(late_reporters=dict(adopted=[], unresolved=[], unresolved_pids=[], scan_failed=True)),
+    receipts(late_reporters=None),
+    receipts(owner=8),
+    receipts(owner_started=71),
+    mutate('process', dict(pid=7, process_start=71, time=100.)),
+    mutate('process', None),
+    mutate('tree', None),
+    mutate('tree', []),
+    receipts(time=10.),
+    receipts(time='100'),
+    receipts(time=float('nan')),
+    mutate('process', dict(pid=7, process_start=70, time=10.)),
+    mutate('process', dict(pid=7, process_start=70)),
+    mutate('timings', None),
+    mutate('timings', dict(schema=1, invocation_id='b' * 32)),
+    mutate('admitted', False),
+    mutate('error', RuntimeError('Capacity exit remains uncertain; reservation and named locks retained')),
+    mutate('custody', FILES),
+    mutate('custody', FILES, custody=dict(held=True, reason='unverified', lock_files=FILES)),
+    mutate('custody', FILES, custody=dict(held=False, released='late_cleanup_complete', lock_files=FILES)),
+    mutate('custody', FILES, custody=dict(held=False, released='cleanup_complete', lock_files=[[1, 11]])),
+    mutate('custody', FILES, custody=dict(held=False, released='cleanup_complete', lock_files=[[1, 'x'], 3])),
+    mutate('custody', FILES, custody=dict(held=False, released='cleanup_complete')),
+    mutate('custody', FILES, custody='released'),
+    receipts(custody=CUSTODY),
+])
+def test_cleanup_rejects_malformed_contradictory_stale_or_missing_evidence(evidence):
+    confirmed, reason = judge(**evidence)
+    assert confirmed is False and reason
+
+
+@pytest.mark.parametrize('change', [
+    dict(admitted=True),
+    dict(error=None),
+    dict(process=dict(pid=7, process_start=70, time=100.)),
+    dict(tree=dict(owner=7, owner_started=70, time=100., state='child_exited', cleanup_complete=True,
+                   processes=[], footprint_bytes=0)),
+    dict(timings=dict(schema=1, invocation_id='b' * 32)),
+    dict(timings=[]),
+])
+def test_no_child_is_confirmed_only_for_an_unwind_before_admission_without_receipts(change):
+    evidence = dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50.,
+                    invocation=INVOCATION, timings=None, custody=None)
+    evidence.update(change)
+    assert judge(**evidence)[0] is False
