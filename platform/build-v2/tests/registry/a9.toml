@@ -3,3 +3,31 @@ schema_version = 1
 [[pending]]
 id = "t0.output-cutoff"
 task = "A9"
+
+[[scenarios]]
+id = "a9a.frontier_lookup_precedes_compatible_dispatch_and_hits_launch_nothing"
+tests = ["atelier-build-v2::scheduler/frontier_lookup_precedes_compatible_dispatch_and_hits_launch_nothing"]
+
+[[scenarios]]
+id = "a9a.equal_output_content_cuts_off_changed_producer_input_key"
+tests = ["atelier-build-v2::scheduler/equal_output_content_cuts_off_changed_producer_input_key"]
+
+[[scenarios]]
+id = "a9a.reference_ordering_does_not_hash_producer_payload"
+tests = ["atelier-build-v2::scheduler/reference_ordering_does_not_hash_producer_payload"]
+
+[[scenarios]]
+id = "a9a.independent_failure_retains_publication_and_blocks_only_dependents"
+tests = ["atelier-build-v2::scheduler/independent_failure_retains_publication_and_blocks_only_dependents"]
+
+[[scenarios]]
+id = "a9a.cancellation_preserves_completed_units_and_marks_unreturned_work"
+tests = ["atelier-build-v2::scheduler/cancellation_preserves_completed_units_and_marks_unreturned_work"]
+
+[[scenarios]]
+id = "a9a.faulty_backend_key_and_materialization_claims_refuse"
+tests = ["atelier-build-v2::scheduler/faulty_backend_key_and_materialization_claims_refuse"]
+
+[[scenarios]]
+id = "a9a.target_materialization_is_explicit_and_current_does_not_rewrite"
+tests = ["atelier-build-v2::scheduler/target_materialization_is_explicit_and_current_does_not_rewrite"]

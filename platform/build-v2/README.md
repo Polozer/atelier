@@ -567,3 +567,24 @@ does not materialize prerequisites. This does not prove cold key resolution, dyn
 planner scheduling, worker staging or A9's end-to-end dispatch/output cutoff; those
 integration obligations remain separate. The complete ownership view and exact
 retirement authority still come from B3/D4 callers, never path-prefix inference.
+
+## Static scheduling core (A9a)
+
+The unused `scheduler` module binds a selected A4 static graph and immutable snapshot
+in one request, resolves exact A3 keys using producer output identities, and looks up
+all currently ready units before dispatching compatible misses. Hit-unlocked frontiers
+are followed before dispatch. Each completion publishes independently; unrelated work
+can succeed after a unit fails, while dependent units stay blocked. Cancellation retains
+completed publications. Backend-owned opaque checked/miss handles preserve cache and
+install authority: this module cannot construct production StoredHit or group tokens.
+The supplied executor owns worker sessions, retries, admission, deadlines and cleanup.
+
+Tests use a separate fake backend with real A3/A4 code. They distinguish Current, stored
+hits and execution, record lookup/dispatch/publication order, and count reported staging,
+install and receipt effects. Incorrect backend key or materialization claims are rejected;
+these counters do not certify native I/O. Existing `t0.output-cutoff` remains pending for
+the full A9 integration. Production A5/B7/C1 adapters, resident C5c batching, recorded
+identity availability, A6 mid-build edits, dynamic cold targets, persisted retirement
+ownership and independent A8 harness integration remain separate acceptance work. A known
+prepared Current result short-circuits execution, but this static core still resolves
+its dependency identity closure; it does not claim target-first cold identity discovery.
