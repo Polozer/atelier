@@ -9,6 +9,8 @@ not game cache identities.
 - `schema`: `Declaration`, `Unit`, `Input`, `Item`, `ResultRecord`, `IdentityIngredients`.
 - `protocol`: `JobRequest`, `Request`, `Response`, `read_frame`, `write_frame`.
 - `fixture`: `Worker`, `MockWorker`, `MockStep`, `FixtureFile`.
+- `explain`: observational `Recorder`, compact ingredient differences and per-unit `BuildSummary`;
+  see [summary semantics](../../docs/build-v2/EXPLAIN.md). CLI wiring remains I2.
 
 [examples/units.toml](examples/units.toml) is a complete parseable declaration. Code lists are explicit,
 project-relative and include the entry script. Loading undeclared project code will be refused by the

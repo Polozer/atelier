@@ -1,12 +1,86 @@
 //! Static Python dispatch through the existing C5b lifecycle, with no independent process owner.
 use crate::failure_policy::{CleanupState, End, Limits, Stop};
 use crate::guard_adapter::WorkerLauncher;
-use crate::python_backend::{PythonCompletion, PythonInputs, PythonTicket};
+use crate::python_backend::{PythonCompletion, PythonInputs, PythonIo, PythonTicket};
 use crate::python_worker::PythonWorkerBundle;
 use crate::scheduler::{Control, Event, Executor, Flow, Work};
 use crate::worker_lifecycle::{self, Custody, JobSpec, SystemClock};
 use std::path::PathBuf;
 use std::time::Duration;
+
+/// Only guard ChildStarted identities count, one per attempt (including retries).
+/// Missing reports/uncertain custody cannot certify zero or a complete count.
+fn record_launches(io: &mut PythonIo, unit: &str, report: Option<&worker_lifecycle::Report>) {
+    io.launches_by_unit.remove(unit);
+    if let Some(report) = report {
+        let count = report
+            .attempts
+            .iter()
+            .filter(|attempt| attempt.worker.is_some())
+            .count();
+        io.launches += count;
+        if !matches!(report.outcome.cleanup, CleanupState::Unconfirmed(_))
+            && report.attempts.iter().all(|attempt| {
+                attempt.custody == Custody::Released
+                    && (!attempt.admitted || attempt.worker.is_some())
+            })
+        {
+            io.launches_by_unit.insert(unit.into(), count);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::failure_policy::Outcome;
+    use crate::leases::ProcessIdentity;
+    use crate::worker_lifecycle::{AttemptRecord, Report};
+
+    #[test]
+    fn launch_evidence_counts_worker_attempts_and_never_turns_uncertainty_into_zero() {
+        let mut io = PythonIo::default();
+        let attempt = AttemptRecord {
+            attempt: 1,
+            admitted: false,
+            worker: None,
+            custody: Custody::Released,
+        };
+        let mut report = Report {
+            outcome: Outcome {
+                end: End::Failed(Stop::Cancelled),
+                attempts: 0,
+                cleanup: CleanupState::NotNeeded,
+            },
+            attempts: vec![attempt],
+            outputs: None,
+            abort: Some("submission failed".into()),
+        };
+        record_launches(&mut io, "known-zero", Some(&report));
+        assert_eq!(io.launches_by_unit["known-zero"], 0);
+        report.attempts[0].admitted = true;
+        record_launches(&mut io, "admitted-only", Some(&report));
+        assert!(!io.launches_by_unit.contains_key("admitted-only"));
+        report.attempts[0].worker = Some(ProcessIdentity {
+            pid: 123,
+            boot: "fixture".into(),
+            started: "one".into(),
+        });
+        let mut retry = report.attempts[0].clone();
+        retry.attempt = 2;
+        retry.worker.as_mut().unwrap().started = "two".into();
+        report.attempts.push(retry);
+        record_launches(&mut io, "retry", Some(&report));
+        assert_eq!(io.launches_by_unit["retry"], 2);
+        assert_eq!(io.launches, 2);
+        report.attempts[1].custody = Custody::Held("cleanup uncertain".into());
+        record_launches(&mut io, "held", Some(&report));
+        assert!(!io.launches_by_unit.contains_key("held"));
+        io.launches_by_unit.insert("missing-report".into(), 0);
+        record_launches(&mut io, "missing-report", None);
+        assert!(!io.launches_by_unit.contains_key("missing-report"));
+    }
+}
 
 pub struct PythonExecution {
     pub interpreter: PathBuf,
@@ -66,6 +140,11 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
         if !self.scripted_fixture {
             // C5b currently registers only the loop. A caller cannot assert monitor custody by flag.
             for work in work {
+                work.inputs()
+                    .io
+                    .borrow_mut()
+                    .launches_by_unit
+                    .insert(work.unit().into(), 0);
                 emit(Event::Failed {
                     work,
                     reason: "custodian registration unsupported until C5c slice5".into(),
@@ -76,6 +155,13 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
         let mut stopped = false;
         let mut fatal = None;
         for mut work in work {
+            // Every early refusal below precedes submission. A returned lifecycle report replaces
+            // this zero; missing/uncertain lifecycle evidence removes it rather than proving zero.
+            work.inputs()
+                .io
+                .borrow_mut()
+                .launches_by_unit
+                .insert(work.unit().into(), 0);
             if stopped || control.cancelled() {
                 stopped |= emit(Event::Cancelled { work }) == Flow::Stop;
                 continue;
@@ -145,13 +231,11 @@ impl<L: WorkerLauncher + Send> Executor<PythonTicket, PythonInputs, PythonComple
                     .map_err(|_| "Python lifecycle driver panicked".to_string())?
                     .map_err(|error| format!("{error:?}"))
             });
-            if let Ok(report) = &result {
-                work.inputs().io.borrow_mut().launches += report
-                    .attempts
-                    .iter()
-                    .filter(|attempt| attempt.worker.is_some())
-                    .count();
-            }
+            record_launches(
+                &mut work.inputs().io.borrow_mut(),
+                work.unit(),
+                result.as_ref().ok(),
+            );
             let event = match result {
                 Ok(report)
                     if !matches!(report.outcome.cleanup, CleanupState::Unconfirmed(_))
