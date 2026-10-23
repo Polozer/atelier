@@ -27,6 +27,9 @@ def construct(value):
     obj,slots = solid.to_object(mesh,solid.make_materials({}))
     group = value.get('rope_group')
     groups = None if group is None else rope_groups(mesh.name,mesh.faces,group['components'])
+    # A validated single-member L3 uses the true whole policy, retaining every
+    # original vertex/POINT attribute (including any unreferenced source point).
+    if groups is not None and len(groups)==1:groups=None
     if mesh.name=='GD_floor_rim_Access':groups=access_groups(mesh.name,mesh.faces)
     query = dict(schema=1,asset=mesh.name,mesh={field:getattr(mesh,field) for field in FIELDS},
                  report=report,materials=slots)

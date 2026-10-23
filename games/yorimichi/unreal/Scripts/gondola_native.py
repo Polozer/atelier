@@ -9,6 +9,7 @@ from atelier import native_membership
 from atelier.export_manifest import real_directory
 
 DESTINATION = '/Game/Gondola/World'
+MATERIAL_DESTINATION = '/Game/Gondola/Materials'
 LOD_PROOF = 'Gondola.SourceLods.v1'
 
 
@@ -202,6 +203,9 @@ def validate_access_seams(parts,geometry):
                             if hit.get('blocking') is not True:continue
                             nearest=min(row['distance'] for row in hits.values() if row.get('blocking') is True)
                             if hit['distance']!=nearest:continue
+                            visible={json.dumps({key:row[key] for key in ('position','normal','distance')},sort_keys=True)
+                                     for row in hits.values() if row.get('blocking') is True and row['distance']==nearest}
+                            if len(visible)!=1:continue
                             accepted=dict(member=name,capsule=capsule,input=value,observed=hit);break
                         if accepted is not None:break
                     if accepted is not None:break
@@ -250,7 +254,7 @@ def validate_receiving(site,folder,editor,state):
             if lod==0 and header['cooked_count']!=count:raise ValueError('Incomplete actual Gondola LOD0 triangle collision cook')
             slots=header['slots'];allowed=set(logical['materials'])
             if (not slots or any(slot['name'] not in allowed or slot['material']!=
-                    '/Game/Gondola/Materials/'+slot['name']+'.'+slot['name'] for slot in slots)):
+                    MATERIAL_DESTINATION+'/'+slot['name']+'.'+slot['name'] for slot in slots)):
                 raise ValueError('Current Gondola native material binding differs')
             if row['name']=='GD_floor_rim_Access':access_geometry[name]=value['triangles']
             unreal.log('GONDOLA NATIVE VALIDATED '+name+' LOD'+str(lod)+' '+str(count))
