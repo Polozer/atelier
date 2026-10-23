@@ -16,6 +16,7 @@ GAME = WORLD.parent
 sys.path[:0] = [str(WORLD),str(WORLD / 'regions')]
 import yori  # noqa: E402,F401
 from atelier import encoded_glb
+from atelier.file_copy import copy_file
 from atelier.atomic_files import atomic_json  # noqa: E402
 from atelier.export_manifest import real_directory,sha  # noqa: E402
 from belmonte import model_sources,scene_inputs,runtime_groups,atomic_metadata  # noqa: E402
@@ -172,30 +173,57 @@ def country_groups(build,origin):
     return groups,packets
 
 
-def structure_paths(build):
-    # Product reads own the complete selected planner directories. This deferred
-    # census declares every member inspected for bounds selection before exports.
-    scene=scene_inputs.read(Path(build)/'belmonte-scene-data/runtime.json',view='runtime')
-    paths=[]
-    owners=[('belmonte_models',key) for key in structure_keys(scene=scene)]
-    owners.append(('belmonte_north','SM_BM_NorthCountry'))
-    for namespace,key in owners:
-        root=real_directory(Path(build)/'planned_exports'/namespace/key)
-        plan=root/'plan.json'
-        if plan.is_symlink() or not plan.is_file():raise ValueError('Missing complete source model plan')
-        value=json.loads(plan.read_text())
-        if value.get('parent')!=key or value.get('complete') is not True:raise ValueError('Foreign source model plan')
-        paths.append(plan)
-        for row in value['pieces']:
-            member=row['payload']
-            if Path(member).name!=member or member!=row['name']+'.mesh':raise ValueError('Foreign source model packet')
-            paths.append(root/member)
-    return paths
+PROJECTION_ROOT='gondola/world/structure-source-data'
+
+
+def materialize_structures(build,value):
+    """@cc [owner:fontanierh,label:correctness;performance] owned-gondola-query-payloads
+    Copy ONLY selected source packets, retaining their exact bytes, into the named
+    projection product. Consumers MUST read that product, never undeclared original
+    planner directories. Retire only previously inventoried owned query copies.
+    No geometry is decoded, joined or regenerated during this file assembly.
+    """
+    build=Path(build);root=real_directory(build/PROJECTION_ROOT,create=True)
+    index=root/'index.json';old=[]
+    if index.exists():
+        if index.is_symlink():raise ValueError('Linked structure source inventory')
+        previous=json.loads(index.read_text())
+        if set(previous)!={'schema','files'} or previous['schema']!=1:raise ValueError('Foreign structure source inventory')
+        old=previous['files']
+    def local(name):
+        parts=Path(name).parts
+        if (len(parts)!=4 or parts[0]!='planned_exports' or parts[1] not in ('belmonte_models','belmonte_north')
+                or not re.fullmatch(r'SM_BM_[A-Za-z0-9_]+',parts[2])
+                or not re.fullmatch(r'SM_BM_[A-Za-z0-9_]+\.mesh',parts[3])):
+            raise ValueError('Foreign selected source packet')
+        return root/name
+    if not isinstance(old,list) or len(old)!=len(set(old)):raise ValueError('Invalid structure source inventory')
+    for name in old:local(name)
+    names=set(value['sources'])
+    known={local(name) for name in (*old,*names)}|{index}
+    if any(path not in known or path.is_symlink() for path in root.rglob('*') if not path.is_dir()):
+        raise ValueError('Foreign structure source projection file')
+    mapping={name:PROJECTION_ROOT+'/'+name for name in names}
+    for name,digest in value['sources'].items():
+        source=build/name;target=local(name);real_directory(source.parent);real_directory(target.parent,create=True)
+        if source.is_symlink() or target.is_symlink() or sha(source)!=digest:raise ValueError('Selected source packet changed')
+        copy_file(source,target)
+        if sha(target)!=digest or sha(source)!=digest:raise ValueError('Selected source packet copy changed')
+    for name in set(old)-names:
+        path=local(name)
+        if path.is_symlink():raise ValueError('Linked obsolete owned query packet')
+        path.unlink(missing_ok=True)
+    result=copy.deepcopy(value)
+    for group in result['groups']:
+        group['geometry']={role:mapping[name] for role,name in group['geometry'].items()}
+    result['sources']={mapping[name]:digest for name,digest in value['sources'].items()}
+    atomic_json(index,dict(schema=1,files=sorted(names)))
+    return result
 
 
 def publish(build,kind):
     build = Path(build)
-    value = ground_projection(build) if kind == 'ground' else structure_projection(build)
+    value = ground_projection(build) if kind == 'ground' else materialize_structures(build,structure_projection(build))
     output = build / 'gondola/world' / (kind+'-sources.json')
     real_directory(output.parent,create=True)
     atomic_json(output,value)

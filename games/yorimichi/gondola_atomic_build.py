@@ -196,17 +196,18 @@ def query_steps(ctx):
     folder = ctx.out / 'gondola/world'
     script = WORLD / 'gondola/source_inputs.py'
     selected = source.ground_projection(ctx.out)
+    ground_reads=['hidamari.query.HD_NorthTrail','terrain.HD_Terrain.final','terrain.HD_NorthMountains.final',
+                  *('belmonte.final_surface.'+row['name'] for row in selected['groups'])]
     result = []
     for kind in ('ground','structures'):
         reads = (['belmonte.scene.runtime','belmonte.prepared_materials','belmonte_north.geometry.SM_BM_NorthCountry',
                   *('belmonte_models.geometry.'+key for key in source.structure_keys())]
-                 if kind == 'structures' else [])
-        deferred = ([DeferredInputs('gondola-selected-structure-sources',source.structure_paths,(ctx.out,),support=(script,))]
-                    if kind=='structures' else [])
+                 if kind == 'structures' else ground_reads)
         result.append(Step('world.gondola_'+kind+'_sources',[Python(script,(kind,'--out',str(ctx.out)))],
             inputs=[*local_imports(script,(WORLD,KIT,GAME)),GAME / 'assets/belmonte/source.json',
-                    WORLD / 'regions/belmonte/layout.py'],reads=reads,deferred_inputs=deferred,
-            products=[Product('gondola.'+kind+'_sources',(folder / (kind+'-sources.json'),))],
+                    WORLD / 'regions/belmonte/layout.py'],reads=reads,
+            products=[Product('gondola.'+kind+'_sources',(folder / (kind+'-sources.json'),
+                *((folder/'structure-source-data',) if kind=='structures' else ())))],
             cache=True,heavy=kind=='structures',about='narrow explicit '+kind+' source projection before render exports'))
     digest = load('gondola_query_digest',GAME / 'export_digest.py')
     for kind,helper in (('ground',ground),('structure',structures)):
@@ -215,20 +216,16 @@ def query_steps(ctx):
         target = ctx.out / ('digests/world.gondola.'+product+'.json')
         collector = helper.snapshot if kind == 'ground' else helper.inputs
         def record(ctx,log,target=target,collector=collector):digest.record(target,collector(ctx.out),log)
-        reads = ['gondola.'+product+'_sources']
-        if kind == 'ground':
-            reads += ['hidamari.query.HD_NorthTrail','terrain.HD_Terrain.final','terrain.HD_NorthMountains.final',
-                      *('belmonte.final_surface.'+row['name'] for row in selected['groups'])]
         code = list(helper.CODE.values()) if isinstance(helper.CODE,dict) else [GAME.parents[1] / name for name in helper.CODE]
         result.append(Step('world.gondola_'+kind+'_inputs',[Call('current Gondola '+product+' source identities',record)],
-            inputs=sorted({*code,*local_imports(Path(helper.__file__),(WORLD,KIT,GAME))}),reads=reads,deferred_inputs=[DeferredInputs('gondola-'+product+'-sources',helper.paths,(ctx.out,),
+            inputs=sorted({*code,*local_imports(Path(helper.__file__),(WORLD,KIT,GAME))}),needs=['world.gondola_'+product+'_sources'],deferred_inputs=[DeferredInputs('gondola-'+product+'-sources',helper.paths,(ctx.out,),
                 support=(WORLD / 'gondola' / ('inputs.py' if kind=='ground' else 'structures.py'),))],
             outputs=[target],cutoff=True,about='only current pre-export '+product+' query identities'))
         probe = WORLD / 'gondola' / ('probe.py' if kind=='ground' else 'structure_probe.py')
         command=(Blender(probe,threads=3,factory_startup=True) if kind=='ground' else Python(probe))
         result.append(Step('world.gondola_'+product,[command],
             inputs=sorted({*local_imports(probe,(WORLD,KIT,GAME)),*code}),
-            needs=['world.gondola_'+kind+'_inputs'],products=[Product('gondola.'+product,
+            needs=['world.gondola_'+kind+'_inputs'],reads=['gondola.'+product+'_sources',*(ground_reads if kind=='ground' else [])],products=[Product('gondola.'+product,
                 (folder / (product+'.npz'),folder / (product+'.json')))],cache=True,heavy=True,toolchain=kind=='ground',
             about='exact source triangle/frame extraction; no rendered FBX/GLB reads'))
     return result

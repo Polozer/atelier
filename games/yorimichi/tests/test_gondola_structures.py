@@ -32,9 +32,14 @@ def seal(folder):
     import hashlib
     path=folder/'gondola/world/structures-sources.json'
     value=json.loads(path.read_text())
+    from gondola.source_inputs import materialize_structures,PROJECTION_ROOT
+    for group in value['groups']:
+        group['geometry']={role:name.removeprefix(PROJECTION_ROOT+'/') for role,name in group['geometry'].items()}
     value['sources']={name:hashlib.sha256((folder/name).read_bytes()).hexdigest()
                       for group in value['groups'] for name in group['geometry'].values()}
+    value=materialize_structures(folder,value)
     path.write_text(json.dumps(value))
+    return value['groups'][0]
 
 
 def source_file(folder,name):
@@ -67,7 +72,7 @@ def exported(tmp_path,monkeypatch):
     path.write_text(json.dumps(dict(schema=1,owner='GondolaStructureSources',bounds_m=list(structures.BOUNDS),
                                    origin_cm=[0,0,0],groups=[row],sources={})))
     source_plan(tmp_path,[(1000,4500,0),(1001,4500,0),(1000,4501,1)],[(400,4500,0),(401,4500,0),(400,4501,1)])
-    seal(tmp_path)
+    row=seal(tmp_path)
     return tmp_path,row
 
 
@@ -78,7 +83,8 @@ def test_separate_collision_source_retains_complete_otherwise_distant_visual(exp
     assert set(result['files'])==set(row['geometry'].values())
     old=result['files'].copy()
     source_plan(folder,[(1000,4500,0),(1001,4500,0),(1000,4501,1)],[(400,4500,0),(402,4500,0),(400,4501,2)])
-    with pytest.raises(ValueError,match='definition'):structures.inputs(folder)
+    # Producer bytes cannot mutate the independently copied selected query product.
+    assert structures.inputs(folder)['files']==old
     seal(folder)
     assert structures.inputs(folder)['files']!=old
 
@@ -124,7 +130,7 @@ def test_source_projection_applies_real_transform_and_collision_selection(tmp_pa
 
 
 def test_missing_geometry_and_unsupported_transform_refuse(exported):
-    folder,row=exported;source_file(folder,'SM_BM_Wall_Collision.glb').unlink()
+    folder,row=exported;(folder/row['geometry']['collision']).unlink()
     with pytest.raises(ValueError,match='regular'):structures.inputs(folder)
     with pytest.raises(ValueError,match='transform'):
         structures.affine({'translation_cm':[0,0,0],'scale':[1,0,1],'rotation_xyzw':[0,0,0,1]},[0,0,0])
@@ -368,9 +374,10 @@ def test_original_country_extra_keeps_only_intersecting_children_with_identity_i
     assert row['geometry']['visual']==row['geometry']['collision']
     assert row['transforms']==[dict(translation_cm=[0.,0.,0.],rotation_xyzw=[0.,0.,0.,1.],scale=[1.,1.,1.])]
     folder=tmp_path/'gondola/world';folder.mkdir(parents=True)
-    (folder/'structures-sources.json').write_text(json.dumps(dict(schema=1,owner='GondolaStructureSources',
-        bounds_m=list(structures.BOUNDS),origin_cm=[0,0,0],groups=groups,sources=packets)))
-    assert structures.selected(tmp_path)['groups']==groups
+    value=source_inputs.materialize_structures(tmp_path,dict(schema=1,owner='GondolaStructureSources',
+        bounds_m=list(structures.BOUNDS),origin_cm=[0,0,0],groups=groups,sources=packets))
+    (folder/'structures-sources.json').write_text(json.dumps(value))
+    assert structures.selected(tmp_path)['groups']==value['groups']
 
 
 def test_source_projection_reads_parent_grouping_from_plan_row_without_leaf_header_coupling(tmp_path,monkeypatch):
@@ -398,3 +405,21 @@ def test_source_projection_reads_parent_grouping_from_plan_row_without_leaf_head
     assert len(result['groups'])==2
     assert all(len(row['transforms'])==1 for row in result['groups'])
     assert packet.read_bytes()==before
+
+
+def test_projection_owns_exact_selected_copies_and_retires_only_recorded_members(exported):
+    from gondola.source_inputs import materialize_structures,PROJECTION_ROOT
+    folder,row=exported
+    value=json.loads((folder/'gondola/world/structures-sources.json').read_text())
+    copies=[folder/name for name in value['sources']]
+    assert all(path.is_file() for path in copies)
+    # Current consumers refuse a mutated owned source packet, independently of producer bytes.
+    copies[0].write_bytes(b'changed')
+    with pytest.raises(ValueError,match='definition'):structures.inputs(folder)
+    empty=dict(value,groups=[],sources={})
+    materialize_structures(folder,empty)
+    assert all(not path.exists() for path in copies)
+    assert source_file(folder,'SM_BM_Wall.glb').exists()
+    foreign=folder/PROJECTION_ROOT/'foreign.mesh';foreign.write_bytes(b'foreign')
+    with pytest.raises(ValueError,match='Foreign'):materialize_structures(folder,empty)
+    assert foreign.read_bytes()==b'foreign'

@@ -165,6 +165,9 @@ def selected(build):
         parents=set()
         for role,relative in row['geometry'].items():
             parts=Path(relative).parts
+            if parts[:3]!=('gondola','world','structure-source-data'):
+                raise ValueError('Structure query must read its owned source projection')
+            parts=parts[3:]
             if (len(parts)!=4 or parts[:2]!=('planned_exports','belmonte_north' if parts[2]=='SM_BM_NorthCountry' else 'belmonte_models') or
                     not re.fullmatch(r'SM_BM_[A-Za-z0-9_]+',parts[2]) or
                     parts[3]!=(key+'.mesh') and not (role=='collision' and parts[3]==parts[2]+'_Collision.mesh') or
