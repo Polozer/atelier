@@ -70,10 +70,11 @@ tree walks or rehashing. See tests/results.rs and
 groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest.
 
 @cc [owner:fontanierh,label:correctness] lock-busy-is-transient-under-concurrent-spawn
-A checkout lock release MUST become visible once every child spawning at the same moment has exec'd.
-Callers MUST treat Busy as a transient condition to retry with bounded backoff and a deadline, never
-as a hard failure or as proof that another owner holds the checkout. See
-tests/checkout_locks_spawn.rs::lock_busy_is_transient_during_spawn.
+An ambient CLOEXEC fork copy of a checkout lock descriptor keeps that lock held until the child
+execs, so a just-released lock can report Busy. Busy alone MUST NOT be treated as proof that another
+owner holds the checkout. A caller that retries MUST bound its own retry and deadline; the library
+does not impose one. Explicit custody lasts until its last handle closes, independently of any fork
+copy. See tests/checkout_locks_spawn.rs::lock_busy_is_transient_during_spawn.
 
 @cc [owner:fontanierh,label:correctness;safety] build-v2-checkout-install
 Checkout installs MUST hold build and exclusive content custody, retain certified source custody
