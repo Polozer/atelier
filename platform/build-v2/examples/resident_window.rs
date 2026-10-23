@@ -30,14 +30,18 @@
 //! - Crash and retry are NOT COVERED: no existing identity-bound primitive lets this controller
 //!   end the guard's worker (the adapter signals only its own bridge, and never the worker), and a
 //!   sandboxed job cannot end its loop. An idle expiry is not crash evidence, so there is no S4.
+//! - Controller death and bridge liveness are NOT COVERED: no case kills the controller, so
+//!   cleanup after the controller dies is unproven, and nothing observes the bridge.
 //! - `s5-cancel`: a spinning unit cancelled while it runs: the cancel is sent only after the unit's
 //!   monitor registration (so after its Run) and the job's own running marker (its output, written
 //!   before it loops); `cancel_after_run_started` is a required condition of the case.
 //! - `s6-originals`: the controller's original B3 guards are dropped right after the monitor's
-//!   registration; exclusion is then held by the custody set (the controller's session custody
-//!   source, the bridge and the monitor), never by the dropped originals. Monitor-only custody is
-//!   not observable: the bridge keeps its own custody descriptors until `guarded.run` returns
-//!   (guarded_worker.py) and `run_session` borrows the session custody for the whole run.
+//!   registration; exclusion is then held by the controller's session custody source and the
+//!   monitor, never by the dropped originals. The bridge also keeps custody descriptors until
+//!   `guarded.run` returns (guarded_worker.py), but nothing here identifies or observes it:
+//!   `cleanup.json` and the tree custody record carry no bridge identity, so binding the bridge
+//!   would need a guard record change, outside this slice. Monitor-only custody is not
+//!   observable, since `run_session` borrows the session custody for the whole run.
 //!
 //! The cases run in order and stop at the first failing case. DIR/evidence.json is rewritten
 //! after every case and on any setup failure (`passed: false` with its problems); every attempt
@@ -135,7 +139,8 @@ fn own_identity(python: &Path) -> Result<ProcessIdentity, String> {
     })
 }
 
-/// `(pid, fd)` of every process holding `path` open, read-only through lsof.
+/// `(pid, fd)` of every process holding `path` open, read-only through lsof. Pids only: this is
+/// liveness inside the settlement window, not identity evidence (a pid could be reused).
 fn holders(path: &Path) -> Vec<(u32, String)> {
     let Ok(output) = Command::new("/usr/sbin/lsof")
         .args(["-n", "-P", "-F", "pf", "--"])
@@ -156,7 +161,8 @@ fn holders(path: &Path) -> Vec<(u32, String)> {
     found
 }
 
-/// Whether `pid` still exists, read-only through ps (no signal of any kind).
+/// Whether `pid` still exists, read-only through ps (no signal of any kind). Pids only: a
+/// settlement-window liveness check, not identity evidence.
 fn alive(pid: u32) -> bool {
     Command::new("/bin/ps")
         .args(["-o", "pid=", "-p", &pid.to_string()])
@@ -375,7 +381,11 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                 // Independently: both lease records on disk now hold this identity.
                 lease_holds(&local_leases, &leases.local.lease().id, process)?;
                 lease_holds(store.leases(), &leases.cas.lease().id, process)?;
-                // A monitor is the identity a durable correlation already names.
+                // A monitor is the identity a durable correlation already names. The role is
+                // inferred, not passed in by the adapter; a wrong inference fails closed: a
+                // worker taken for a monitor has no prepared attempt (`current`) or no bound
+                // worker, and a monitor taken for a worker never matches `session.worker`, so
+                // the before-Run gate or `worker_is_session` refuses the case.
                 let correlation = CleanupCorrelation::find(&reports, process);
                 let monitor = correlation.is_some();
                 if let Some(correlation) = &correlation {
@@ -433,11 +443,21 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                         "controller_fds_after": mine, "session_custody_fds": session_fds,
                         "dropped_original_fds": dropped, "monitor_holds_every_lock": monitor_holds,
                         "installer_busy_after_drop": busy, "shared_reader_admitted": shared_reader,
-                        "claim": "exclusion is held by the custody set (the controller's session \
-                                  custody source, the bridge and the monitor), not by the dropped \
-                                  original guards; monitor-only custody is not observable",
+                        "claim": "exclusion is held by the controller's session custody source \
+                                  and the monitor, not by the dropped original guards; the bridge \
+                                  is neither identified nor observed (no guard record carries its \
+                                  identity; binding it needs a guard record change, outside this \
+                                  slice); monitor-only custody is not observable",
+                        "shared_reader_expected": true,
                     });
-                    if !(monitor_holds && busy && mine == session_fds && !dropped.is_empty()) {
+                    // A second reader must still be admitted: content custody is held shared,
+                    // so a refusal would mean the custody set holds it in the wrong scope.
+                    if !(monitor_holds
+                        && busy
+                        && shared_reader
+                        && mine == session_fds
+                        && !dropped.is_empty())
+                    {
                         return Err(
                             "custody attribution after dropping the originals failed".into()
                         );
@@ -924,6 +944,8 @@ fn summary(proof: Option<&Proof>, problems: &[String], cases: &[Value], complete
             "crash-retry: NOT COVERED (no existing identity-bound primitive may end the guard's \
              worker from this controller, and a sandboxed job cannot end its loop); no resident \
              retry acceptance is claimed",
+            "controller death and bridge liveness: NOT COVERED (no case kills the controller, \
+             so cleanup after the controller dies is unproven, and nothing observes the bridge)",
             "a real Held case",
             "MAC1, orphan or GC behaviour, M1, the production A9 constructor",
         ],
