@@ -125,12 +125,13 @@ impl Backend for Fake {
     fn settle(&mut self, u: &PreparedUnit, _: &mut Checked, d: Demand) -> Result<Effects, String> {
         let id = &u.ingredients().logical_outputs[0].id;
         self.trace.borrow_mut().push(format!("settle:{id}:{d:?}"));
+        let bad = self.bad_settle && (self.current.is_empty() || self.current.contains(id));
         Ok(Effects {
             installed_units: usize::from(
-                (d == Demand::Checkout && !self.current.contains(id)) || self.bad_settle,
+                (d == Demand::Checkout && !self.current.contains(id)) || bad,
             ),
             receipt_writes: usize::from(
-                (d == Demand::Checkout && !self.current.contains(id)) || self.bad_settle,
+                (d == Demand::Checkout && !self.current.contains(id)) || bad,
             ),
             staged_units: 0,
         })
