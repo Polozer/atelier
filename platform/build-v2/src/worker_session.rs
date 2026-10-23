@@ -12,10 +12,8 @@
 //! The session does not stage files, launch processes, keep deadlines, retry, classify crashes or
 //! validate returned output paths: C1b, C5 and the result validator own those decisions.
 use crate::protocol::{
-    FailureKind, JobOutputs, JobRequest, PROTOCOL_VERSION, Request, Response, WorkerFailure,
-    read_frame, write_frame,
+    FailureKind, JobOutputs, JobRequest, Request, Response, WorkerFailure, read_frame, write_frame,
 };
-use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::io::{self, Read, Write};
@@ -349,94 +347,6 @@ impl Session {
     }
 }
 
-/// Keeps a copy of the bytes `read_frame` consumes; it reads exactly one frame and no further.
-struct Recorded<'a, R> {
-    inner: &'a mut R,
-    bytes: Vec<u8>,
-}
-
-impl<R: Read> Read for Recorded<'_, R> {
-    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        let count = self.inner.read(buffer)?;
-        self.bytes.extend_from_slice(&buffer[..count]);
-        Ok(count)
-    }
-}
-
-/// serde-derived structs also accept positional arrays and keep the last of duplicate keys
-/// (protocol.rs leniencies reported for A0). A payload is accepted only if it is, key for key, the
-/// object envelope its decoded response serializes to, with no duplicate key anywhere.
-fn exact_object_form(payload: &[u8], response: &Response) -> Result<(), String> {
-    let StrictValue(document) = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
-    let expected = serde_json::json!({
-        "version": PROTOCOL_VERSION,
-        "message": serde_json::to_value(response).map_err(|e| e.to_string())?,
-    });
-    if document == expected {
-        Ok(())
-    } else {
-        Err("envelope and records must be JSON objects".into())
-    }
-}
-
-/// A JSON value that refuses duplicate object keys.
-struct StrictValue(Value);
-
-impl<'de> serde::Deserialize<'de> for StrictValue {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(StrictVisitor).map(StrictValue)
-    }
-}
-
-struct StrictVisitor;
-
-impl<'de> serde::de::Visitor<'de> for StrictVisitor {
-    type Value = Value;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a JSON value")
-    }
-    fn visit_bool<E>(self, value: bool) -> Result<Value, E> {
-        Ok(Value::Bool(value))
-    }
-    fn visit_i64<E>(self, value: i64) -> Result<Value, E> {
-        Ok(value.into())
-    }
-    fn visit_u64<E>(self, value: u64) -> Result<Value, E> {
-        Ok(value.into())
-    }
-    fn visit_f64<E>(self, value: f64) -> Result<Value, E> {
-        Ok(value.into())
-    }
-    fn visit_str<E>(self, value: &str) -> Result<Value, E> {
-        Ok(Value::String(value.into()))
-    }
-    fn visit_string<E>(self, value: String) -> Result<Value, E> {
-        Ok(Value::String(value))
-    }
-    fn visit_unit<E>(self) -> Result<Value, E> {
-        Ok(Value::Null)
-    }
-    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut items: A) -> Result<Value, A::Error> {
-        let mut values = Vec::new();
-        while let Some(StrictValue(value)) = items.next_element()? {
-            values.push(value);
-        }
-        Ok(Value::Array(values))
-    }
-    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut entries: A) -> Result<Value, A::Error> {
-        let mut object = serde_json::Map::new();
-        while let Some(key) = entries.next_key::<String>()? {
-            if object.contains_key(&key) {
-                return Err(serde::de::Error::custom(format!("duplicate key {key:?}")));
-            }
-            let StrictValue(value) = entries.next_value()?;
-            object.insert(key, value);
-        }
-        Ok(Value::Object(object))
-    }
-}
-
 fn terminal(response: Response) -> (String, Result<JobOutputs, WorkerFailure>) {
     match response {
         Response::Completed { job_id, outputs } => (job_id, Ok(outputs)),
@@ -495,19 +405,8 @@ impl<R: Read, W: Write> Channel<R, W> {
         if self.session.state == State::Broken {
             return misuse("the session is broken");
         }
-        let mut recorded = Recorded {
-            inner: &mut self.reader,
-            bytes: Vec::new(),
-        };
-        match read_frame::<_, Response>(&mut recorded) {
-            Ok(Some(response)) => {
-                let payload = recorded.bytes.get(4..).unwrap_or_default();
-                exact_object_form(payload, &response).map_err(|problem| {
-                    self.session.state = State::Broken;
-                    SessionError::Protocol(format!("malformed response: {problem}"))
-                })?;
-                self.session.receive(response).map(Some)
-            }
+        match read_frame::<_, Response>(&mut self.reader) {
+            Ok(Some(response)) => self.session.receive(response).map(Some),
             Ok(None) => self.session.end_of_stream().map(|()| None),
             Err(error) => Err(self.session.lost(error)),
         }

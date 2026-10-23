@@ -1,5 +1,5 @@
 {
- "about": "Protocol v1 frames shared by tests/worker_session.rs and platform/studio/tests/test_build_v2_protocol.py. A vector concatenates its chunks (hex bytes or UTF-8 text). Reading frames of the given kind yields messages in order (opaque_messages more are only checked canonically, being too deep to embed); then the next read is a clean end (error null) or fails with the named error (invalid: Rust InvalidData, truncated: UnexpectedEof). Canonical vectors are also the exact bytes that both encoders write for those messages. rust_accepts marks a known Rust leniency that Python refuses. reencoded, when present, is the exact text both encoders write for a non-canonical input. Regenerate with generate_protocol_v1.py.",
+ "about": "Protocol v1 frames shared by tests/worker_session.rs and platform/studio/tests/test_build_v2_protocol.py. A vector concatenates its chunks (hex bytes or UTF-8 text). Reading frames of the given kind yields messages in order (opaque_messages more are only checked canonically, being too deep to embed); then the next read is a clean end (error null) or fails with the named error (invalid: Rust InvalidData, truncated: UnexpectedEof). Canonical vectors are also the exact bytes that both encoders write for those messages. reencoded, when present, is the exact text both encoders write for a non-canonical input. Regenerate with generate_protocol_v1.py.",
  "vectors": [
   {
    "name": "empty_stream_is_clean_eof",
@@ -766,8 +766,127 @@
    ],
    "messages": [],
    "error": "invalid",
-   "canonical": false,
-   "rust_accepts": true
+   "canonical": false
+  },
+  {
+   "name": "positional_message",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "0000002a"
+    },
+    {
+     "text": "{\"version\":1,\"message\":[\"cancel\",\"job-1\"]}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "positional_job",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "00000074"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":[\"j\",\"u\",{\"kind\":\"k\",\"version\":\"1\"},\"/jobs/j\",\"s.py\",[\"s.py\"],[],{},[]]}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "positional_op",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "000000cf"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":[\"k\",\"1\"],\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[],\"params\":{},\"outputs\":[{\"path\":\"o.json\",\"required\":true}]}}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "positional_input",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "000000fc"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":{\"kind\":\"k\",\"version\":\"1\"},\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[[\"a\",\"a\",{\"state\":\"absent\"}]],\"params\":{},\"outputs\":[{\"path\":\"o.json\",\"required\":true}]}}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "positional_identity",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "0000010d"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":{\"kind\":\"k\",\"version\":\"1\"},\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[{\"name\":\"a\",\"path\":\"a\",\"identity\":[\"absent\"]}],\"params\":{},\"outputs\":[{\"path\":\"o.json\",\"required\":true}]}}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "positional_output",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "000000d3"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":{\"kind\":\"k\",\"version\":\"1\"},\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[],\"params\":{},\"outputs\":[[\"o.json\",null,true]]}}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "duplicate_param_key",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "000000eb"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":{\"kind\":\"k\",\"version\":\"1\"},\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[],\"params\":{\"a\":1,\"a\":2},\"outputs\":[{\"path\":\"o.json\",\"required\":true}]}}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "duplicate_identity_state",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "00000126"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":{\"kind\":\"k\",\"version\":\"1\"},\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[{\"name\":\"a\",\"path\":\"a\",\"identity\":{\"state\":\"absent\",\"state\":\"absent\"}}],\"params\":{},\"outputs\":[{\"path\":\"o.json\",\"required\":true}]}}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
   },
   {
    "name": "positional_failure",
@@ -782,8 +901,105 @@
    ],
    "messages": [],
    "error": "invalid",
-   "canonical": false,
-   "rust_accepts": true
+   "canonical": false
+  },
+  {
+   "name": "positional_completed_outputs",
+   "kind": "response",
+   "chunks": [
+    {
+     "hex": "0000004b"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"completed\",\"job_id\":\"j\",\"outputs\":[[\"a\"]]}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "positional_hello",
+   "kind": "response",
+   "chunks": [
+    {
+     "hex": "00000035"
+    },
+    {
+     "text": "[1,{\"type\":\"hello\",\"worker_version\":\"fake-worker-1\"}]"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "duplicate_started_job_id",
+   "kind": "response",
+   "chunks": [
+    {
+     "hex": "00000048"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"started\",\"job_id\":\"other\",\"job_id\":\"j\"}}"
+    }
+   ],
+   "messages": [],
+   "error": "invalid",
+   "canonical": false
+  },
+  {
+   "name": "arrays_inside_params_are_data",
+   "kind": "request",
+   "chunks": [
+    {
+     "hex": "000000fd"
+    },
+    {
+     "text": "{\"version\":1,\"message\":{\"type\":\"run\",\"job\":{\"job_id\":\"j\",\"unit\":\"u\",\"op\":{\"kind\":\"k\",\"version\":\"1\"},\"job_dir\":\"/jobs/j\",\"script\":\"s.py\",\"code\":[\"s.py\"],\"inputs\":[],\"params\":{\"m\":[[\"k\",\"1\"],[{\"a\":[]}],[]]},\"outputs\":[{\"path\":\"o.json\",\"required\":true}]}}}"
+    }
+   ],
+   "messages": [
+    {
+     "type": "run",
+     "job": {
+      "job_id": "j",
+      "unit": "u",
+      "op": {
+       "kind": "k",
+       "version": "1"
+      },
+      "job_dir": "/jobs/j",
+      "script": "s.py",
+      "code": [
+       "s.py"
+      ],
+      "inputs": [],
+      "params": {
+       "m": [
+        [
+         "k",
+         "1"
+        ],
+        [
+         {
+          "a": []
+         }
+        ],
+        []
+       ]
+      },
+      "outputs": [
+       {
+        "path": "o.json",
+        "required": true
+       }
+      ]
+     }
+    }
+   ],
+   "error": null,
+   "canonical": true
   },
   {
    "name": "invalid_utf8",

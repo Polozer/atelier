@@ -247,10 +247,9 @@ response breaks the session (`Protocol`); an end of stream or failed write outsi
 `Disconnected`; a refused controller call (`Misuse`) leaves the state unchanged. `cancel` records a
 request; only `failed` of kind `cancelled` confirms it, and a job that finished first still reports
 `completed`. `Channel` drives a session over any framed reader/writer pair. It builds each frame
-before writing, so any later write or flush error breaks the session. It accepts a response only if
-its payload is exactly the object envelope it decodes to, with no duplicate key: a positional array
-envelope or record, or a duplicated field, which `protocol::read_frame` alone would accept, breaks
-the session.
+before writing, so any later write or flush error breaks the session. `protocol::read_frame` refuses
+duplicate keys and positional (array) envelopes, messages and records, so such a response breaks the
+session as a malformed frame.
 
 Worker rule: a worker MUST send `started` for every `run` before its single terminal response,
 including a job it rejects at once and a `cancel` that arrives before it started. A `cancel` that

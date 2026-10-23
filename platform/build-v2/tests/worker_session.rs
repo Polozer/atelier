@@ -441,12 +441,12 @@ fn channel_turns_framing_faults_into_session_failures() {
     let mut wrong_version = ready_frame.clone();
     let future = br#"{"version":2,"message":{"type":"started","job_id":"job-1"}}"#;
     wrong_version.extend(header_and(future, future.len() as u32));
-    // protocol.rs decodes a positional `failure` record; the channel must refuse it.
+    // A positional `failure` record is a malformed frame.
     let mut positional = frames(&[hello(VERSION), started("job-1")]);
     let record =
         br#"{"version":1,"message":{"type":"failed","job_id":"job-1","failure":["job","m"]}}"#;
     positional.extend(header_and(record, record.len() as u32));
-    // protocol.rs also decodes a positional envelope and keeps the last of duplicate fields.
+    // So are a positional envelope and a duplicated field.
     let mut positional_envelope = vec![];
     let array = br#"[1,{"type":"hello","worker_version":"fake-worker-1"}]"#;
     positional_envelope.extend(header_and(array, array.len() as u32));
@@ -585,15 +585,6 @@ fn chunk_bytes(chunks: &Value) -> Vec<u8> {
 fn check_vector<T: DeserializeOwned + Serialize + PartialEq + Debug>(vector: &Value) {
     let name = vector["name"].as_str().unwrap();
     let bytes = vector_bytes(vector);
-    if vector.get("rust_accepts").and_then(Value::as_bool) == Some(true) {
-        // Known protocol.rs leniency (positional structs) that Python refuses. Once protocol.rs
-        // refuses it too, this fails: drop the flag so the vector joins the agreed set.
-        assert!(
-            matches!(read_frame::<_, T>(&mut Cursor::new(&bytes)), Ok(Some(_))),
-            "{name}: protocol.rs now refuses this frame; remove rust_accepts"
-        );
-        return;
-    }
     let expected: Vec<T> = vector["messages"]
         .as_array()
         .unwrap()
