@@ -15,11 +15,17 @@ worker every 50 ms), busy_samples (samples that also list an unclassified proces
 controller can see a real exit report and the worker's last replies). With custody descriptors it
 also reports a stand-in custody monitor identity (itself) after child_started and writes
 cleanup.json before finished, as the real bridge does; no_monitor reports none, monitor_changed
-reports a second, different one.
+reports a second, different one. stop_after_start holds the lock its stop handler needs from
+child_started until the launcher's SIGTERM has been delivered (a handshake on the signal wakeup
+pipe, never a delay), so a stop that lands right after child_started meets that lock every run.
+It records its PID in bridge.pid and bounds itself: once the controller is gone, if its main thread
+has not finished within 2 s, it kills and reaps its own worker (within 2 s) and exits, so the
+launcher reaps it and no bridge outlives its test.
 """
 import argparse
 import json
 import os
+import select
 from pathlib import Path
 import signal
 import subprocess
@@ -29,6 +35,8 @@ import time
 import uuid
 
 stopping = threading.Event()
+spawned = []  # the worker, once started
+done = []  # set when the main thread has reported finished
 
 
 def descriptors():
@@ -64,6 +72,8 @@ def main():
         'request': args.request_fd, 'response': args.response_fd}))
     for fd in (args.events_fd, args.liveness_fd, args.spec_fd, *args.custody_fd):
         os.set_inheritable(fd, False)
+    if args.scenario == 'stop_after_start':
+        (args.report / 'bridge.pid').write_text(f'{os.getpid()}\n')
     if args.scenario == 'spec_closed':
         os.close(args.spec_fd)
         while True:
@@ -80,6 +90,9 @@ def main():
 
     def stop(number, frame):
         stopping.set()
+    wake_r, wake_w = os.pipe()
+    os.set_blocking(wake_w, False)
+    signal.set_wakeup_fd(wake_w)  # one byte per delivered signal, written before the handler runs
     signal.signal(signal.SIGTERM, stop)
 
     def watch_liveness():
@@ -87,6 +100,19 @@ def main():
             pass
         (args.report / 'liveness-eof').write_text('controller gone\n')
         os.kill(os.getpid(), signal.SIGTERM)
+        if args.scenario == 'stop_after_start':
+            deadline = time.monotonic() + 2
+            while not done and time.monotonic() < deadline:
+                time.sleep(.02)
+            if not done:  # the main thread is stuck: end our own worker and exit
+                for child in spawned:
+                    child.kill()
+                    try:
+                        child.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        pass
+                (args.report / 'bridge-abandoned').write_text('main thread did not finish\n')
+                os._exit(70)
     threading.Thread(target=watch_liveness, daemon=True).start()
 
     emit('queued')
@@ -101,6 +127,7 @@ def main():
     with (args.report / 'stdout.log').open('w') as log:
         child = subprocess.Popen(command, env=spec['env'], pass_fds=(args.request_fd, args.response_fd),
                                  stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+    spawned.append(child)
     os.close(args.request_fd)
     os.close(args.response_fd)
     identity = dict(pid=child.pid, started=f'fake-{child.pid}-{time.monotonic_ns()}', boot='fake-boot')
@@ -111,6 +138,11 @@ def main():
         emit('monitor', pid=monitor[0], started=str(monitor[1]), boot='fake-boot', invocation=invocation)
         if args.scenario == 'monitor_changed':
             emit('monitor', pid=monitor[0], started=str(monitor[1] + 1), boot='fake-boot', invocation=invocation)
+    if args.scenario == 'stop_after_start':
+        # Until the stop is delivered (its wakeup byte) or the worker exits, with the lock held.
+        with stopping._cond:
+            while child.poll() is None and not select.select([wake_r], [], [], 0.02)[0]:
+                pass
     if args.scenario == 'early_exit':
         emit('child_exited', returncode=0, stopped_by=None, **identity)
     stopped_by = None
@@ -143,6 +175,7 @@ def main():
         emit('finished', cleanup='confirmed', reason=None)
     else:
         emit('finished', cleanup='unconfirmed', reason='scripted uncertain cleanup')
+    done.append(True)
     return 0
 
 

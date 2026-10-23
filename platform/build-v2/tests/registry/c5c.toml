@@ -153,6 +153,10 @@ id = "c5c.session.a_failed_preparation_ends_the_unit_without_a_run_and_is_never_
 tests = ["atelier-build-v2::guard_adapter/a_failed_preparation_ends_the_unit_without_a_run_and_is_never_retried"]
 
 [[scenarios]]
+id = "c5c.session.a_stop_delivered_right_after_the_worker_starts_is_always_reported"
+tests = ["atelier-build-v2::guard_adapter/a_stop_delivered_right_after_the_worker_starts_is_always_reported"]
+
+[[scenarios]]
 id = "c5c.session.a_reply_read_after_the_exit_report_still_completes_the_unit"
 tests = ["atelier-build-v2::guard_adapter/a_reply_read_after_the_exit_report_still_completes_the_unit"]
 

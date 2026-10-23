@@ -1302,6 +1302,89 @@ fn a_failed_preparation_ends_the_unit_without_a_run_and_is_never_retried() {
 }
 
 #[test]
+fn a_stop_delivered_right_after_the_worker_starts_is_always_reported() {
+    // a's preparation fails, so its session is stopped right after child_started; the bridge
+    // holds its stop handler's lock until that SIGTERM is delivered (a handshake, not a delay).
+    // The bridge must still report the stop and its cleanup, so b runs in the next session.
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let session = session_spec(&space, &job_spec);
+    let (handle, inbox) = session_channel();
+    for id in ["a", "b"] {
+        handle.submit(unit_with(id, id, job_spec.limits, key(&job_spec)));
+    }
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let mut calls = vec![];
+    let report = run_session_prepared(
+        &mut launcher("stop_after_start"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        &mut |unit, attempt| {
+            calls.push(unit.clone());
+            let mut request = job();
+            request.job_id = unit.clone();
+            match unit.as_str() {
+                "a" => Err("staging failed".into()),
+                _ => Ok(staged(&request, unit, attempt)),
+            }
+        },
+        published,
+    )
+    .unwrap();
+    // First, on every path: no bridge this test spawned outlives it.
+    let (bridges, reaped) = bridges_reaped(&space, Duration::from_secs(10));
+    assert_eq!(calls, vec!["a", "b"], "{report:?}");
+    assert_eq!(runs(&space), vec![("b".into(), "/jobs/b-1".into())]);
+    assert_eq!(report.units[0].outcome.end, End::Failed(Stop::Cancelled));
+    assert_eq!(report.units[0].attempts[0].custody, Custody::Released);
+    assert_eq!(report.units[1].outcome.end, End::Completed);
+    assert!(
+        report
+            .sessions
+            .iter()
+            .all(|session| session.custody == Custody::Released),
+        "{report:?}"
+    );
+    assert_eq!(bridges, 2, "each session's bridge recorded its PID");
+    assert!(reaped, "a bridge was not reaped within the bound");
+}
+
+/// How many fake bridges this test spawned (by the PID each recorded), and whether all of them
+/// were reaped by the launcher within `limit`. The probe is waitid with WNOWAIT on our own
+/// children: it never signals and never reaps. The bridge bounds itself (fake_bridge.py
+/// stop_after_start), so a stuck one still exits and is reaped. The test does not kill bridges
+/// itself: the adapter signals its own unreaped bridge only with SIGTERM (a production bridge
+/// owns an admission), and a kill by recorded PID could race the launcher's reaper.
+fn bridges_reaped(space: &Workspace, limit: Duration) -> (usize, bool) {
+    let pids: Vec<libc::pid_t> = fs::read_dir(&space.0)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter_map(|entry| fs::read_to_string(entry.path().join("bridge.pid")).ok())
+        .map(|text| text.trim().parse().unwrap())
+        .collect();
+    let deadline = Instant::now() + limit;
+    loop {
+        let unreaped = pids.iter().any(|&pid| {
+            // SAFETY: waitid writes only into the siginfo_t we own. WNOWAIT leaves an exit status
+            // for the launcher's reaper; 0 means `pid` is still our own child, so not yet reaped.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
+            unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, flags) == 0 }
+        });
+        if !unreaped {
+            return (pids.len(), true);
+        }
+        if Instant::now() >= deadline {
+            return (pids.len(), false);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
 fn a_reply_read_after_the_exit_report_still_completes_the_unit() {
     // The bridge reports the exit before the worker has replied at all: the driver applies the
     // report only after the response stream ends, so the completed reply comes first.
