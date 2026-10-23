@@ -76,7 +76,14 @@ fn prepared(planner_code: &[u8], a: &[u8], b: &[u8]) -> (PreparedUnit, PreparedU
             version: BLENDER_OP_VERSION.into(),
         },
         script: "export.py".into(),
-        code: vec!["export.py".into()],
+        code: std::iter::once("export.py".to_string())
+            .chain(
+                blender_code_files(BLENDER_EXPORT_KIND)
+                    .unwrap()
+                    .into_iter()
+                    .map(str::to_owned),
+            )
+            .collect(),
         conditional: None,
         output_groups: vec![],
         inputs: vec![Input::Content {
@@ -112,13 +119,19 @@ fn prepared(planner_code: &[u8], a: &[u8], b: &[u8]) -> (PreparedUnit, PreparedU
     BlenderExportSpec::default()
         .register(&mut registry)
         .unwrap();
-    let snapshot = BTreeMap::from([
+    let mut snapshot = BTreeMap::from([
         ("plan.py".into(), SnapshotEntry::File(planner_code.to_vec())),
         (
             "export.py".into(),
             SnapshotEntry::File(b"declared exporter".to_vec()),
         ),
     ]);
+    for path in blender_code_files(BLENDER_EXPORT_KIND).unwrap() {
+        snapshot.insert(
+            path.into(),
+            SnapshotEntry::File(b"declared helper".to_vec()),
+        );
+    }
     let validated = validate(&declaration, &registry, &snapshot, &[]).unwrap();
     let produced = [("A", a), ("B", b)]
         .into_iter()
@@ -142,10 +155,7 @@ fn prepared(planner_code: &[u8], a: &[u8], b: &[u8]) -> (PreparedUnit, PreparedU
         version: atelier_build_v2::launch::BLENDER_JOB_LOOP_VERSION.into(),
         digest: sha256(b"frozen worker"),
     };
-    let validator = ImplementationIdentity {
-        version: BLENDER_VALIDATOR_VERSION.into(),
-        digest: sha256(b"frozen validator"),
-    };
+    let validator = blender_validator_identity(&snapshot).unwrap();
     let prepare_one = |id: &str| {
         prepare(
             &declaration,
@@ -185,6 +195,17 @@ fn selected_payload_keys_cut_off_planner_and_sibling_changes_without_group_autho
         .validate_ingredients(a.ingredients())
         .unwrap();
     assert_eq!(selected_payload(&a).unwrap().digest, sha256(b"pieceA"));
+    let validator = ImplementationIdentity {
+        version: a.ingredients().validator_version.clone(),
+        digest: a.ingredients().validator_digest.clone(),
+    };
+    check_blender_identity(&a, BLENDER_EXPORT_KIND, &validator).unwrap();
+    let unrelated = ImplementationIdentity {
+        version: BLENDER_VALIDATOR_VERSION.into(),
+        digest: sha256(b"unrelated claim"),
+    };
+    assert!(check_blender_identity(&a, BLENDER_EXPORT_KIND, &unrelated).is_err());
+
     // This establishes selected Item key semantics. Dynamic group expansion itself reuses A4b;
     // no available ValidatedGroup or runtime publication token is manufactured by this fixture.
 }

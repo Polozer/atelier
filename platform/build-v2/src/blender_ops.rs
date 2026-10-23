@@ -33,6 +33,33 @@ pub const DECODER_FILES: [&str; 9] = [
     "platform/studio/atelier/model_files.py",
 ];
 
+/// Minimum project-code closure; recipe entry and planner helpers are additional.
+/// C2b's five startup files remain its separate frozen worker bundle.
+pub fn blender_code_files(kind: &str) -> Result<Vec<&'static str>, String> {
+    let mut files = DECODER_FILES.to_vec();
+    files.push("platform/studio/atelier/build_v2/blender_ops.py");
+    match kind {
+        BLENDER_PLAN_KIND => {}
+        BLENDER_EXPORT_KIND => files.extend([
+            "platform/studio/atelier/build_v2/blender_geometry.py",
+            "platform/studio/atelier/blender/__init__.py",
+            "platform/studio/atelier/blender/fbx.py",
+        ]),
+        _ => return Err("unsupported Blender op kind".into()),
+    }
+    Ok(files)
+}
+
+fn decoder_identity(files: &BTreeMap<&str, String>) -> Result<ImplementationIdentity, String> {
+    Ok(ImplementationIdentity {
+        version: BLENDER_VALIDATOR_VERSION.into(),
+        digest: sha256(&canonical_bytes(&serde_json::json!({
+            "domain":"atelier-blender-ops-validator", "version":BLENDER_VALIDATOR_VERSION,
+            "op_version":BLENDER_OP_VERSION, "mesh_ir_limit":MAX_MESH_IR_BYTES, "files":files,
+        }))?),
+    })
+}
+
 pub fn blender_validator_identity(
     snapshot: &SourceSnapshot,
 ) -> Result<ImplementationIdentity, String> {
@@ -45,13 +72,7 @@ pub fn blender_validator_identity(
         };
         files.insert(path, sha256(bytes));
     }
-    Ok(ImplementationIdentity {
-        version: BLENDER_VALIDATOR_VERSION.into(),
-        digest: sha256(&canonical_bytes(&serde_json::json!({
-            "domain":"atelier-blender-ops-validator", "version":BLENDER_VALIDATOR_VERSION,
-            "op_version":BLENDER_OP_VERSION, "mesh_ir_limit":MAX_MESH_IR_BYTES, "files":files,
-        }))?),
-    })
+    decoder_identity(&files)
 }
 
 fn rule(kind: ParamKind, required: bool) -> ParamRule {
@@ -314,6 +335,14 @@ pub fn check_blender_identity(
         .any(|path| !i.code.contains_key(*path))
     {
         return Err("declared Blender job code omits a required body/decoder/export helper".into());
+    }
+    let decoder_files = DECODER_FILES
+        .into_iter()
+        .map(|path| (path, i.code[path].clone()))
+        .collect();
+    let declared_validator = decoder_identity(&decoder_files)?;
+    if declared_validator.digest != validator.digest {
+        return Err("validator identity differs from the exact declared decoder code".into());
     }
     if i.worker_version != BLENDER_JOB_LOOP_VERSION
         || !valid_digest(&i.worker_digest)
