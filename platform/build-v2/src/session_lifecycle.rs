@@ -67,8 +67,8 @@ impl SessionConfig {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SessionInput {
-    /// A unit joins the queue; `now` is its submission time. After [`SessionInput::Close`], or
-    /// for an id already submitted, the unit is refused: [`SessionCommand::Refused`].
+    /// A unit joins the queue; `now` is its submission time. A unit that can never be served is
+    /// refused at once with a [`Refusal`]: [`SessionCommand::Refused`].
     Submit(UnitPlan),
     /// No more units will be submitted.
     Close,
@@ -128,9 +128,53 @@ pub enum SessionCommand {
     Stop { session: u32 },
     /// `unit` has its final outcome and every attempt of it is released or held.
     Settled { unit: UnitId },
-    /// `unit` was not accepted (submitted after close, or its id was already used). Nothing was
-    /// queued or started for it; [`UnitRecord::refused`] is its record.
-    Refused { unit: UnitId, reason: String },
+    /// `unit` was not accepted. Nothing was queued or started for it; [`UnitRecord::refused`]
+    /// is its record.
+    Refused { unit: UnitId, reason: Refusal },
+}
+
+/// @cc [owner:fontanierh,label:safety] session-refuses-units-it-cannot-serve
+/// A unit MUST be refused at submission, with nothing queued or started, when the session is
+/// closed, its id was already submitted, or a session could never serve it within its limits:
+/// with quiescence evidence its cleanup limit MUST be at least the quiescence bound plus the
+/// session's cleanup limit (so an unanswered cancel settles by the receipt before its own cleanup
+/// limit), and its worst case in a session (job limit, plus the quiescence bound and the session's
+/// cleanup limit when sessions are reused) MUST fit a session's lifetime. See
+/// tests/session_lifecycle.rs (`a_unit_after_close_or_twice_is_refused`,
+/// `a_unit_a_session_could_never_serve_is_refused_at_submission`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// Submitted after close.
+    Closed,
+    /// A unit with this id was already submitted.
+    DuplicateUnit,
+    /// Its cleanup limit is shorter than the quiescence bound plus the session's cleanup limit.
+    CleanupBelowQuiescence,
+    /// Its worst case in a session exceeds the session lifetime.
+    NeverFits,
+    /// Its session key (worker, version, admission profile or custody) differs from the session's.
+    IncompatibleKey,
+    /// Another unit of the session uses its job id.
+    JobIdInUse,
+}
+
+impl Refusal {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Closed => "refused: the session was already closed",
+            Self::DuplicateUnit => "refused: a unit with this id was already submitted",
+            Self::CleanupBelowQuiescence => {
+                "refused: the unit's cleanup limit is shorter than the quiescence bound plus the \
+                 session's cleanup limit"
+            }
+            Self::NeverFits => "refused: the unit's worst case never fits a session's lifetime",
+            Self::IncompatibleKey => {
+                "refused: the unit's worker, worker version, admission profile or custody set \
+                 differs from the session's"
+            }
+            Self::JobIdInUse => "refused: another unit of this session uses the same job id",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -158,13 +202,13 @@ pub struct UnitRecord {
     pub outputs: Option<JobOutputs>,
     /// Why the lifecycle gave up when no failure kind describes it (for example a launch error).
     pub abort: Option<String>,
-    /// The unit was refused at submission: nothing was queued or started for it.
-    pub refused: bool,
+    /// Why the unit was refused at submission; nothing was queued or started for it.
+    pub refused: Option<Refusal>,
 }
 
 impl UnitRecord {
     /// The record of a unit refused at submission, so the caller never waits for it.
-    pub fn refused(unit: UnitId, reason: String) -> Self {
+    pub fn refused(unit: UnitId, reason: Refusal) -> Self {
         Self {
             unit,
             outcome: Outcome {
@@ -174,8 +218,8 @@ impl UnitRecord {
             },
             attempts: vec![],
             outputs: None,
-            abort: Some(reason),
-            refused: true,
+            abort: Some(reason.reason().into()),
+            refused: Some(reason),
         }
     }
 }
@@ -295,7 +339,7 @@ impl UnitSlot {
             attempts: self.attempts.clone(),
             outputs: self.outputs.clone(),
             abort: self.abort.clone(),
-            refused: false,
+            refused: None,
         })
     }
 }
@@ -458,17 +502,10 @@ impl SessionLifecycle {
         let mut out = vec![];
         match input {
             SessionInput::Submit(plan) => {
-                let refusal = if self.closed {
-                    Some("refused: the session was already closed")
-                } else if self.unit_index(&plan.id).is_some() {
-                    Some("refused: a unit with this id was already submitted")
-                } else {
-                    None
-                };
-                if let Some(reason) = refusal {
+                if let Some(reason) = self.refusal(&plan) {
                     out.push(SessionCommand::Refused {
                         unit: plan.id,
-                        reason: reason.into(),
+                        reason,
                     });
                     return Ok(out);
                 }
@@ -631,20 +668,55 @@ impl SessionLifecycle {
     fn may_take(&self, s: usize, index: usize, now: MonoTime) -> bool {
         let slot = &self.sessions[s];
         if !slot.used {
-            return true;
+            return true; // refused at submission if it could not fit a fresh session
         }
         if self.config.quiescence.is_none() {
             return false;
         }
-        let limits = self.units[index].plan.limits;
         let end = slot
             .admitted_at
             .and_then(|at| at.checked_add(self.config.lifetime));
-        let need = limits
-            .job
-            .checked_add(limits.cleanup)
+        let need = self
+            .worst_case(&self.units[index].plan.limits)
             .and_then(|span| now.checked_add(span));
         matches!((need, end), (Some(need), Some(end)) if need <= end)
+    }
+
+    /// How long a unit can keep its session: its job limit, and when sessions are reused also the
+    /// quiescence bound and the session's own cleanup limit (an unanswered cancel's path).
+    fn worst_case(&self, limits: &Limits) -> Option<Duration> {
+        match self.config.quiescence {
+            None => Some(limits.job),
+            Some(bound) => limits
+                .job
+                .checked_add(bound)?
+                .checked_add(self.config.cleanup),
+        }
+    }
+
+    /// Why `plan` can never be served here, if it cannot (session-refuses-units-it-cannot-serve).
+    fn refusal(&self, plan: &UnitPlan) -> Option<Refusal> {
+        if self.closed {
+            return Some(Refusal::Closed);
+        }
+        if self.unit_index(&plan.id).is_some() {
+            return Some(Refusal::DuplicateUnit);
+        }
+        if let Some(bound) = self.config.quiescence {
+            if bound
+                .checked_add(self.config.cleanup)
+                .is_none_or(|need| plan.limits.cleanup < need)
+            {
+                return Some(Refusal::CleanupBelowQuiescence);
+            }
+        }
+        if self
+            .worst_case(&plan.limits)
+            .is_none_or(|need| need > self.config.lifetime)
+        {
+            return Some(Refusal::NeverFits);
+        }
+        None
     }
 
     /// Whether session `s` stays up after its active unit ends: quiescence evidence is

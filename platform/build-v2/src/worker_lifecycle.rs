@@ -14,7 +14,8 @@ use crate::guard_adapter::{
 use crate::leases::ProcessIdentity;
 use crate::protocol::{JobOutputs, JobRequest, Request, Response, read_frame, write_frame};
 use crate::session_lifecycle::{
-    SessionCommand, SessionConfig, SessionInput, SessionLifecycle, UnitId, UnitPlan, UnitRecord,
+    Refusal, SessionCommand, SessionConfig, SessionInput, SessionLifecycle, UnitId, UnitPlan,
+    UnitRecord,
 };
 use crate::worker_session::{Event as WorkerEvent, Session, SessionError};
 use std::collections::{BTreeMap, BTreeSet};
@@ -292,10 +293,12 @@ impl CustodyIdentity {
 /// [`run_session`] MUST refuse, with a refused record and nothing queued or started, a unit whose
 /// key differs from the session's in any part (exact worker command, worker version, admission
 /// profile or custody set) or whose job id another unit of the session uses, and MUST refuse to
-/// start at all when its custody locks are not exactly its key's custody set by device and inode.
-/// Custody is identified by lock file and scope, never by descriptor number. See
-/// tests/guard_adapter.rs (`run_session_refuses_a_unit_with_another_key_or_a_used_job_id`,
-/// `run_session_refuses_custody_that_is_not_its_keys_custody_set`).
+/// start at all unless its custody descriptors are exactly its key's custody set by device and
+/// inode, each proven held in its declared scope by an independent non-blocking probe. Custody is
+/// identified by lock file and scope, never by descriptor number. See tests/guard_adapter.rs
+/// (`run_session_refuses_a_unit_with_another_key_or_a_used_job_id`,
+/// `run_session_refuses_custody_that_is_not_its_keys_custody_set`,
+/// `run_session_refuses_custody_not_held_in_its_declared_scope`).
 ///
 /// What units sharing a session must share exactly: the worker, its version, the admission
 /// profile and the custody set.
@@ -306,6 +309,102 @@ pub struct SessionKey {
     /// The admission profile: a job admission reserving this ceiling.
     pub memory_gib: u32,
     pub custody: BTreeSet<CustodyIdentity>,
+}
+
+/// The lock file an open descriptor refers to, for an independent probe.
+fn lock_path(file: &File) -> io::Result<PathBuf> {
+    use std::os::fd::AsRawFd;
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes into the buffer we own.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(&buffer[..end])))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+    }
+}
+
+fn try_flock(file: &File, operation: libc::c_int) -> io::Result<bool> {
+    use std::os::fd::AsRawFd;
+    loop {
+        // SAFETY: flock on a descriptor we own.
+        if unsafe { libc::flock(file.as_raw_fd(), operation | libc::LOCK_NB) } == 0 {
+            return Ok(true);
+        }
+        let error = io::Error::last_os_error();
+        match error.kind() {
+            io::ErrorKind::Interrupted => continue,
+            io::ErrorKind::WouldBlock => return Ok(false),
+            _ => return Err(error),
+        }
+    }
+}
+
+/// Whether the lock file behind `file` is held in `scope`, probed through an independent open of
+/// the same file (device and inode checked), so the probe never touches `file`'s own lock. An
+/// exclusive hold refuses both probes; a shared hold refuses only the exclusive one (the probe's
+/// brief shared hold ends when it closes). This proves the file is held in that scope, not by
+/// which descriptor.
+fn holds(file: &File, scope: LockScope) -> io::Result<bool> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let expected = file.metadata()?;
+    let probe = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(lock_path(file)?)?;
+    let actual = probe.metadata()?;
+    if (actual.dev(), actual.ino()) != (expected.dev(), expected.ino()) {
+        return Ok(false);
+    }
+    if try_flock(&probe, libc::LOCK_EX)? {
+        return Ok(false); // nobody holds it; closing the probe releases this
+    }
+    let shared = try_flock(&probe, libc::LOCK_SH)?;
+    Ok(match scope {
+        LockScope::Exclusive => !shared,
+        LockScope::Shared => shared,
+    })
+}
+
+/// The custody descriptors are exactly the key's custody set: one descriptor per identity, by
+/// device and inode, each holding its lock in the identity's scope.
+fn custody_matches(files: &[File], key: &BTreeSet<CustodyIdentity>) -> Result<(), LifecycleError> {
+    use std::os::unix::fs::MetadataExt;
+    let refuse = |why: String| Err(LifecycleError::Invariant(why));
+    let mut remaining: Vec<&CustodyIdentity> = key.iter().collect();
+    if remaining.len() != files.len() {
+        return refuse("the session's custody locks are not its key's custody set".into());
+    }
+    for file in files {
+        let metadata = match file.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => return refuse(format!("cannot identify a custody lock: {error}")),
+        };
+        let Some(position) = remaining.iter().position(|identity| {
+            (identity.device, identity.inode) == (metadata.dev(), metadata.ino())
+        }) else {
+            return refuse("the session's custody locks are not its key's custody set".into());
+        };
+        let identity = remaining.remove(position);
+        match holds(file, identity.scope) {
+            Ok(true) => {}
+            Ok(false) => {
+                return refuse(format!(
+                    "a custody lock is not held in its declared {:?} scope",
+                    identity.scope
+                ));
+            }
+            Err(error) => return refuse(format!("cannot probe a custody lock: {error}")),
+        }
+    }
+    Ok(())
 }
 
 /// Everything [`run_session`] needs for one session of compatible units.
@@ -535,28 +634,7 @@ pub fn run_session<L: WorkerLauncher>(
     register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
     published: Sender<UnitRecord>,
 ) -> Result<SessionReport, LifecycleError> {
-    // The custody files must be exactly the key's custody set, by device and inode.
-    let mut files: Vec<(u64, u64)> = vec![];
-    for file in &spec.custody {
-        let metadata = file.metadata().map_err(|error| {
-            LifecycleError::Invariant(format!("cannot identify a custody lock: {error}"))
-        })?;
-        use std::os::unix::fs::MetadataExt;
-        files.push((metadata.dev(), metadata.ino()));
-    }
-    let mut keyed: Vec<(u64, u64)> = spec
-        .key
-        .custody
-        .iter()
-        .map(|identity| (identity.device, identity.inode))
-        .collect();
-    files.sort_unstable();
-    keyed.sort_unstable();
-    if files != keyed {
-        return Err(LifecycleError::Invariant(
-            "the session's custody locks are not its key's custody set".into(),
-        ));
-    }
+    custody_matches(&spec.custody, &spec.key.custody)?;
     let shared = Shared {
         worker_version: &spec.key.worker_version,
         command: &spec.key.command,
@@ -774,17 +852,14 @@ fn drive<L: WorkerLauncher>(
                         let SessionUnit { plan, job, key } = *unit;
                         let id = plan.id.clone();
                         let mismatch = if spec.key.is_some_and(|want| *want != key) {
-                            Some(
-                                "refused: the unit's worker, worker version, admission profile \
-                                 or custody set differs from the session's",
-                            )
+                            Some(Refusal::IncompatibleKey)
                         } else if jobs.values().any(|other| other.job_id == job.job_id) {
-                            Some("refused: another unit of this session uses the same job id")
+                            Some(Refusal::JobIdInUse)
                         } else {
                             None
                         };
                         if let Some(reason) = mismatch {
-                            let record = UnitRecord::refused(id, reason.into());
+                            let record = UnitRecord::refused(id, reason);
                             let _ = published.send(record.clone());
                             refused.push(record);
                             continue;

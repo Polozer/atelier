@@ -111,3 +111,15 @@ tests = ["atelier-build-v2::session_lifecycle/a_cancel_the_worker_cannot_read_st
 [[scenarios]]
 id = "c5c.session.a_worker_that_exits_after_completed_ends_its_session_without_crash_evidence"
 tests = ["atelier-build-v2::session_lifecycle/a_worker_that_exits_after_completed_ends_its_session_without_crash_evidence"]
+
+[[scenarios]]
+id = "c5c.session.the_lifetime_fit_counts_the_job_the_quiescence_bound_and_the_session_cleanup"
+tests = ["atelier-build-v2::session_lifecycle/the_lifetime_fit_counts_the_job_the_quiescence_bound_and_the_session_cleanup"]
+
+[[scenarios]]
+id = "c5c.session.a_unit_a_session_could_never_serve_is_refused_at_submission"
+tests = ["atelier-build-v2::session_lifecycle/a_unit_a_session_could_never_serve_is_refused_at_submission"]
+
+[[scenarios]]
+id = "c5c.session.run_session_refuses_custody_not_held_in_its_declared_scope"
+tests = ["atelier-build-v2::guard_adapter/run_session_refuses_custody_not_held_in_its_declared_scope"]

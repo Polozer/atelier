@@ -704,7 +704,7 @@ fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
     assert_eq!(
         records
             .iter()
-            .map(|r| (r.unit.as_str(), r.refused))
+            .map(|r| (r.unit.as_str(), r.refused.is_some()))
             .collect::<Vec<_>>(),
         vec![("a", true), ("c", true), ("a", false), ("b", false)],
         "refusals are handed off at once, settled units as each settles"
@@ -798,7 +798,7 @@ fn run_session_refuses_a_unit_with_another_key_or_a_used_job_id() {
     assert_eq!(
         records
             .iter()
-            .map(|r| (r.unit.as_str(), r.refused))
+            .map(|r| (r.unit.as_str(), r.refused.is_some()))
             .collect::<Vec<_>>(),
         vec![("x", true), ("y", true), ("a", false)]
     );
@@ -855,4 +855,83 @@ fn run_session_refuses_custody_that_is_not_its_keys_custody_set() {
     )
     .unwrap();
     assert!(report.units.is_empty() && report.sessions.is_empty());
+}
+
+fn lock_with(path: &Path, operation: libc::c_int) -> File {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .unwrap();
+    // SAFETY: flock on a descriptor we own.
+    assert_eq!(
+        unsafe { libc::flock(file.as_raw_fd(), operation | libc::LOCK_NB) },
+        0
+    );
+    file
+}
+
+fn custody_run(space: &Workspace, job_spec: &JobSpec, file: &File, scope: LockScope) -> bool {
+    let mut session = session_spec(space, job_spec);
+    session.custody = vec![file.try_clone().unwrap()];
+    session
+        .key
+        .custody
+        .insert(CustodyIdentity::of(file, scope).unwrap());
+    let (handle, inbox) = session_channel();
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        published,
+    )
+    .is_ok()
+}
+
+#[test]
+fn run_session_refuses_custody_not_held_in_its_declared_scope() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let exclusive = lock_with(&space.path("build.lock"), libc::LOCK_EX);
+    assert!(custody_run(
+        &space,
+        &job_spec,
+        &exclusive,
+        LockScope::Exclusive
+    ));
+    assert!(
+        !custody_run(&space, &job_spec, &exclusive, LockScope::Shared),
+        "a scope mismatch is refused"
+    );
+    drop(exclusive);
+    let shared = lock_with(&space.path("content.lock"), libc::LOCK_SH);
+    assert!(custody_run(&space, &job_spec, &shared, LockScope::Shared));
+    assert!(!custody_run(
+        &space,
+        &job_spec,
+        &shared,
+        LockScope::Exclusive
+    ));
+    drop(shared);
+    // The same lock file, opened but never locked: same device and inode, no custody.
+    let unlocked = File::open(space.path("build.lock")).unwrap();
+    assert!(
+        !custody_run(&space, &job_spec, &unlocked, LockScope::Exclusive),
+        "an unlocked handle is refused"
+    );
+    assert!(!custody_run(
+        &space,
+        &job_spec,
+        &unlocked,
+        LockScope::Shared
+    ));
+    // The probe never takes the lock away: the file is still free to lock afterwards.
+    let again = lock_with(&space.path("build.lock"), libc::LOCK_EX);
+    drop(again);
 }

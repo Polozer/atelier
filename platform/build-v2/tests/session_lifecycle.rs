@@ -15,6 +15,8 @@ use std::time::Duration;
 const JOB: u64 = 60_000;
 const CLEAN: u64 = 5_000;
 const QUIET: u64 = 1_000;
+/// A resident session's own cleanup limit: units need CLEAN >= QUIET + SESSION_CLEAN.
+const SESSION_CLEAN: u64 = 3_000;
 const IDLE: u64 = 2_000;
 
 fn t(ms: u64) -> MonoTime {
@@ -88,7 +90,7 @@ impl Sim {
     /// Sessions that may serve further units on quiescence evidence.
     fn resident(lifetime: u64) -> Self {
         Self::with(SessionConfig {
-            cleanup: Duration::from_millis(CLEAN),
+            cleanup: Duration::from_millis(SESSION_CLEAN),
             lifetime: Duration::from_millis(lifetime),
             idle: Duration::from_millis(IDLE),
             quiescence: Some(Duration::from_millis(QUIET)),
@@ -417,7 +419,7 @@ fn a_unit_after_close_or_twice_is_refused() {
         sim.at(1, plan("a", None)),
         vec![SessionCommand::Refused {
             unit: "a".into(),
-            reason: "refused: a unit with this id was already submitted".into()
+            reason: Refusal::DuplicateUnit
         }]
     );
     sim.at(2, SessionInput::Close);
@@ -425,13 +427,13 @@ fn a_unit_after_close_or_twice_is_refused() {
         sim.at(3, plan("b", None)),
         vec![SessionCommand::Refused {
             unit: "b".into(),
-            reason: "refused: the session was already closed".into()
+            reason: Refusal::Closed
         }]
     );
     assert!(sim.lifecycle.unit("b").is_none(), "nothing queued for b");
     assert_eq!(sim.submits(), vec![1]);
-    let record = UnitRecord::refused("b".into(), "refused: closed".into());
-    assert!(record.refused);
+    let record = UnitRecord::refused("b".into(), Refusal::Closed);
+    assert_eq!(record.refused, Some(Refusal::Closed));
     assert!(record.attempts.is_empty());
     assert_eq!(record.outcome.attempts, 0);
     assert_eq!(record.outcome.cleanup, CleanupState::NotNeeded);
@@ -916,6 +918,11 @@ fn cancelling_a_running_unit_cancels_only_its_job_when_others_wait() {
             unit: "a".into()
         }]
     );
+    assert_eq!(
+        sim.quiet(55, 1),
+        vec![],
+        "evidence before the cancelled job's terminal reply counts for nothing"
+    );
     assert_eq!(sim.worker(60, 1, cancelled("a")), vec![]);
     assert_eq!(
         sim.quiet(70, 1),
@@ -999,8 +1006,9 @@ fn an_open_idle_session_waits_for_more_units_then_shuts_down() {
 
 #[test]
 fn a_later_unit_that_does_not_fit_the_sessions_lifetime_gets_a_fresh_session() {
-    // Admitted at 10 ms with a lifetime of one job, one cleanup and 100 ms.
-    let mut sim = Sim::resident(JOB + CLEAN + 100);
+    // Admitted at 10 ms; the worst case (job, quiescence bound, session cleanup) fits with 100 ms
+    // to spare, which is gone by 200 ms.
+    let mut sim = Sim::resident(JOB + QUIET + SESSION_CLEAN + 100);
     sim.at(0, plan("a", None));
     sim.at(0, plan("b", None));
     sim.at(0, SessionInput::Close);
@@ -1102,4 +1110,86 @@ fn a_worker_that_exits_after_completed_ends_its_session_without_crash_evidence()
         "settled by the receipt"
     );
     sim.start(200, 2, 202, "b");
+}
+
+fn limited(id: &str, job: u64, cleanup: u64) -> SessionInput {
+    SessionInput::Submit(UnitPlan {
+        id: id.into(),
+        limits: Limits {
+            job: Duration::from_millis(job),
+            cleanup: Duration::from_millis(cleanup),
+            overall: None,
+        },
+    })
+}
+
+/// a runs from 10 ms and is quiescent at 200 ms; b (job JOB, unit cleanup 50 s, unlike the
+/// session's 3 s) then needs 200 + JOB + QUIET + SESSION_CLEAN of a session admitted at 10 ms.
+fn second_joins(lifetime: u64) -> Vec<SessionCommand> {
+    let mut sim = Sim::resident(lifetime);
+    sim.at(0, plan("a", None));
+    assert_eq!(sim.at(0, limited("b", JOB, 50_000)), vec![]);
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    sim.quiet(200, 1)
+}
+
+#[test]
+fn the_lifetime_fit_counts_the_job_the_quiescence_bound_and_the_session_cleanup() {
+    let exact = JOB + QUIET + SESSION_CLEAN + 190;
+    assert_eq!(
+        second_joins(exact),
+        vec![
+            register(1, "b", 101),
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "an exact fit joins"
+    );
+    assert_eq!(
+        second_joins(exact - 1),
+        vec![
+            SessionCommand::Shutdown { session: 1 },
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "one millisecond short: a fresh session instead"
+    );
+}
+
+#[test]
+fn a_unit_a_session_could_never_serve_is_refused_at_submission() {
+    let mut sim = Sim::resident(JOB + QUIET + SESSION_CLEAN);
+    assert_eq!(
+        sim.at(0, limited("fits", JOB, QUIET + SESSION_CLEAN)),
+        vec![SessionCommand::Submit { session: 1 }],
+        "the exact worst case and the exact cleanup bound are accepted"
+    );
+    assert_eq!(
+        sim.at(0, limited("short_cleanup", JOB, QUIET + SESSION_CLEAN - 1)),
+        vec![SessionCommand::Refused {
+            unit: "short_cleanup".into(),
+            reason: Refusal::CleanupBelowQuiescence
+        }],
+        "an unanswered cancel would pass its cleanup limit before the receipt"
+    );
+    assert_eq!(
+        sim.at(0, limited("too_long", JOB + 1, CLEAN)),
+        vec![SessionCommand::Refused {
+            unit: "too_long".into(),
+            reason: Refusal::NeverFits
+        }],
+        "the first unit too: it could never fit a fresh session"
+    );
+    assert!(sim.lifecycle.unit("short_cleanup").is_none());
+    assert_eq!(sim.submits(), vec![1]);
+
+    // One unit per session: only the job limit must fit the lifetime.
+    let mut sim = Sim::new();
+    assert_eq!(
+        sim.at(0, limited("huge", 100 * JOB + 1, CLEAN)),
+        vec![SessionCommand::Refused {
+            unit: "huge".into(),
+            reason: Refusal::NeverFits
+        }]
+    );
 }
