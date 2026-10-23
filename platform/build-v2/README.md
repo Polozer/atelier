@@ -468,6 +468,50 @@ schedules planners/children. D4/A5 must supply downstream installed ownership/re
 B3 can preflight and apply native-package removals; prior export Items alone do not certify those deletions. No worker execution,
 install/removal, production activation or native equivalence is claimed.
 
+B3 introduces an unused checkout-install boundary in `install` and `checkout_locks`.
+A restore plan pins a validated cached result, checks the complete current ownership view,
+and installs only explicit Checkout mappings under build and exclusive content custody.
+Its journal precedes staged clones and records exact prior/new names; immutable item receipts
+are indexed by explicit project namespace plus logical item path. Recovery rolls back before
+the receipt-index commit and finishes owned cleanup afterward. Unknown leaves preserve the
+journal and block readers. Modes are replayed from result metadata; cache hits do not hash
+payloads, copy bytes, or scan output folders. Root failure after commit preserves installed
+receipts and conservative cache claims. B4/B5 root/GC policy, B7 fallback, and real C7 monitor
+custody/caller integration remain separate; the custody accessor alone is not lifecycle proof.
+The macOS APFS tests cover transaction rollback and resumable pre-install abort. Before
+the Ready marker, a crash (including clone return before inode observation) can abort only
+after verifying the unchanged old index and exact old file
+observations, absent trash, and the pre-owned scope directory identity. Recovery journals an
+abort intent, durably archives the SHA-bound journal, and atomically quarantines the entire
+private scope without adopting/deleting unknown leaves. It rechecks the old checkout and
+preserved evidence before clearing the reader barrier. Every abort transition is resumable;
+invalid identities, changed old files and post-mutation uncertainty remain blocked.
+
+Quarantine retains independent clones, exact journal evidence and explicit process/result/object
+claim metadata. The failed B2 lease is unchanged; quarantine is not an immortal CAS pin or
+successful result. Future B5 dead-producer CAS policy and explicit quarantine artifact cleanup
+are separate. No automatic quarantine cleanup, payload rehash, tree discovery or new CLI exists.
+A dirty original inode remains managed and its current bytes are preserved for rollback;
+a replacement inode at an old receipt-owned name refuses both restore and retirement.
+
+`ReceiptReader::open(checkout, policy)` checks Current/Dirty/NotMaterialized through the same
+receipt/index/stat validator without opening or creating a cache. `CheckoutInstaller` composes
+that reader with cache capabilities. A fresh receipt reader therefore preserves a valid Current
+result even when a cold-start cache open would fail. B4/B5/B7 and actual C7 caller integration
+remain separate; this unused library is not production-cutover acceptance.
+
+For demand materialization, `lookup_restore` returns `RestoreLookup::Miss(WriteTransaction)`
+or `Hit(RestorePlan)`, preserving the original miss lease for dispatch. A pinned hit can be
+rooted via `retain_cached` without installing checkout files. The older `prepare_restore`
+wrapper conservatively drops a miss; new scheduling callers use the explicit enum. Stored-only
+planner token lookup remains B2 `lookup_groups`; no parallel graph/controller lives here.
+Current checks and install preflight share the complete owner-to-index membership validator;
+an extra indexed path cannot certify Current. Postcommit cleanup is resumable after each owned
+leaf/directory removal, including an already-removed scope parent. New scope allocation reserves
+both transaction and quarantine namespaces, including dangling entries, across PID reuse.
+Unknown private cleanup leaves keep the active journal and reader barrier; populated checkout
+output parents are preserved without requiring them to be empty.
+
 ## Offline verification and integrity classification (B7a)
 
 `verify::Verifier` provides opt-in, read-only verification of stored result records, output manifests

@@ -64,6 +64,40 @@ only after named object checks and durable pins under the GC mutex, without plan
 tree walks or rehashing. See tests/results.rs and
 groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest.
 
+@cc [owner:fontanierh,label:correctness;safety] build-v2-checkout-install
+Checkout installs MUST hold build and exclusive content custody, pin named cache objects and
+durably journal exact old/new ownership before payload staging or mutation. They MUST use
+clone-only restoration and recorded normalized modes, without payload hashing or tree discovery.
+Receipt identity MUST include explicit stable project namespace plus logical item path, never
+selected roots or Unit.id. Foreign files, other projects and current code/sources MUST be preserved.
+Before receipt-index commit recovery MUST restore prior owned bytes; after commit it MUST finish
+only exact owned cleanup. Unknown/replaced checkout files or malformed journals MUST retain evidence and
+block readers. Required root failure MUST preserve valid installed work and cache claims.
+See tests/installs.rs and checkout_locks::tests; macOS APFS acceptance remains mandatory.
+An unready journal MAY abort only with the unchanged prior index, exact old file observations,
+absent trash and matching pre-owned directory identity. Recovery MUST persist abort intent,
+archive the exact SHA-bound journal, durably quarantine the whole scope without replacing
+another name, and recheck identities/evidence/old checkout before clearing reader exclusion.
+Unknown private leaves MUST be preserved, never adopted/deleted or certified as result bytes.
+Quarantine retains independent artifacts and explicit owner/claim metadata; failed B2 leases
+remain unchanged. Future dead-producer CAS retention and explicit quarantine cleanup are separate.
+Replacement inodes at prior receipt-owned names MUST refuse restore/retirement; dirty original
+inodes MAY be journaled using their fresh metadata. ReceiptReader MUST use the shared exact
+receipt/stat validator without opening or creating any cache paths, including on cold start.
+See preinstall_abort_preserves_unknown_clone_and_resumes_every_durable_cut,
+preinstall_abort_rejects_changed_outputs_trash_and_replaced_directory_identities,
+replaced_receipt_inode_is_foreign_before_restore_and_whole_item_retirement and
+install_modes_receipts_and_clone_independence_survive_cache_removal in tests/installs.rs.
+
+Current receipt validation and install preflight MUST share exact complete owner/index membership;
+extra indexed paths MUST NOT certify Current. Cleanup MUST resume safely when an already-removed
+owned ancestor is absent, while retaining identity checks for every existing cleanup directory.
+Fresh transaction names MUST preserve all occupied transaction/quarantine entries, including
+dangling links, so process-ID reuse cannot strand an otherwise valid pre-install abort.
+See extra_owner_index_membership_refuses_current_and_restore_without_mutation,
+interrupted_cleanup_resumes_after_each_leaf_directory_and_barrier_removal in tests/installs.rs,
+and install::tests::scope_allocator_preserves_occupied_transaction_and_quarantine_names.
+
 @cc [owner:fontanierh,label:correctness] build-v2-python-job-isolation
 Each Python job MUST run in its own child of the job loop, in its staged folder, with the declared
 environment only, loading only installed platform modules and the unit's declared code; the checkout
@@ -94,3 +128,8 @@ check. Unit code MUST NOT derive outputs from real clocks, file timestamps or na
 clean-room and determinism fixtures remain required. See
 platform/studio/tests/test_build_v2_python_worker.py, test_build_v2_python_sandbox.py and
 tests/staging.rs.
+
+Private transaction directories MUST actually be empty before cleanup clears the journal;
+unknown private leaves MUST preserve the active barrier and evidence. Only checkout output-parent
+directories MAY remain populated. See unknown_private_cleanup_leaves_preserve_journal_and_block_readers
+in tests/installs.rs.
