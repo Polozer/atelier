@@ -1,0 +1,139 @@
+schema_version = 1
+
+[[scenarios]]
+id = "a9b1.unneeded_store_only_sibling_does_not_block_current_source_when_cache_is_unavailable"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::unneeded_store_only_sibling_does_not_block_current_source_when_cache_is_unavailable"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.mixed_local_producer_retains_store_only_sibling_after_checkout_settlement"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::mixed_local_producer_retains_store_only_sibling_after_checkout_settlement"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.mixed_current_and_recorded_identity_resolves_final_hit_without_store_sibling_bytes"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::mixed_current_and_recorded_identity_resolves_final_hit_without_store_sibling_bytes"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.dual_explicit_stored_checkout_hit_preserves_healthy_current_files_and_receipts"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::dual_explicit_stored_checkout_hit_preserves_healthy_current_files_and_receipts"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.dual_explicit_targets_report_unavailable_stored_without_rewriting_valid_checkout"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::dual_explicit_targets_report_unavailable_stored_without_rewriting_valid_checkout"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.same_key_cached_and_current_content_disagreement_refuses_dual_fulfillment"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::same_key_cached_and_current_content_disagreement_refuses_dual_fulfillment"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.changed_current_source_refuses_before_dispatch_and_preserves_existing_consumer"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::changed_current_source_refuses_before_dispatch_and_preserves_existing_consumer"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.production_dispatch_refuses_missing_custodian_before_worker_or_publication"
+tier = "t0"
+tests = ["atelier-build-v2/python_backend::tests::production_dispatch_refuses_missing_custodian_before_worker_or_publication"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.real_backend_matches_independent_model_and_clean_oracle_and_rejects_overbuilding_adapter"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::judgement::real_backend_matches_independent_model_and_clean_oracle_and_rejects_overbuilding_adapter"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.worker_identity_binds_all_explicit_implementation_bytes_and_refuses_incomplete_views"
+tier = "t0"
+tests = ["atelier-build-v2::python_worker_bundle/worker_identity_binds_all_explicit_implementation_bytes_and_refuses_incomplete_views"]
+
+[[scenarios]]
+id = "a9b1.command_loads_private_readonly_worker_bytes_bound_before_locator_changes"
+tier = "t0"
+tests = ["atelier-build-v2/python_worker::tests::command_loads_private_readonly_worker_bytes_bound_before_locator_changes"]
+
+[[scenarios]]
+id = "a9b1.edit_between_source_read_and_observation_refuses_the_entire_snapshot"
+tier = "t0"
+tests = ["atelier-build-v2/python_sources::tests::edit_between_source_read_and_observation_refuses_the_entire_snapshot"]
+
+[[scenarios]]
+id = "a9b1.capture_reads_only_explicit_named_regular_files_and_keeps_frozen_bytes"
+tier = "t0"
+tests = ["atelier-build-v2::python_sources/capture_reads_only_explicit_named_regular_files_and_keeps_frozen_bytes"]
+
+[[scenarios]]
+id = "a9b1.capture_refuses_traversal_and_never_follows_a_named_or_ancestor_link"
+tier = "t0"
+tests = ["atelier-build-v2::python_sources/capture_refuses_traversal_and_never_follows_a_named_or_ancestor_link"]
+
+[[scenarios]]
+id = "a9b1.same_size_and_mtime_replacement_has_a_new_source_version_and_digest"
+tier = "t0"
+tests = ["atelier-build-v2::python_sources/same_size_and_mtime_replacement_has_a_new_source_version_and_digest"]
+
+[[scenarios]]
+id = "a9b1.actual_python_first_build_and_current_noop_have_real_zero_launch_and_write_evidence"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::actual_python_first_build_and_current_noop_have_real_zero_launch_and_write_evidence"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.actual_final_hit_uses_recorded_parent_identity_without_ancestor_clone_or_rerun"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::actual_final_hit_uses_recorded_parent_identity_without_ancestor_clone_or_rerun"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.actual_python_current_source_survives_unavailable_cache_without_producer_rerun"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::actual_python_current_source_survives_unavailable_cache_without_producer_rerun"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.actual_python_selected_source_and_equal_output_content_cut_off_unaffected_consumer"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::actual_python_selected_source_and_equal_output_content_cut_off_unaffected_consumer"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.actual_python_not_cached_local_output_feeds_a_consumer_and_finishes_checkout"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::actual_python_not_cached_local_output_feeds_a_consumer_and_finishes_checkout"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.actual_python_later_independent_failure_preserves_completed_publication_and_checkout"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::actual_python_later_independent_failure_preserves_completed_publication_and_checkout"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.equal_digest_current_sources_each_revalidate_before_staging"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::equal_digest_current_sources_each_revalidate_before_staging"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.renamed_unit_roots_current_scheduling_name_with_old_winner_label"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::renamed_unit_roots_current_scheduling_name_with_old_winner_label"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.failed_submission_keeps_abort_reason_without_claiming_user_cancellation"
+tier = "t0"
+tests = ["atelier-build-v2/python_backend::tests::failed_submission_keeps_abort_reason_without_claiming_user_cancellation"]
+platforms = ["darwin"]
