@@ -349,7 +349,8 @@ impl CheckoutInstaller {
         policy: InstallPolicy,
     ) -> Result<Self, InstallError> {
         let mut reader = ReceiptReader::open(checkout, policy)?;
-        let objects = ObjectStore::open(store)?;
+        let objects = ObjectStore::open(store)
+            .map_err(|error| InstallError::Cache(ResultError::Store(error)))?;
         let results = ResultStore::open(objects.root())?;
         if let Ok(relative) = objects.root().strip_prefix(reader.locks.root()) {
             let relative = relative
@@ -509,6 +510,67 @@ impl ReceiptReader {
         Ok(Some((id.clone(), receipt)))
     }
 
+    /// @cc [owner:fontanierh,label:correctness] retirement-authority-before-cache
+    /// Retirement namespace/reference/path/source and exact receipt membership/identity MUST
+    /// validate without cache access before lookup or dispatch. Authority refusals MUST stay
+    /// hard errors; only true cache-origin failures may be softened as Cache. Commit MUST
+    /// repeat fresh authority checks under exclusive content custody. See tests/demand.rs
+    /// and whole_item_retirement_requires_exact_current_namespaced_receipt_authority.
+    pub fn preflight_removals(
+        &self,
+        guard: &BuildGuard,
+        view: &OwnershipSnapshot,
+        removals: &[RemovalIntent],
+    ) -> Result<(), InstallError> {
+        self.guard(guard)?;
+        if removals.is_empty() {
+            return Ok(());
+        }
+        if !view.projects.contains(&self.policy.project) {
+            return Err(invalid("missing complete project ownership view"));
+        }
+        for removal in removals {
+            if removal.owner.project != self.policy.project
+                || view.owners.contains_key(&removal.owner)
+                || view.references.contains(&removal.owner)
+            {
+                return Err(invalid(
+                    "removal belongs to another project or a live owner/reference",
+                ));
+            }
+            ObjectDigest::from_hex(&removal.expected_receipt_id)
+                .map_err(|_| invalid("invalid retirement receipt identity"))?;
+            for path in &removal.exact_paths {
+                self.output_path(path)?;
+                if conflict(&view.sources, path).is_some() {
+                    return Err(invalid("removal would delete a declared source/code path"));
+                }
+            }
+        }
+        let _reader = self.locks.try_read_content()?;
+        let index = self.index()?;
+        let mut owners = BTreeSet::new();
+        for removal in removals {
+            if !owners.insert(removal.owner.clone()) {
+                return Err(invalid("duplicate retirement owner"));
+            }
+            let Some((id, receipt)) = self.consistent_receipt(&index, &removal.owner)? else {
+                return Err(invalid("retirement has no owned receipt"));
+            };
+            if id != removal.expected_receipt_id
+                || receipt
+                    .files
+                    .iter()
+                    .map(|file| file.install_path.clone())
+                    .collect::<BTreeSet<_>>()
+                    != removal.exact_paths
+            {
+                return Err(invalid("stale or incomplete retirement authority"));
+            }
+        }
+        Ok(())
+    }
+
     pub fn receipt_status(
         &self,
         guard: &BuildGuard,
@@ -592,6 +654,7 @@ impl CheckoutInstaller {
         if !view.projects.contains(&self.policy.project) {
             return Err(invalid("missing complete project ownership view"));
         }
+        self.preflight_removals(guard, view, &removals)?;
         let mut retention = QuarantineRetention {
             owner: identity.owner.clone(),
             workers: identity.workers.clone(),
@@ -685,23 +748,6 @@ impl CheckoutInstaller {
                 }
             }
             items.insert(owner, stored.item.clone());
-        }
-        for removal in &removals {
-            if removal.owner.project != self.policy.project
-                || view.owners.contains_key(&removal.owner)
-                || view.references.contains(&removal.owner)
-            {
-                return Err(invalid(
-                    "removal belongs to another project or a live owner/reference",
-                ));
-            }
-            digest(&removal.expected_receipt_id)?;
-            for path in &removal.exact_paths {
-                self.output_path(path)?;
-                if conflict(&view.sources, path).is_some() {
-                    return Err(invalid("removal would delete a declared source/code path"));
-                }
-            }
         }
         Ok(RestoreLookup::Hit(RestorePlan {
             installer: self.clone(),
