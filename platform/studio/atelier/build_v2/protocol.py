@@ -8,12 +8,13 @@ Message ordering belongs to the controller session (`platform/build-v2/src/worke
 Decoding is at least as strict as the Rust reader. Python additionally refuses duplicate keys anywhere and
 integers outside the 64-bit range, which Rust would keep only lossily. Encoding validates first and writes
 the Rust byte form: compact JSON, fields in declaration order, params keys sorted, non-ASCII unescaped.
-Floats may print differently from Rust (the decoded values still agree).
+Floats use Rust's shortest round-trip text and its layout (`1e-7`, `0.00001`, `1e+16`, `100.0`).
 
 Only the standard library is used, so a worker interpreter can load this file by path.
 """
 from __future__ import annotations
 
+from decimal import Decimal
 import json
 import math
 import struct
@@ -260,12 +261,42 @@ def decode_payload(kind, payload):
     return validate(kind, document['message'])
 
 
+def _float_text(value):
+    """serde_json's float text: the shortest round-trip digits (Python's repr), laid out as Rust does."""
+    sign = '-' if math.copysign(1.0, value) < 0 else ''
+    if value == 0:
+        return sign + '0.0'
+    _, digit_tuple, exponent = Decimal(repr(abs(value))).as_tuple()
+    digits = ''.join(map(str, digit_tuple)).rstrip('0')
+    exponent += len(digit_tuple) - len(digits)
+    point = len(digits) + exponent - 1  # decimal exponent of the leading digit
+    if -5 <= point <= 15:
+        if len(digits) - 1 <= point:
+            return sign + digits + '0' * (point + 1 - len(digits)) + '.0'
+        if point >= 0:
+            return sign + digits[:point + 1] + '.' + digits[point + 1:]
+        return sign + '0.' + '0' * (-point - 1) + digits
+    mantissa = digits[0] + ('.' + digits[1:] if len(digits) > 1 else '')
+    return f'{sign}{mantissa}e{"+" if point >= 0 else "-"}{abs(point)}'
+
+
+def _json(value):
+    """Compact JSON in insertion order with Rust's string escapes and float text."""
+    if isinstance(value, dict):
+        return '{' + ','.join(f'{_json(key)}:{_json(item)}' for key, item in value.items()) + '}'
+    if isinstance(value, list):
+        return '[' + ','.join(_json(item) for item in value) + ']'
+    if isinstance(value, float):
+        return _float_text(value)
+    return json.dumps(value, ensure_ascii=False)
+
+
 def encode_payload(kind, message):
     """Validate a message and return its envelope bytes in Rust's form, without the length header."""
     envelope = {'version': PROTOCOL_VERSION, 'message': validate(kind, message)}
     if _depth(envelope) > _MAX_DEPTH:
         _fail('json', 'recursion limit exceeded')
-    payload = json.dumps(envelope, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8')
+    payload = _json(envelope).encode('utf-8')
     if len(payload) > MAX_FRAME_BYTES:
         _fail('frame', 'frame exceeds maximum length')
     return payload

@@ -246,7 +246,9 @@ Job IDs are unique per session. A malformed frame, wrong version or job ID, out-
 response breaks the session (`Protocol`); an end of stream or failed write outside a clean close is
 `Disconnected`; a refused controller call (`Misuse`) leaves the state unchanged. `cancel` records a
 request; only `failed` of kind `cancelled` confirms it, and a job that finished first still reports
-`completed`. `Channel` drives a session over any framed reader/writer pair.
+`completed`. `Channel` drives a session over any framed reader/writer pair. It builds each frame
+before writing, so any later write or flush error breaks the session, and it refuses a response
+record in positional array form, which `protocol::read_frame` alone would accept.
 
 Worker rule: a worker MUST send `started` for every `run` before its single terminal response,
 including a job it rejects at once and a `cancel` that arrives before it started. A `cancel` that
@@ -258,7 +260,7 @@ policy (C1b, A3), execution (C2), deadlines, retries and crash classification (C
 are not here; nor is validation of returned output paths.
 
 `platform/studio/atelier/build_v2/protocol.py` is the standard-library Python framing: the same frames,
-size limit and strict shapes, as plain dicts. [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
+size limit and strict shapes, as plain dicts. It writes Rust's bytes, including serde_json's float text. [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
 holds byte vectors that both `tests/worker_session.rs` and `platform/studio/tests/test_build_v2_protocol.py`
 decode and, where canonical, re-encode byte for byte. The pipe tests start
 [tests/fixtures/fake_worker.py](tests/fixtures/fake_worker.py) with its protocol on two inherited pipe
