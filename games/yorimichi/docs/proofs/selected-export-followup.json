@@ -27,7 +27,21 @@
       "unchanged_sibling_fingerprints": 202,
       "unchanged_published_files": 564
     },
-    "native_geometry_proof": "pending"
+    "native_geometry_proof": {
+      "status": "scoped paired PASS",
+      "source_head": "b59638ab175e14df1288f2cb7b6f41b6c2a90a08",
+      "receiving_head": "e1a700a24b95f83254379eb2d30a4f7551b76f05",
+      "mesh_packages_per_side": 84,
+      "native_lod_pages_per_side": 150,
+      "whole_exit_codes": [0, 0],
+      "guards_empty": true,
+      "fixture_absent": true,
+      "immutable_stdout_finalization": true,
+      "original_receipts_preserved": true,
+      "production_runtime_complete": false,
+      "normal_native_reuse": false,
+      "distance_fields_and_mesh_cards": "disabled in this fixture; runtime behavior not certified"
+    }
   },
   "track": {
     "source_head": "f37d202d475fa509fcf5195d7e486391288f1c25",
@@ -77,17 +91,19 @@
   "evidence_sha256": {
     "foliage_source_handoff": "917cf87a930090ab3002c603e402613729605262dc457d8fcb49d262ca1e6096",
     "foliage_ordinary_handoff": "96e4353ae48d41bc86fee4c4efc22a3e3ed526a052f0a8320863e126eaa0c993",
+    "foliage_finalized_native_receipt": "68ac061a2a00095bc8d0c2ef2620c970556888165e40d10493dcf3b4629d48b6",
     "track_source_result": "6aa9a25a5df98f3d9a08f581c02787591ccfee7b4425a9a965c936401f6ec736",
     "carriage_source_result": "0755caa92a957519c6ed5916b739fca8d7048377778102155aa77f8f4e42c3c7",
     "carriage_normal_cache_handoff": "157e3eb4dcb1b57d1c709ff7562425e25caa7c9bf85ec18309bed1cf1fb95e8e"
   },
   "not_certified": [
-    "native equivalence while its paired proofs remain pending",
+    "Track and carriage native equivalence while their proofs remain pending",
     "normal native-owner mesh reuse",
     "full furniture LOD bake and service/route closure",
     "production placement, gameplay and runtime behavior",
     "whole-world or packaged cook",
-    "skeletal meshes or uncensused families"
+    "uncensused families"
   ],
+  "excluded_by_owner": ["skeletal character and horse splitting", "additional small-asset splitting"],
   "authority": "Informational evidence index only; never a cache admission token or replacement for current validation."
 }
