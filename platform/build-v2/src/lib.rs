@@ -9,6 +9,7 @@ pub mod groups;
 pub mod install;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod install_fs;
+pub mod integrity;
 pub mod keys;
 pub mod leases;
 mod paths;
@@ -19,4 +20,5 @@ pub mod schema;
 pub mod source_hashes;
 pub mod store;
 pub mod validate;
+pub mod verify;
 pub mod worker_session;

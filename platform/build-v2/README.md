@@ -412,3 +412,30 @@ or `Hit(RestorePlan)`, preserving the original miss lease for dispatch. A pinned
 rooted via `retain_cached` without installing checkout files. The older `prepare_restore`
 wrapper conservatively drops a miss; new scheduling callers use the explicit enum. Stored-only
 planner token lookup remains B2 `lookup_groups`; no parallel graph/controller lives here.
+
+## Offline verification and integrity classification (B7a)
+
+`verify::Verifier` provides opt-in, read-only verification of stored result records, output manifests
+and payload objects (`VerificationMode::Full` or `VerificationMode::Sampled`). Normal lookup
+(`results::WriteTransaction::lookup`) and restoration (`store::ObjectStore::clone_to`) check
+metadata/size and clone without rehashing payload bytes; `Verifier` streams and SHA-256 hashes the
+actual stored object bytes from disk, bypassing stat/version hash hints, and reports `Verified`,
+`Missing`, `MissingObjects`, `Corrupt`, `Malformed`, `IncompleteManifest`,
+`Unsupported`, `External` and `Unverified` separately. Sample-skipped items, non-empty
+`output_groups` records or contracts (`UnsupportedReason::OutputGroupsUnsupported`), and external
+Zen references never report `Verified`.
+
+While inspecting records and objects, `Verifier` pins the target result keys and discovered manifest
+object digests through `leases::LeaseStore::begin` and `MetadataGuard::save` under the shared
+metadata mutex. Because `LeaseStore::begin` reserves a matching empty `staging/<id>` directory
+as part of the lease invariant, the verifier creates that empty directory when acquiring the lease, never
+writes inside `staging/`, `objects/` or `results/`, and releases its claims and removes
+the empty `staging/<id>` directory via a `Drop` guard on every exit path (normal return, error
+or panic). If a process is killed abruptly before `Drop`, only a normal owner-identified lease
+remains, which `LeaseRecord::may_reclaim` reclaims once the owner is dead.
+
+`integrity` exports pure, narrow decision types (`LookupDecision`, `RestoreDecision`,
+`CompletionDecision`, `NonHitReason`, `StoreFailureKind`, `UnitFailureReason`) for
+later B7/A5/A9 integration. Store, lease, clone or root failures after local output validation preserve
+valid work as `CompletedNotCached`, whereas invalid producer outputs, validator rejections and
+same-key nondeterminism fail the unit.
