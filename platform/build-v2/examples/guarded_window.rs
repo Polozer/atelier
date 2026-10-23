@@ -113,7 +113,8 @@ fn main() -> ExitCode {
                 cwd: root.clone(),
             },
             purpose: format!("build-v2 C5b/C7 guarded window: {name}"),
-            memory_gib: 1,
+            // A job admission reserves the full job profile; ask for exactly that ceiling.
+            memory_gib: 10,
             limits: Limits {
                 job: Duration::from_secs(120),
                 cleanup: Duration::from_secs(60),
