@@ -307,7 +307,7 @@ Envelope version 1 wraps result schema 3 and `upstream_result_keys` for future r
 Those links, provenance and unit labels never participate in semantic winner equality. The first
 winner retains its own immutable lineage/evidence even when an equivalent unit has another graph ID.
 Different complete output manifests, including file modes, report non-determinism without replacing
-the winner. External/Zen adapters and dynamic groups are not supported by this fixed-result boundary.
+the winner. External/Zen adapters remain unsupported; groups use the separately validated complete-manifest entrypoint.
 
 Per-unit claim release marks the lease rooted but retains its process/staging header. Dropping a
 transaction also preserves durable claims. A later lifecycle/GC adapter may reclaim a scope only when
@@ -338,7 +338,14 @@ path, byte digest, size and mode. A complete saved manifest can restore a token 
 trusted reader with named object checks, without scanning mutable output folders. Group/roster
 changes remain separate from a selected member's content view.
 
-This slice is unused: declaration2/result3/key2 bind fixed groups and selected member identities.
-B2 sealed-token publication, child graph expansion and removal intents are not yet integrated.
-B2 explicitly refuses nonempty group contracts/records until publication support is implemented.
-No worker, store publication, install/removal or native equivalence is claimed.
+This slice remains unused by production callers. Declaration2/result3/key2 bind fixed groups and
+selected member identities. `stage_groups` partitions one complete actual fixed+group list, freezes
+under the existing lease and invokes source validators on those snapshots; every group object,
+including the plan, is claimed before publication. Full groups/projections participate in winner
+equality. The old `stage` API refuses group units. `lookup_groups` restores private tokens only after
+trusted record checks, named CAS metadata checks and durable pins under the same GC mutex; it reads
+no plan bytes and scans no output folders. C1b must supply the complete actual manifest and preserve
+physical sandbox boundaries; these APIs do not implement a worker or a filesystem sandbox.
+
+Child graph expansion/removal intents are still being integrated. No worker, install/removal,
+production activation or native equivalence is claimed.

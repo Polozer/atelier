@@ -287,6 +287,11 @@ pub fn parse_manifest(
     }
     let mut projections = BTreeMap::new();
     let mut triangles = 0u64;
+    let mut render_triangles = 0u64;
+    let mut collision_triangles = 0u64;
+    if contract.encoding == PlanEncoding::MeshSet && integer(&raw, "source_collision_hulls")? != 0 {
+        return Err("mesh-set cannot duplicate whole collision ownership".into());
+    }
     for (index, row) in rows.iter().enumerate() {
         let piece = text(row, "name")?;
         name(piece)?;
@@ -297,6 +302,21 @@ pub fn parse_manifest(
         triangles = triangles
             .checked_add(count)
             .ok_or("triangle total overflow")?;
+        if contract.encoding == PlanEncoding::EncodedGlb {
+            match text(row, "role")? {
+                "render" => {
+                    render_triangles = render_triangles
+                        .checked_add(count)
+                        .ok_or("render triangle overflow")?
+                }
+                "collision" => {
+                    collision_triangles = collision_triangles
+                        .checked_add(count)
+                        .ok_or("collision triangle overflow")?
+                }
+                _ => return Err("unsupported encoded payload role".into()),
+            }
+        }
         if contract.encoding != PlanEncoding::EncodedGlb {
             let whole_hulls = integer(&raw, "source_collision_hulls")?;
             if integer(row, "collision_hulls")? != if index == 0 { whole_hulls } else { 0 } {
@@ -326,6 +346,13 @@ pub fn parse_manifest(
     }
     if triangles != integer(&raw, "source_triangles")? {
         return Err("incomplete triangle total".into());
+    }
+    if contract.encoding == PlanEncoding::EncodedGlb
+        && (render_triangles == 0
+            || render_triangles != integer(&raw, "source_render_triangles")?
+            || collision_triangles != integer(&raw, "source_collision_triangles")?)
+    {
+        return Err("incomplete encoded role conservation".into());
     }
     let mut files = files.to_vec();
     files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -838,5 +865,239 @@ mod tests {
             )
             .is_err()
         );
+    }
+    struct Workspace(std::path::PathBuf);
+    impl Workspace {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "atelier-v2-group-results-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Workspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn begin(
+        store: &crate::results::ResultStore,
+        unit: &crate::keys::PreparedUnit,
+    ) -> crate::results::WriteTransaction {
+        store
+            .begin(
+                unit,
+                crate::schema::Provenance {
+                    checkout: "fixture".into(),
+                    branch: "main".into(),
+                    commit: "source".into(),
+                    dirty: false,
+                },
+                crate::leases::ProcessIdentity {
+                    pid: std::process::id(),
+                    boot: "fixture-boot".into(),
+                    started: "fixture-start".into(),
+                },
+                vec![],
+                BTreeSet::new(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn complete_output_partition_refuses_unknown_alias_and_ancestor_reports_before_cloning() {
+        use crate::results::{ActualOutput, ResultError, ResultStore};
+        let (contract, _) = fixture();
+        let (declaration, registry, snapshot) = key_fixture(&contract);
+        let unit = prepared(
+            &declaration,
+            &registry,
+            &snapshot,
+            &BTreeMap::new(),
+            "planner",
+        )
+        .unwrap();
+        let workspace = Workspace::new();
+        let store = ResultStore::open(workspace.0.join("store")).unwrap();
+        for paths in [
+            vec!["foreign.bin"],
+            vec!["geometry"],
+            vec!["../escape"],
+            vec!["geometry/plan.json", "geometry/plan.json"],
+            vec!["geometry/plan.json", "GEOMETRY/PLAN.JSON"],
+            vec!["geometry/payload.npz", "geometry/payload.npz/child"],
+        ] {
+            let actual = paths
+                .into_iter()
+                .map(|path| ActualOutput {
+                    path: path.into(),
+                    source: workspace.0.join("never-opened"),
+                })
+                .collect();
+            assert!(matches!(
+                begin(&store, &unit).stage_groups(actual, |_| Ok(()), |_, _, _| Ok(())),
+                Err(ResultError::Invalid(_))
+            ));
+        }
+        assert!(
+            begin(&store, &unit)
+                .stage(BTreeMap::new(), |_| Ok(()))
+                .is_err()
+        );
+        assert!(
+            std::fs::read_dir(workspace.0.join("store/objects/sha256"))
+                .unwrap()
+                .next()
+                .is_none()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn leased_group_publication_restores_tokens_and_compares_whole_manifest() {
+        use crate::results::{ActualOutput, ResultError, ResultStore};
+        use std::{fs, io::Read};
+        let (contract, _) = fixture();
+        let (declaration, registry, snapshot) = key_fixture(&contract);
+        let unit = prepared(
+            &declaration,
+            &registry,
+            &snapshot,
+            &BTreeMap::new(),
+            "planner",
+        )
+        .unwrap();
+        let workspace = Workspace::new();
+        let store = ResultStore::open(workspace.0.join("store")).unwrap();
+        let output = workspace.0.join("output");
+        fs::create_dir(&output).unwrap();
+        let payload = b"opaque group fixture payload";
+        let plan = serde_json::json!({"schema":1,"parent":"Village_Edges","complete":true,"triangle_limit":32768,
+            "source_triangles":3,"source_collision_hulls":0,"pieces":[{"name":"Village_Edges","payload":"Village_Edges.npz",
+            "sha256":sha256(payload),"triangles":3,"collision_hulls":0}]});
+        let write_actual = |plan: &Value, sibling: bool| {
+            if !sibling && output.join("Sibling.npz").exists() {
+                fs::remove_file(output.join("Sibling.npz")).unwrap();
+            }
+            fs::write(output.join("plan.json"), serde_json::to_vec(plan).unwrap()).unwrap();
+            fs::write(output.join("Village_Edges.npz"), payload).unwrap();
+            let mut actual = vec![
+                ActualOutput {
+                    path: "geometry/plan.json".into(),
+                    source: output.join("plan.json"),
+                },
+                ActualOutput {
+                    path: "geometry/Village_Edges.npz".into(),
+                    source: output.join("Village_Edges.npz"),
+                },
+            ];
+            if sibling {
+                fs::write(output.join("Sibling.npz"), b"sibling").unwrap();
+                actual.push(ActualOutput {
+                    path: "geometry/Sibling.npz".into(),
+                    source: output.join("Sibling.npz"),
+                });
+            }
+            actual
+        };
+        let staged = begin(&store, &unit)
+            .stage_groups(
+                write_actual(&plan, false),
+                |fixed| {
+                    assert!(fixed.is_empty());
+                    Ok(())
+                },
+                |contract, roster, members| {
+                    assert_eq!(contract.id, "geometry");
+                    assert_eq!(roster.stored().files.len(), 2);
+                    fs::write(output.join("Village_Edges.npz"), b"changed live output").unwrap();
+                    let mut bytes = Vec::new();
+                    members["Village_Edges.npz"]
+                        .reader()
+                        .unwrap()
+                        .read_to_end(&mut bytes)
+                        .unwrap();
+                    assert_eq!(bytes, payload);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let first = staged.publish(|_| Ok(())).unwrap();
+        assert_eq!(first.result.output_groups[0].files.len(), 2);
+        fs::remove_dir_all(&output).unwrap(); // Cache restoration cannot depend on the mutable output tree.
+        let mut hit = begin(&store, &unit);
+        let (envelope, mut tokens) = hit.lookup_groups().unwrap().unwrap();
+        assert_eq!(envelope, first);
+        for file in envelope.files() {
+            assert!(hit.lease().object_digests.contains(&file.digest));
+        }
+        let token = tokens.remove("geometry").unwrap();
+        assert_eq!(
+            token.project("Village_Edges").unwrap().files[0].digest,
+            sha256(payload)
+        );
+        let produced = BTreeMap::from([(("planner".into(), "geometry".into()), token)]);
+        prepared(
+            &declaration,
+            &registry,
+            &snapshot,
+            &produced,
+            "export.Village_Edges",
+        )
+        .unwrap();
+        hit.retain_hit(|_| Ok(())).unwrap();
+        fs::create_dir(&output).unwrap();
+        let mut changed = plan.clone();
+        changed["source_triangles"] = 6.into();
+        changed["pieces"].as_array_mut().unwrap().push(serde_json::json!({"name":"Sibling","payload":"Sibling.npz","sha256":sha256(b"sibling"),"triangles":3,"collision_hulls":0}));
+        let conflict = begin(&store, &unit)
+            .stage_groups(write_actual(&changed, true), |_| Ok(()), |_, _, _| Ok(()))
+            .unwrap();
+        assert!(matches!(
+            conflict.publish(|_| panic!("no root for nondeterministic full group")),
+            Err(ResultError::Nondeterminism(_))
+        ));
+        assert_eq!(begin(&store, &unit).lookup().unwrap().unwrap(), first);
+        let mut extra = write_actual(&plan, false);
+        fs::write(output.join("Foreign.bin"), b"unexpected").unwrap();
+        extra.push(ActualOutput {
+            path: "geometry/Foreign.bin".into(),
+            source: output.join("Foreign.bin"),
+        });
+        assert!(matches!(
+            begin(&store, &unit).stage_groups(
+                extra,
+                |_| Ok(()),
+                |_, _, _| panic!("metadata refusal precedes source validation")
+            ),
+            Err(ResultError::Validation(_))
+        ));
+        fs::remove_file(output.join("Foreign.bin")).unwrap();
+        let failed = begin(&store, &unit);
+        let failed = failed.stage_groups(
+            write_actual(&plan, false),
+            |_| Ok(()),
+            |_, _, _| Err("source validator refused".into()),
+        );
+        assert!(matches!(failed, Err(ResultError::Validation(_))));
+        let manifest = first.result.output_groups[0]
+            .files
+            .iter()
+            .find(|file| file.path == "plan.json")
+            .unwrap();
+        fs::remove_file(
+            workspace
+                .0
+                .join("store/objects/sha256")
+                .join(&manifest.digest),
+        )
+        .unwrap();
+        assert!(begin(&store, &unit).lookup_groups().is_err());
     }
 }

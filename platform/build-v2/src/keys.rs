@@ -8,6 +8,12 @@ use crate::validate::{FileSelection, SnapshotEntry, SourceSnapshot, ValidatedDec
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// @cc [owner:fontanierh,label:correctness] fixed-plan-input-identity
+/// Key encoding v2 MUST bind fixed group contracts before execution and MUST NOT
+/// include runtime group membership, plan/roster digests or producer input keys in
+/// a selected member consumer key. See groups::tests::fixed_group_contract_keys_planner_without_runtime_membership
+/// and member_keys_cut_off_planner_and_sibling_changes_but_bind_selected_view;
+/// actual scheduler/worker cutoff remains pending A9/D2 integration.
 pub const KEY_ENCODING_VERSION: u32 = 2;
 pub const CANONICAL_JSON_VERSION: u32 = 1;
 pub type ProducedItems = BTreeMap<(String, String), StoredItem>;

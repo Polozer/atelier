@@ -1,6 +1,10 @@
 //! Per-unit immutable result publication. B3 installs and B4 root policy are separate.
+use crate::groups::{
+    OutputGroupContract, PlanRoster, ValidatedGroup, restore_recorded, validate_frozen,
+};
 use crate::keys::{PreparedUnit, canonical_bytes, normalized_mode};
 use crate::leases::{LeaseRecord, LeaseStore, ProcessIdentity, directory, sync_dir};
+use crate::paths::{Claims, claim, relative_path};
 use crate::schema::{
     Destination, Item, Provenance, RESULT_SCHEMA_VERSION, ResultRecord, StoredFile, StoredItem,
 };
@@ -14,6 +18,13 @@ use std::path::{Path, PathBuf};
 
 pub const ENVELOPE_VERSION: u32 = 1;
 pub type OutputSources = BTreeMap<(String, String), PathBuf>;
+type GroupSources = BTreeMap<(String, String), PathBuf>;
+pub type GroupHit = (ResultEnvelope, BTreeMap<String, ValidatedGroup>);
+#[derive(Clone, Debug)]
+pub struct ActualOutput {
+    pub path: String,
+    pub source: PathBuf,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,6 +34,21 @@ pub struct ResultEnvelope {
     /// Retention links, never semantic inputs or winner-comparison ingredients.
     /// First-winner lineage remains immutable alongside its original provenance.
     pub upstream_result_keys: BTreeSet<String>,
+}
+
+impl ResultEnvelope {
+    pub fn files(&self) -> impl Iterator<Item = &StoredFile> {
+        self.result
+            .outputs
+            .iter()
+            .flat_map(|item| &item.files)
+            .chain(
+                self.result
+                    .output_groups
+                    .iter()
+                    .flat_map(|group| &group.files),
+            )
+    }
 }
 
 #[derive(Debug)]
@@ -129,11 +155,6 @@ impl ResultStore {
         upstream_result_keys: BTreeSet<String>,
     ) -> Result<WriteTransaction, ResultError> {
         digest(unit.key())?;
-        if !unit.ingredients().output_groups.is_empty() {
-            return Err(invalid(
-                "dynamic groups require sealed-token publication support",
-            ));
-        }
         for key in &upstream_result_keys {
             digest(key)?;
         }
@@ -165,6 +186,10 @@ impl ResultStore {
 
     // Caller holds the metadata lock. Direct record/object lookups only; no output walk/hash.
     fn read(&self, unit: &PreparedUnit) -> Result<Option<ResultEnvelope>, ResultError> {
+        Ok(self.read_validated(unit)?.map(|(envelope, _)| envelope))
+    }
+
+    fn read_validated(&self, unit: &PreparedUnit) -> Result<Option<GroupHit>, ResultError> {
         let path = self.record_path(unit.key());
         match fs::symlink_metadata(&path) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -183,9 +208,26 @@ impl ResultStore {
         {
             return Err(invalid("stored result version/key/ingredients differ"));
         }
-        if !envelope.result.output_groups.is_empty() {
-            return Err(invalid("dynamic group records require their typed adapter"));
+        if envelope.result.output_groups.len() != unit.ingredients().output_groups.len() {
+            return Err(invalid("wrong output group count"));
         }
+        let mut groups = BTreeMap::new();
+        for (contract, stored) in unit
+            .ingredients()
+            .output_groups
+            .iter()
+            .zip(&envelope.result.output_groups)
+        {
+            let token = restore_recorded(contract, stored, |file| {
+                let digest = ObjectDigest::from_hex(&file.digest).map_err(|e| e.to_string())?;
+                self.objects
+                    .check_recorded(&digest, file.size)
+                    .map_err(|e| e.to_string())
+            })
+            .map_err(invalid)?;
+            groups.insert(contract.id.clone(), token);
+        }
+
         check_manifest(unit, &envelope.result.outputs)?;
         for key in &envelope.upstream_result_keys {
             digest(key)?;
@@ -194,8 +236,51 @@ impl ResultStore {
             self.objects
                 .check_recorded(&ObjectDigest::from_hex(&file.digest)?, file.size)?;
         }
-        Ok(Some(envelope))
+        Ok(Some((envelope, groups)))
     }
+}
+
+fn partition_outputs(
+    unit: &PreparedUnit,
+    actual: Vec<ActualOutput>,
+) -> Result<(OutputSources, GroupSources), ResultError> {
+    let mut fixed = BTreeMap::new();
+    for item in &unit.ingredients().logical_outputs {
+        for file in &item.files {
+            if fixed.insert(file.path.clone(), item.id.clone()).is_some() {
+                return Err(invalid("duplicate fixed output owners"));
+            }
+        }
+    }
+    crate::groups::validate_ownership(
+        &unit.ingredients().output_groups,
+        &fixed.keys().cloned().collect::<Vec<_>>(),
+    )
+    .map_err(invalid)?;
+    let mut claims = Claims::new();
+    let mut fixed_sources = BTreeMap::new();
+    let mut group_sources = BTreeMap::new();
+    for output in actual {
+        relative_path(&output.path, true).map_err(invalid)?;
+        claim(&mut claims, &output.path, "actual output").map_err(invalid)?;
+        if let Some(item) = fixed.get(&output.path) {
+            fixed_sources.insert((item.clone(), output.path), output.source);
+            continue;
+        }
+        let mut owner = None;
+        for contract in &unit.ingredients().output_groups {
+            let prefix = contract.root.clone() + "/";
+            if let Some(member) = output.path.strip_prefix(prefix.as_str()) {
+                if owner.is_some() {
+                    return Err(invalid("actual output has multiple group owners"));
+                }
+                owner = Some((contract.id.clone(), member.to_string()));
+            }
+        }
+        let owner = owner.ok_or_else(|| invalid("unknown actual output path"))?;
+        group_sources.insert(owner, output.source);
+    }
+    Ok((fixed_sources, group_sources))
 }
 
 fn check_manifest(unit: &PreparedUnit, outputs: &[StoredItem]) -> Result<(), ResultError> {
@@ -257,17 +342,18 @@ impl WriteTransaction {
     /// Pin every named object under the GC mutex before returning a hit.
     /// Complete with retain_hit(); dropping this handle conservatively retains claims.
     pub fn lookup(&mut self) -> Result<Option<ResultEnvelope>, ResultError> {
+        Ok(self.lookup_groups()?.map(|(envelope, _)| envelope))
+    }
+
+    /// Private tokens escape only after all named blobs are checked and durably pinned
+    /// under the same GC mutex. No plan bytes, hash or output-tree walk on a hit.
+    pub fn lookup_groups(&mut self) -> Result<Option<GroupHit>, ResultError> {
         let guard = self.store.leases.lock()?;
-        let result = self.store.read(&self.unit)?;
-        if let Some(envelope) = &result {
-            self.lease.object_digests.extend(
-                envelope
-                    .result
-                    .outputs
-                    .iter()
-                    .flat_map(|item| &item.files)
-                    .map(|file| file.digest.clone()),
-            );
+        let result = self.store.read_validated(&self.unit)?;
+        if let Some((envelope, _)) = &result {
+            self.lease
+                .object_digests
+                .extend(envelope.files().map(|file| file.digest.clone()));
             guard.save(&self.lease)?;
         }
         Ok(result)
@@ -275,10 +361,48 @@ impl WriteTransaction {
 
     /// Validates exact output membership, freezes each file once, then asks the op
     /// validator to inspect those same bytes. No publication happens on validation failure.
+    /// Fixed-only compatibility entrypoint. Group units require the complete actual list.
     pub fn stage(
         self,
-        mut sources: OutputSources,
+        sources: OutputSources,
         validator: impl FnOnce(&[FrozenOutput<'_>]) -> Result<(), String>,
+    ) -> Result<StagedResult, ResultError> {
+        if !self.unit.ingredients().output_groups.is_empty() {
+            return Err(invalid(
+                "group outputs require stage_groups with complete actual membership",
+            ));
+        }
+        self.stage_partitioned(sources, BTreeMap::new(), validator, |_, _, _| {
+            Err("undeclared group".into())
+        })
+    }
+
+    /// C1b supplies ALL actual fixed+group files, including unexpected members.
+    /// Partition exactly once; this controller does not rescan a live output tree.
+    pub fn stage_groups(
+        self,
+        actual: Vec<ActualOutput>,
+        fixed_validator: impl FnOnce(&[FrozenOutput<'_>]) -> Result<(), String>,
+        group_validator: impl FnMut(
+            &OutputGroupContract,
+            &PlanRoster,
+            &BTreeMap<String, &PreparedObject>,
+        ) -> Result<(), String>,
+    ) -> Result<StagedResult, ResultError> {
+        let (fixed, groups) = partition_outputs(&self.unit, actual)?;
+        self.stage_partitioned(fixed, groups, fixed_validator, group_validator)
+    }
+
+    fn stage_partitioned(
+        self,
+        mut sources: OutputSources,
+        mut group_sources: GroupSources,
+        validator: impl FnOnce(&[FrozenOutput<'_>]) -> Result<(), String>,
+        mut group_validator: impl FnMut(
+            &OutputGroupContract,
+            &PlanRoster,
+            &BTreeMap<String, &PreparedObject>,
+        ) -> Result<(), String>,
     ) -> Result<StagedResult, ResultError> {
         let mut outputs = vec![];
         let mut objects = vec![];
@@ -324,6 +448,59 @@ impl WriteTransaction {
             .map(|((item, path), object)| FrozenOutput { item, path, object })
             .collect();
         validator(&frozen).map_err(ResultError::Validation)?;
+        drop(frozen);
+        drop(labels);
+        let mut output_groups = Vec::new();
+        for contract in &self.unit.ingredients().output_groups {
+            let names: Vec<_> = group_sources
+                .keys()
+                .filter(|(group, _)| group == &contract.id)
+                .cloned()
+                .collect();
+            if names.len() as u64
+                > contract
+                    .max_pieces
+                    .checked_add(1)
+                    .ok_or_else(|| invalid("group member count overflow"))?
+            {
+                return Err(invalid("group member count budget exceeded"));
+            }
+            let mut declared_bytes = 0u64;
+            for key in &names {
+                let size = fs::symlink_metadata(&group_sources[key])?.len();
+                if size > contract.max_member_bytes {
+                    return Err(invalid("group member byte budget exceeded"));
+                }
+                declared_bytes = declared_bytes
+                    .checked_add(size)
+                    .ok_or_else(|| invalid("group byte count overflow"))?;
+            }
+            if declared_bytes > contract.max_total_bytes {
+                return Err(invalid("group byte budget exceeded"));
+            }
+            let mut indices = BTreeMap::new();
+            for (group, path) in names {
+                let source = group_sources.remove(&(group, path.clone())).unwrap();
+                let object = self.store.objects.prepare_in(
+                    &source,
+                    &self.store.objects.root().join(&self.lease.staging),
+                )?;
+                indices.insert(path, objects.len());
+                objects.push(object);
+            }
+            let members: BTreeMap<_, _> = indices
+                .iter()
+                .map(|(path, index)| (path.clone(), &objects[*index]))
+                .collect();
+            let token = validate_frozen(contract, &members, |roster, objects| {
+                group_validator(contract, roster, objects)
+            })
+            .map_err(ResultError::Validation)?;
+            output_groups.push(token.stored().clone());
+        }
+        if !group_sources.is_empty() {
+            return Err(invalid("unknown output group sources"));
+        }
         let envelope = ResultEnvelope {
             version: ENVELOPE_VERSION,
             result: ResultRecord {
@@ -332,7 +509,7 @@ impl WriteTransaction {
                 key: self.unit.key().into(),
                 ingredients: self.unit.ingredients().clone(),
                 outputs,
-                output_groups: vec![],
+                output_groups,
                 provenance: self.provenance.clone(),
             },
             upstream_result_keys: self.upstream.clone(),
@@ -384,7 +561,7 @@ impl StagedResult {
     /// publishing objects, then publish the immutable first-winner record, call the
     /// required durable root callback, and only then release per-unit claims. Faults
     /// before durable rooting MUST preserve claims; no fault may erase earlier results.
-    /// Equality MUST ignore unit
+    /// Equality MUST compare complete fixed and group manifests/projections, but ignore unit
     /// labels, provenance and upstream retention links. See tests/results.rs.
     pub fn publish_observed(
         mut self,
@@ -414,7 +591,9 @@ impl StagedResult {
             match self.transaction.store.read(&self.transaction.unit)? {
                 Some(winner) => {
                     // The producing input key is equal; compare full semantic output view.
-                    if winner.result.outputs != self.envelope.result.outputs {
+                    if winner.result.outputs != self.envelope.result.outputs
+                        || winner.result.output_groups != self.envelope.result.output_groups
+                    {
                         return Err(ResultError::Nondeterminism(
                             self.envelope.result.key.clone(),
                         ));

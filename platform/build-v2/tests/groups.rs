@@ -246,3 +246,51 @@ fn source_validator_reads_the_same_frozen_objects_and_failure_issues_no_token() 
         b"changed live source"
     );
 }
+
+#[test]
+fn encoded_discovery_keeps_roles_and_complete_render_collision_totals() {
+    let mut group = contract();
+    group.parent = "Encoded".into();
+    group.encoding = PlanEncoding::EncodedGlb;
+    let value = serde_json::json!({"schema":1,"kind":"encoded_glb","parent":"Encoded","complete":true,"triangle_limit":32768,
+        "source_triangles":12,"source_render_triangles":8,"source_collision_triangles":4,"pieces":[
+        {"name":"Render","payload":"Render.mesh","sha256":"a".repeat(64),"triangles":8,"role":"render","bounds":[[0,0,0],[1,1,1]]},
+        {"name":"Collision","payload":"Collision.mesh","sha256":"b".repeat(64),"triangles":4,"role":"collision","bounds":[[0,0,0],[1,1,1]]}]});
+    let bytes = serde_json::to_vec(&value).unwrap();
+    let members = vec![
+        StoredFile {
+            path: "plan.json".into(),
+            digest: sha256(&bytes),
+            size: bytes.len() as u64,
+            mode: 0o644,
+        },
+        StoredFile {
+            path: "Render.mesh".into(),
+            digest: "a".repeat(64),
+            size: 1,
+            mode: 0o644,
+        },
+        StoredFile {
+            path: "Collision.mesh".into(),
+            digest: "b".repeat(64),
+            size: 1,
+            mode: 0o644,
+        },
+    ];
+    assert_eq!(
+        parse_manifest(&group, &bytes, &members)
+            .unwrap()
+            .stored()
+            .projections
+            .len(),
+        2
+    );
+    for field in ["source_render_triangles", "source_collision_triangles"] {
+        let mut changed = value.clone();
+        changed[field] = 9.into();
+        assert!(parsed(&changed, &group, &members).is_err());
+    }
+    let mut changed = value;
+    changed["pieces"][1]["role"] = "unknown".into();
+    assert!(parsed(&changed, &group, &members).is_err());
+}

@@ -4,6 +4,11 @@ use crate::groups::{OutputGroupContract, StoredOutputGroup};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// @cc [owner:fontanierh,label:correctness] group-schema-version-boundary
+/// Fixed declaration v1 MUST remain readable; group contracts/member references MUST
+/// require declaration v2. Result v3 MUST carry group fields explicitly; unsupported
+/// result versions MUST refuse rather than infer membership. See tests/interfaces.rs,
+/// tests/results.rs and groups::tests::fixed_group_contract_keys_planner_without_runtime_membership.
 pub const LEGACY_SCHEMA_VERSION: u32 = 1;
 pub const SCHEMA_VERSION: u32 = 2;
 /// Results v3 add complete immutable runtime output groups; declarations v2 add fixed contracts.

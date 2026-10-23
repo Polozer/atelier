@@ -3,6 +3,12 @@ use std::collections::BTreeMap;
 use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
+/// @cc [owner:fontanierh,label:correctness] declared-path-policy
+/// Relative paths MUST reject controls, backslash/colon, empty/dot/traversal
+/// components and trailing dot/space. Ownership claims MUST refuse exact, ancestor,
+/// NFD/full-casefold aliases without rewriting the declared path. This conservative
+/// policy MUST NOT claim complete filesystem Unicode equivalence. See tests below
+/// and tests/validation.rs; source path observation remains caller-owned.
 pub(crate) fn relative_path(value: &str, owned: bool) -> Result<(), String> {
     if value.is_empty()
         || value
@@ -62,4 +68,60 @@ pub(crate) fn claim(claims: &mut Claims, path: &str, owner: &str) -> Result<(), 
     }
     claims.insert(folded(path), (path.into(), owner.into()));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn path_policy_refuses_mutations_and_normalized_owner_aliases() {
+        for invalid in [
+            "",
+            "/absolute",
+            "trailing/",
+            "a//b",
+            ".",
+            "..",
+            "a/./b",
+            "a/../b",
+            "a\\b",
+            "C:drive",
+            "a\u{0}/b",
+            "a\n/b",
+            "trailing.",
+            "trailing ",
+        ] {
+            assert!(relative_path(invalid, true).is_err(), "{invalid:?}");
+            assert!(relative_path(invalid, false).is_err(), "{invalid:?}");
+        }
+        for valid in [
+            "assets/模型.glb",
+            "Café/mesh.npz",
+            "folder/file name",
+            "a..b/file",
+        ] {
+            relative_path(valid, true).unwrap();
+            relative_path(valid, false).unwrap();
+        }
+        assert!(logical_path("relative").is_err());
+        logical_path("/Game/模型").unwrap();
+        for (first, second) in [
+            ("Case/Mesh", "case/mesh"),
+            ("Café/mesh", "Cafe\u{301}/mesh"),
+            ("Straße/mesh", "STRASSE/mesh"),
+            ("root", "root/child"),
+            ("root/child", "root"),
+        ] {
+            let mut claims = Claims::new();
+            claim(&mut claims, first, "first").unwrap();
+            assert!(
+                claim(&mut claims, second, "second").is_err(),
+                "{first} vs {second}"
+            );
+        }
+        let mut claims = Claims::new();
+        claim(&mut claims, "root/a", "first").unwrap();
+        claim(&mut claims, "root/b", "sibling").unwrap();
+        assert_eq!(claims[&folded("root/a")].0, "root/a");
+    }
 }

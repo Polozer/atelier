@@ -518,3 +518,20 @@ tests = ["atelier-build-v2/groups::tests::fixed_group_contract_keys_planner_with
 [[scenarios]]
 id = "a4b.groups.member_keys_cut_off_planner_and_sibling_changes_but_bind_selected_view"
 tests = ["atelier-build-v2/groups::tests::member_keys_cut_off_planner_and_sibling_changes_but_bind_selected_view"]
+
+[[scenarios]]
+id = "a4b.paths.path_policy_refuses_mutations_and_normalized_owner_aliases"
+tests = ["atelier-build-v2/paths::tests::path_policy_refuses_mutations_and_normalized_owner_aliases"]
+
+[[scenarios]]
+id = "a4b.groups.complete_output_partition_refuses_unknown_alias_and_ancestor_reports_before_cloning"
+tests = ["atelier-build-v2/groups::tests::complete_output_partition_refuses_unknown_alias_and_ancestor_reports_before_cloning"]
+
+[[scenarios]]
+id = "a4b.groups.leased_group_publication_restores_tokens_and_compares_whole_manifest"
+platforms = ["darwin"]
+tests = ["atelier-build-v2/groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest"]
+
+[[scenarios]]
+id = "a4b.groups.encoded_discovery_keeps_roles_and_complete_render_collision_totals"
+tests = ["atelier-build-v2::groups/encoded_discovery_keeps_roles_and_complete_render_collision_totals"]
