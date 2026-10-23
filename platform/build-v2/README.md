@@ -236,3 +236,33 @@ No source file is opened by this API: the caller supplies the immutable snapshot
 This is **A4a only**. Dynamic `plan.json` validation, stable generated children and removed-owner
 intents remain A4b, coordinated with the D2/Editor Cost plan interface. No worker dispatch, store
 lookup, materialisation, install/removal or scheduler/output-cutoff proof is implemented here.
+
+## Worker session and Python framing (C1a)
+
+`worker_session::Session` is the controller-side order of one worker conversation: `hello` with the
+expected worker version, then one job at a time (`run`, `started`, exactly one `completed`/`failed`
+with the same job ID), and `shutdown` only while idle, answered by `stopped` and a clean end of stream.
+Job IDs are unique per session. A malformed frame, wrong version or job ID, out-of-order or duplicate
+response breaks the session (`Protocol`); an end of stream or failed write outside a clean close is
+`Disconnected`; a refused controller call (`Misuse`) leaves the state unchanged. `cancel` records a
+request; only `failed` of kind `cancelled` confirms it, and a job that finished first still reports
+`completed`. `Channel` drives a session over any framed reader/writer pair. It builds each frame
+before writing, so any later write or flush error breaks the session. `protocol::read_frame` refuses
+duplicate keys and positional (array) envelopes, messages and records, so such a response breaks the
+session as a malformed frame.
+
+Worker rule: a worker MUST send `started` for every `run` before its single terminal response,
+including a job it rejects at once and a `cancel` that arrives before it started. A `cancel` that
+arrives after the job's terminal response gets no reply.
+
+The session passes job requests through unchanged and only refuses empty IDs or worker-facing names
+that are absolute, contain `.`/`..`/empty components, backslashes or NUL. Staging and the full path
+policy (C1b, A3), execution (C2), deadlines, retries and crash classification (C5) and admission (C7)
+are not here; nor is validation of returned output paths.
+
+`platform/studio/atelier/build_v2/protocol.py` is the standard-library Python framing: the same frames,
+size limit and strict shapes, as plain dicts. It writes Rust's bytes, including serde_json's float text. [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
+holds byte vectors that both `tests/worker_session.rs` and `platform/studio/tests/test_build_v2_protocol.py`
+decode and, where canonical, re-encode byte for byte. The pipe tests start
+[tests/fixtures/fake_worker.py](tests/fixtures/fake_worker.py) with its protocol on two inherited pipe
+descriptors and logs on stdout/stderr, under a five-second watchdog; the Rust T0 job needs `python3`.
