@@ -233,18 +233,21 @@ impl MemoryObjects {
 
 impl ObjectSource for MemoryObjects {
     fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError> {
-        let refusal = |message: String| SourceError {
-            kind: SourceErrorKind::Unavailable,
+        let error = |kind, message| SourceError {
+            kind,
             digest: digest.clone(),
             message,
         };
-        let bytes = self
-            .0
-            .get(digest.as_hex())
-            .ok_or_else(|| refusal(format!("object {digest} is not in MemoryObjects")))?;
-        fs::write(destination, bytes).map_err(|error| refusal(error.to_string()))?;
+        let bytes = self.0.get(digest.as_hex()).ok_or_else(|| {
+            error(
+                SourceErrorKind::Unavailable,
+                format!("object {digest} is not in MemoryObjects"),
+            )
+        })?;
+        fs::write(destination, bytes)
+            .map_err(|cause| error(SourceErrorKind::Io, cause.to_string()))?;
         fs::set_permissions(destination, fs::Permissions::from_mode(0o444))
-            .map_err(|error| refusal(error.to_string()))
+            .map_err(|cause| error(SourceErrorKind::Io, cause.to_string()))
     }
 }
 

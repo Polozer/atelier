@@ -131,19 +131,22 @@ fn agree_current(current: &CurrentIdentities, outputs: &[StoredItem]) -> Result<
     Ok(())
 }
 
-impl ObjectSource for PythonSources<'_> {
-    fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError> {
+impl PythonSources<'_> {
+    fn access(
+        &self,
+        selected: &SelectedSource,
+        digest: &ObjectDigest,
+        destination: Option<&Path>,
+    ) -> Result<(), SourceError> {
         let refusal = |kind, message: String| SourceError {
             kind,
             digest: digest.clone(),
             message,
         };
-        let selected = self.selected.get(digest.as_hex()).ok_or_else(|| {
-            refusal(
-                SourceErrorKind::Unavailable,
-                "digest outside selected input views".into(),
-            )
-        })?;
+        let use_source = |source: &dyn ObjectSource| match destination {
+            Some(path) => source.clone_object(digest, path),
+            None => Ok(()),
+        };
         let mut origins = self.origins.borrow_mut();
         let origin = origins.get_mut(&selected.producer).ok_or_else(|| {
             refusal(
@@ -163,54 +166,22 @@ impl ObjectSource for PythonSources<'_> {
             same_view(&selected.input, item)
                 .map_err(|message| refusal(SourceErrorKind::Changed, message))
         };
-        let outcome = match origin {
-            Origin::Current(observed) => {
-                let producer = self.prepared.get(&selected.producer).ok_or_else(|| {
-                    refusal(
-                        SourceErrorKind::Unavailable,
-                        "prepared producer absent".into(),
-                    )
-                })?;
-                if observed.key() != producer.key() {
-                    return Err(refusal(
-                        SourceErrorKind::Changed,
-                        "Current identity changed".into(),
-                    ));
-                }
-                let current = self
-                    .reader
-                    .pin_current_sources(self.guard, producer)
-                    .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
-                    .ok_or_else(|| {
-                        refusal(
-                            SourceErrorKind::Changed,
-                            "producer is no longer Current".into(),
-                        )
-                    })?;
-                current
-                    .objects_for(&[&selected.input])
-                    .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
-                    .clone_object(digest, destination)
-            }
-            Origin::Recorded {
-                transaction,
-                record,
-                current,
-            } => {
-                stored(record.result())?;
-                if current.as_ref().is_some_and(|current| {
-                    current
-                        .items()
-                        .iter()
-                        .any(|item| item.item.id == selected.item)
-                }) {
+        let outcome =
+            match origin {
+                Origin::Current(observed) => {
                     let producer = self.prepared.get(&selected.producer).ok_or_else(|| {
                         refusal(
                             SourceErrorKind::Unavailable,
                             "prepared producer absent".into(),
                         )
                     })?;
-                    let pinned = self
+                    if observed.key() != producer.key() {
+                        return Err(refusal(
+                            SourceErrorKind::Changed,
+                            "Current identity changed".into(),
+                        ));
+                    }
+                    let current = self
                         .reader
                         .pin_current_sources(self.guard, producer)
                         .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
@@ -220,53 +191,101 @@ impl ObjectSource for PythonSources<'_> {
                                 "producer is no longer Current".into(),
                             )
                         })?;
-                    pinned
-                        .objects_for(&[&selected.input])
-                        .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
-                        .clone_object(digest, destination)
-                } else {
-                    transaction
-                        .pin_recorded_items(record, &[selected.item.as_str()])
-                        .map_err(|error| refusal(SourceErrorKind::Unavailable, error.to_string()))?
-                        .clone_object(digest, destination)
+                    use_source(
+                        &current.objects_for(&[&selected.input]).map_err(|error| {
+                            refusal(SourceErrorKind::Changed, error.to_string())
+                        })?,
+                    )
                 }
-            }
-            Origin::Cached {
-                transaction,
-                envelope,
-            } => {
-                stored(envelope)?;
-                transaction
-                    .pinned_objects()
-                    .clone_object(digest, destination)
-            }
-            Origin::Local(completion) => completion
-                .objects_for(&[&selected.input])
-                .map_err(|message| refusal(SourceErrorKind::Changed, message))?
-                .clone_object(digest, destination),
-            Origin::Installed(plan) => {
-                stored(plan.result())?;
-                if let Some(completion) = plan.local_completion() {
-                    completion
+                Origin::Recorded {
+                    transaction,
+                    record,
+                    current,
+                } => {
+                    stored(record.result())?;
+                    if current.as_ref().is_some_and(|current| {
+                        current
+                            .items()
+                            .iter()
+                            .any(|item| item.item.id == selected.item)
+                    }) {
+                        let producer = self.prepared.get(&selected.producer).ok_or_else(|| {
+                            refusal(
+                                SourceErrorKind::Unavailable,
+                                "prepared producer absent".into(),
+                            )
+                        })?;
+                        let pinned = self
+                            .reader
+                            .pin_current_sources(self.guard, producer)
+                            .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
+                            .ok_or_else(|| {
+                                refusal(
+                                    SourceErrorKind::Changed,
+                                    "producer is no longer Current".into(),
+                                )
+                            })?;
+                        use_source(&pinned.objects_for(&[&selected.input]).map_err(|error| {
+                            refusal(SourceErrorKind::Changed, error.to_string())
+                        })?)
+                    } else {
+                        use_source(
+                            &transaction
+                                .pin_recorded_items(record, &[selected.item.as_str()])
+                                .map_err(|error| {
+                                    refusal(SourceErrorKind::Unavailable, error.to_string())
+                                })?,
+                        )
+                    }
+                }
+                Origin::Cached {
+                    transaction,
+                    envelope,
+                } => {
+                    stored(envelope)?;
+                    use_source(&transaction.pinned_objects())
+                }
+                Origin::Local(completion) => use_source(
+                    &completion
                         .objects_for(&[&selected.input])
-                        .map_err(|message| refusal(SourceErrorKind::Changed, message))?
-                        .clone_object(digest, destination)
-                } else {
-                    plan.cached_sources()
-                        .ok_or_else(|| {
+                        .map_err(|message| refusal(SourceErrorKind::Changed, message))?,
+                ),
+                Origin::Installed(plan) => {
+                    stored(plan.result())?;
+                    if let Some(completion) = plan.local_completion() {
+                        use_source(
+                            &completion
+                                .objects_for(&[&selected.input])
+                                .map_err(|message| refusal(SourceErrorKind::Changed, message))?,
+                        )
+                    } else {
+                        use_source(&plan.cached_sources().ok_or_else(|| {
                             refusal(
                                 SourceErrorKind::Unavailable,
                                 "installed source custody already finished".into(),
                             )
-                        })?
-                        .clone_object(digest, destination)
+                        })?)
+                    }
                 }
-            }
-        };
-        if outcome.is_ok() {
+            };
+        if outcome.is_ok() && destination.is_some() {
             self.io.borrow_mut().input_clones += 1;
         }
         outcome
+    }
+}
+
+impl ObjectSource for PythonSources<'_> {
+    fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError> {
+        let selected = self
+            .selected
+            .get(digest.as_hex())
+            .ok_or_else(|| SourceError {
+                kind: SourceErrorKind::Unavailable,
+                digest: digest.clone(),
+                message: "digest outside selected input views".into(),
+            })?;
+        self.access(selected, digest, Some(destination))
     }
 }
 
@@ -312,7 +331,7 @@ pub struct PythonBackend<'a> {
     owner: ProcessIdentity,
     provenance: Provenance,
     open_cache: Box<dyn FnMut() -> Result<CacheAccess, InstallError> + 'a>,
-    root: Box<dyn FnMut(&ResultEnvelope) -> Result<(), String> + 'a>,
+    root: Box<dyn FnMut(&str, &ResultEnvelope) -> Result<(), String> + 'a>,
     origins: BTreeMap<String, Origin>,
     prepared: BTreeMap<String, PreparedUnit>,
     empty_groups: BTreeMap<String, ValidatedGroup>,
@@ -325,6 +344,8 @@ impl<'a> PythonBackend<'a> {
     /// Selected content needs MUST come from A4's selected edges. Current covers Checkout items
     /// only; needed store-only sibling identities MUST come from exact recorded metadata or the
     /// ordinary producer. Unneeded siblings MUST NOT force cache availability. Combined final
+    /// Root callbacks MUST receive the current scheduling unit ID separately from a reused winner
+    /// record label; see renamed_unit_roots_current_scheduling_name_with_old_winner_label.
     /// Stored/Checkout requirements MUST independently prove strict storage and revalidated Current,
     /// refuse same-key content disagreement, and avoid rewriting healthy checkout files.
     /// See mixed_current_and_recorded_identity_resolves_final_hit_without_store_sibling_bytes and
@@ -339,7 +360,7 @@ impl<'a> PythonBackend<'a> {
         owner: ProcessIdentity,
         provenance: Provenance,
         open_cache: impl FnMut() -> Result<CacheAccess, InstallError> + 'a,
-        root: impl FnMut(&ResultEnvelope) -> Result<(), String> + 'a,
+        root: impl FnMut(&str, &ResultEnvelope) -> Result<(), String> + 'a,
     ) -> Self {
         let mut needed_items: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for edge in selected.dependencies() {
@@ -389,15 +410,15 @@ impl<'a> PythonBackend<'a> {
                     record,
                     ..
                 } => transaction
-                    .retain_recorded(&record, |result| (self.root)(result))
+                    .retain_recorded(&record, |result| (self.root)(&id, result))
                     .map(|_| ())
                     .map_err(|error| error.to_string()),
                 Origin::Cached { transaction, .. } => transaction
-                    .retain_hit(|result| (self.root)(result))
+                    .retain_hit(|result| (self.root)(&id, result))
                     .map(|_| ())
                     .map_err(|error| error.to_string()),
                 Origin::Installed(mut plan) => plan
-                    .finish_sources(|result| (self.root)(result))
+                    .finish_sources(|result| (self.root)(&id, result))
                     .map_err(|error| error.to_string()),
                 Origin::Current(_) | Origin::Local(_) => Ok(()),
             };
@@ -660,7 +681,9 @@ impl Backend for PythonBackend<'_> {
     /// Only an actual miss MUST stage selected input views, using its original cache ticket and
     /// local pre-write lease. Current sources MUST be reacquired/revalidated and all read guards/FDs
     /// dropped before returning independent StagedJob files. Recorded metadata MUST not authorize
-    /// bytes without selected named-object checks/durable pins. Source changes MUST refuse before
+    /// bytes without selected named-object checks/durable pins. Equal-digest logical views MUST
+    /// each independently revalidate before physical byte reuse; see
+    /// equal_digest_current_sources_each_revalidate_before_staging. Source changes MUST refuse before
     /// dispatch, never invent a Stored hit or rerun a healthy identity-known producer.
     /// See python_backend::tests (T1a pending); dynamic source materialization remains separate.
     fn prepare_inputs(
@@ -682,6 +705,7 @@ impl Backend for PythonBackend<'_> {
             .unit(&Self::unit_id(unit))
             .ok_or_else(|| InputFailure::Invalid("missing declared unit".into()))?;
         let mut selected = BTreeMap::new();
+        let mut logical_views = Vec::new();
         for input in unit.inputs() {
             let InputPayload::Item { files, .. } = &input.payload else {
                 continue;
@@ -703,6 +727,14 @@ impl Backend for PythonBackend<'_> {
                 ));
             };
             for file in files {
+                logical_views.push((
+                    file.digest.clone(),
+                    SelectedSource {
+                        producer: producer.clone(),
+                        item: item.clone(),
+                        input: input.clone(),
+                    },
+                ));
                 selected
                     .entry(file.digest.clone())
                     .or_insert_with(|| SelectedSource {
@@ -721,6 +753,18 @@ impl Backend for PythonBackend<'_> {
             selected,
             io: &self.io,
         };
+        // Digest reuse is physical only: every logical producer/item must independently
+        // authorize its selected view, including equal-byte Current producers.
+        for (digest, selected) in &logical_views {
+            let digest = ObjectDigest::from_hex(digest)
+                .map_err(|error| InputFailure::Invalid(error.to_string()))?;
+            sources
+                .access(selected, &digest, None)
+                .map_err(|error| match error.kind {
+                    SourceErrorKind::Changed => InputFailure::Changed(error.to_string()),
+                    _ => InputFailure::Unavailable(error.to_string()),
+                })?;
+        }
         let staged = staging::stage(
             unit,
             self.snapshot,
@@ -770,7 +814,9 @@ impl Backend for PythonBackend<'_> {
             agree_current(current, &frozen.result().result.outputs)?;
         }
         let publication = match ticket.transaction.take() {
-            Some(transaction) => frozen.publish_with(transaction, |result| (self.root)(result)),
+            Some(transaction) => {
+                frozen.publish_with(transaction, |result| (self.root)(&id, result))
+            }
             None => Err(ticket
                 .cache_failure
                 .unwrap_or_else(|| ResultError::Io(std::io::Error::other("cache unavailable")))),
@@ -843,7 +889,7 @@ impl Backend for PythonBackend<'_> {
                 );
             }
         };
-        plan.commit_with_sources(self.guard, |result| (self.root)(result))
+        plan.commit_with_sources(self.guard, |result| (self.root)(&checked.unit, result))
             .map_err(|error| error.to_string())?;
         let receipts = unit
             .ingredients()

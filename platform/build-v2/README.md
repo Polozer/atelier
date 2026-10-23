@@ -662,6 +662,16 @@ executor owns admission, sessions, retry, deadlines and cleanup. This slice reso
 identity closure before target lookup; it does not claim target-first cold discovery
 or activate production v1.
 
+Selected downstream source custody: `WriteTransaction::pin_recorded_items` checks/pins only requested
+fixed item IDs from its same-store `RecordedIdentities`. `pinned_objects` exposes existing claims;
+both return borrowed clone-only providers. `retain_recorded` roots checked metadata and releases its
+read ticket without requiring payload availability or claiming Stored. Cached checkout plans may
+opt into `commit_with_sources`, borrow `cached_sources` through downstream staging, then call
+`finish_sources` (also when no consumer stages). Root success leaves these source claims active until
+that explicit finish; failed finish/drop retains claims conservatively. Ordinary commit releases as
+before. A committed local plan retains `local_completion` for frozen store-only siblings, without
+opening CAS or converting Current into Stored. These accessors remain unused by production v1.
+
 ## Plain-Python data op (D1)
 
 `py_data::PyDataSpec` converts unit-family input slot, output class and parameter schemas into a
@@ -698,13 +708,3 @@ exists only in test builds. Scripted admission cannot prove real guarded batchin
 This checkpoint is not ready for cutover: real sandbox/I/O T1a cases and independent-harness integration
 are being added. Dynamic cold targets, conditional regeneration of unavailable recorded payloads,
 cross-process retirement, A6 fencing, resident guarded batching and I1 caller activation remain pending.
-
-Selected downstream source custody: `WriteTransaction::pin_recorded_items` checks/pins only requested
-fixed item IDs from its same-store `RecordedIdentities`. `pinned_objects` exposes existing claims;
-both return borrowed clone-only providers. `retain_recorded` roots checked metadata and releases its
-read ticket without requiring payload availability or claiming Stored. Cached checkout plans may
-opt into `commit_with_sources`, borrow `cached_sources` through downstream staging, then call
-`finish_sources` (also when no consumer stages). Root success leaves these source claims active until
-that explicit finish; failed finish/drop retains claims conservatively. Ordinary commit releases as
-before. A committed local plan retains `local_completion` for frozen store-only siblings, without
-opening CAS or converting Current into Stored. These accessors remain unused by production v1.

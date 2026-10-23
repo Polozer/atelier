@@ -119,3 +119,15 @@ id = "a9b1.actual_python_later_independent_failure_preserves_completed_publicati
 tier = "t1a"
 tests = ["atelier-build-v2/python_backend::tests::actual_python_later_independent_failure_preserves_completed_publication_and_checkout"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.equal_digest_current_sources_each_revalidate_before_staging"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::equal_digest_current_sources_each_revalidate_before_staging"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "a9b1.renamed_unit_roots_current_scheduling_name_with_old_winner_label"
+tier = "t1a"
+tests = ["atelier-build-v2/python_backend::tests::renamed_unit_roots_current_scheduling_name_with_old_winner_label"]
+platforms = ["darwin"]

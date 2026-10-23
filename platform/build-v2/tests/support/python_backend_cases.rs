@@ -223,6 +223,7 @@ enum StoreMode {
     Ready,
     Unavailable,
     UnavailableAndChangeCurrent,
+    UnavailableAndChangeLaterCurrent,
 }
 struct Running;
 impl Control for Running {
@@ -236,6 +237,7 @@ struct Run {
     io: PythonIo,
     items: BTreeMap<(String, String), StoredItem>,
     fresh_bytes: BTreeMap<String, Vec<u8>>,
+    rooted_units: Vec<(String, String)>,
 }
 
 fn build(space: &Space, declaration: Declaration, roots: &[&str], mode: StoreMode) -> Run {
@@ -310,6 +312,7 @@ fn run_graph(
     let ownership = OwnershipSnapshot::from_projects([(policy().project, graph)]).unwrap();
     let request =
         scheduler::Request::select(graph, targets, snapshot, versions, runtimes, demands).unwrap();
+    let rooted_units = RefCell::new(Vec::new());
     let mut backend = PythonBackend::new(
         graph,
         request.selected(),
@@ -327,6 +330,9 @@ fn run_graph(
                 )
                 .unwrap();
             }
+            if matches!(mode, StoreMode::UnavailableAndChangeLaterCurrent) {
+                fs::write(space.path("checkout/Game/c.bin"), b"changed later origin").unwrap();
+            }
             if !matches!(mode, StoreMode::Ready) {
                 return Err(InstallError::Cache(ResultError::Io(std::io::Error::new(
                     std::io::ErrorKind::PermissionDenied,
@@ -338,7 +344,11 @@ fn run_graph(
                 CheckoutInstaller::open(space.path("checkout"), space.path("cache"), policy())?;
             Ok(CacheAccess { results, checkout })
         },
-        |result| {
+        |current_unit, result| {
+            assert!(graph.unit(current_unit).is_some());
+            rooted_units
+                .borrow_mut()
+                .push((current_unit.into(), result.result.unit.clone()));
             let path = space
                 .path("roots")
                 .join(format!("{}.json", result.result.key));
@@ -431,6 +441,7 @@ fn run_graph(
         io,
         items,
         fresh_bytes,
+        rooted_units: rooted_units.into_inner(),
     }
 }
 
@@ -547,6 +558,84 @@ fn changed_current_source_refuses_before_dispatch_and_preserves_existing_consume
     assert_eq!(
         fs::read(space.path("checkout/Game/a.bin")).unwrap(),
         b"changed after identity observation"
+    );
+}
+
+#[test]
+fn equal_digest_current_sources_each_revalidate_before_staging() {
+    let space = Space::new();
+    space.set("ops/a.py", A.as_bytes());
+    space.set(
+        "ops/c.py",
+        b"def run(c):\n    c.output('c.bin').write_bytes(c.inputs['raw'].read_bytes())\n",
+    );
+    space.set("ops/b.py", b"def run(c):\n    c.output('b.bin').write_bytes((c.inputs['a'] / 'a.bin').read_bytes() + (c.inputs['raw'] / 'c.bin').read_bytes())\n");
+    space.set("data/raw", b"equal");
+    let mut declaration = chain(None);
+    declaration
+        .units
+        .push(unit("c", declaration.units[0].inputs.clone()));
+    declaration.units[1].inputs.push(Input::Content {
+        name: "raw".into(),
+        source: ContentSource::Item {
+            unit: "c".into(),
+            item: "out".into(),
+        },
+        whole: None,
+        conditional: None,
+    });
+    build(
+        &space,
+        declaration.clone(),
+        &["a", "c", "b"],
+        StoreMode::Ready,
+    );
+    space.set("ops/b.py", b"def run(c):\n    c.output('b.bin').write_bytes((c.inputs['a'] / 'a.bin').read_bytes() + (c.inputs['raw'] / 'c.bin').read_bytes())\n# changed code\n");
+    let result = build(
+        &space,
+        declaration,
+        &["b"],
+        StoreMode::UnavailableAndChangeLaterCurrent,
+    );
+    assert_eq!(result.report.states["a"], State::Current);
+    assert_eq!(result.report.states["c"], State::Current);
+    assert!(matches!(
+        result.report.states["b"],
+        State::InputRefused(InputFailure::Changed(_))
+    ));
+    assert_eq!(result.io.launches, 0);
+    assert_eq!(result.io.input_clones, 0);
+    assert_eq!(result.io.publications, 0);
+    assert_eq!(result.io.installs, 0);
+    assert_eq!(
+        fs::read(space.path("checkout/Game/b.bin")).unwrap(),
+        b"equalequal"
+    );
+}
+
+#[test]
+fn renamed_unit_roots_current_scheduling_name_with_old_winner_label() {
+    let space = Space::new();
+    space.set("ops/a.py", A.as_bytes());
+    space.set("data/raw", b"stable");
+    let mut declaration = chain(None);
+    declaration.units.truncate(1);
+    let first = build(&space, declaration.clone(), &["a"], StoreMode::Ready);
+    assert_eq!(first.io.launches, 1);
+    declaration.units[0].id = "renamed".into();
+    let result = build_flags(
+        &space,
+        declaration,
+        &[("renamed", BTreeSet::from([Demand::Stored]))],
+        StoreMode::Ready,
+    );
+    assert_eq!(result.io.launches, 0);
+    assert!(!result.rooted_units.is_empty());
+    assert!(
+        result
+            .rooted_units
+            .iter()
+            .all(|(current, winner)| current == "renamed" && winner == "a")
     );
 }
 
@@ -968,7 +1057,7 @@ fn production_dispatch_refuses_missing_custodian_before_worker_or_publication() 
                 "fixture unavailable",
             ))))
         },
-        |_| panic!("no output may root before custodian registration"),
+        |_, _| panic!("no output may root before custodian registration"),
     );
     let launcher = GuardedLauncher {
         bridge: vec!["must-not-launch-a-process".into()],
