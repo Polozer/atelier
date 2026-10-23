@@ -3,3 +3,43 @@ schema_version = 1
 [[pending]]
 id = "t0.orphan-workers"
 task = "C5"
+
+[[scenarios]]
+id = "c5b.lifecycle.queued_cancel_spawns_no_child_and_holds_no_capacity"
+tests = ["atelier-build-v2::worker_lifecycle/queued_cancel_spawns_no_child_and_holds_no_capacity"]
+
+[[scenarios]]
+id = "c5b.lifecycle.admitted_job_completes_then_shuts_down_and_releases"
+tests = ["atelier-build-v2::worker_lifecycle/admitted_job_completes_then_shuts_down_and_releases"]
+
+[[scenarios]]
+id = "c5b.lifecycle.job_failure_shuts_the_worker_down_and_never_retries"
+tests = ["atelier-build-v2::worker_lifecycle/job_failure_shuts_the_worker_down_and_never_retries"]
+
+[[scenarios]]
+id = "c5b.lifecycle.one_retry_only_after_confirmed_cleanup_and_a_new_admission"
+tests = ["atelier-build-v2::worker_lifecycle/one_retry_only_after_confirmed_cleanup_and_a_new_admission"]
+
+[[scenarios]]
+id = "c5b.lifecycle.retried_attempt_can_complete"
+tests = ["atelier-build-v2::worker_lifecycle/retried_attempt_can_complete"]
+
+[[scenarios]]
+id = "c5b.lifecycle.timeout_guard_stop_and_cancel_never_retry"
+tests = ["atelier-build-v2::worker_lifecycle/timeout_guard_stop_and_cancel_never_retry"]
+
+[[scenarios]]
+id = "c5b.lifecycle.uncertain_cleanup_is_held_and_never_released_or_relaunched"
+tests = ["atelier-build-v2::worker_lifecycle/uncertain_cleanup_is_held_and_never_released_or_relaunched"]
+
+[[scenarios]]
+id = "c5b.lifecycle.foreign_or_stale_identities_are_never_crash_evidence"
+tests = ["atelier-build-v2::worker_lifecycle/foreign_or_stale_identities_are_never_crash_evidence"]
+
+[[scenarios]]
+id = "c5b.lifecycle.queue_wait_does_not_spend_the_job_limit_and_launch_failures_hold_nothing"
+tests = ["atelier-build-v2::worker_lifecycle/queue_wait_does_not_spend_the_job_limit_and_launch_failures_hold_nothing"]
+
+[[scenarios]]
+id = "c5b.lifecycle.completed_work_is_kept_and_later_facts_never_stop_or_retry_it"
+tests = ["atelier-build-v2::worker_lifecycle/completed_work_is_kept_and_later_facts_never_stop_or_retry_it"]
