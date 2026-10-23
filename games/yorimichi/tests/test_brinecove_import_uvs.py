@@ -50,7 +50,7 @@ def run_import(tmp_path, meshes, *, retired=None, save_failure=False, scratch_fa
     class Mesh(Properties):
         def __init__(self, entry):
             super().__init__(static_materials=[Properties(material_slot_name=key) for key in entry['slots']],
-                             materials=[None]*len(entry['slots']),body_setup=Properties())
+                             materials=[None]*len(entry['slots']),body_setup=Properties(), has_navigation_data=True)
             self.build = dict(use_full_precision_u_vs=False, remove_degenerates=True)
             self.entry = entry
         def set_material(self, slot, value): self.values['materials'][slot] = value
@@ -109,11 +109,11 @@ def run_import(tmp_path, meshes, *, retired=None, save_failure=False, scratch_fa
     namespace = dict(__file__=str(script), Path=Path, PARENTS={}, OUT=tmp_path, ROOT='/Game/Brinecove', E=assets, unreal=unreal, json=json,
         surfaces=lambda *_: None, textures=lambda _: None, import_mesh=imported, generate_lods=lambda _: None)
     from atelier import native_membership
-    from atelier.unreal_mesh_reuse import set_if_changed
+    from atelier.unreal_mesh_reuse import set_if_changed, without_navigation
     namespace.update(native_membership=native_membership, native_context=lambda _: None, yori=SimpleNamespace(GAME=SimpleNamespace(name='test')),
         atmosphere=SimpleNamespace(__file__=str(script)),
         AssetGroup=lambda *a, **k: SimpleNamespace(matches=lambda _: True), set_if_changed=set_if_changed,
-        lods_match=lambda *a: True,
+        without_navigation=without_navigation, lods_match=lambda *a: True,
         MeshReuse=lambda *a, **k: SimpleNamespace(donor={}, acquire=lambda name, *a, **k: built.get(name), imported=lambda *a: None,
                                                 validated=lambda _: None, finish=lambda: None))
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(script), 'exec'), namespace)
@@ -121,6 +121,7 @@ def run_import(tmp_path, meshes, *, retired=None, save_failure=False, scratch_fa
     first_settings = {name: dict(mesh.build) for name, mesh in built.items()}
     namespace['main']()
     assert imports == [entry['name'] for entry in meshes]
+    assert all(mesh.values['has_navigation_data'] is False for mesh in built.values())
     assert {name: mesh.build for name, mesh in built.items()} == first_settings
     return {name: mesh.build for name, mesh in built.items()}
 

@@ -1,7 +1,7 @@
 """Legacy FBX mesh import using the actual source for migration and fresh material slots."""
 from pathlib import Path
 import unreal
-from atelier.unreal_mesh_reuse import common_fbx_mesh
+from atelier.unreal_mesh_reuse import common_fbx_mesh, without_navigation
 
 EAL = unreal.EditorAssetLibrary
 AT = unreal.AssetToolsHelpers.get_asset_tools()
@@ -37,6 +37,9 @@ def import_mesh(path, dest, name, *, seed=None, fresh_slots=False, before_import
             reuse.imported(dest + '/' + name)
     if not legacy_options_match(mesh):
         raise RuntimeError('FBX import did not preserve declared options: ' + name)
+    without_navigation(mesh)
+    if not EAL.save_loaded_asset(mesh, only_if_is_dirty=True):
+        raise RuntimeError('Could not save the mesh without navigation data: ' + name)
     if reuse is not None:
         reuse.defer_validated(dest + '/' + name)
     return mesh

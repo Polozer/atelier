@@ -16,7 +16,7 @@ import glb_mesh_validation
 import ground_grain
 from atelier.native_protocol import native_context
 from atelier import native_membership
-from atelier.unreal_mesh_reuse import AssetGroup, MeshReuse, lods_match, set_if_changed
+from atelier.unreal_mesh_reuse import AssetGroup, MeshReuse, lods_match, set_if_changed, without_navigation
 
 OUT = yori.OUT / 'belmonte'
 ROOT = '/Game/Belmonte'
@@ -305,6 +305,7 @@ def main():
                     collision.set_material(slot, ground)
             set_if_changed(mesh, 'complex_collision_mesh', collision)
             assert mesh.get_editor_property('complex_collision_mesh') == collision, name
+            without_navigation(collision)
             assert E.save_loaded_asset(collision, only_if_is_dirty=True), collision_name
         else:
             # A compatibility hit may retain a formerly separate physics hull.
@@ -324,6 +325,7 @@ def main():
         set_if_changed(body, 'double_sided_geometry', True)
         assert body.get_editor_property('collision_trace_flag') == unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE, name
         assert body.get_editor_property('double_sided_geometry'), name
+        without_navigation(mesh)
         assert E.save_loaded_asset(mesh, only_if_is_dirty=True), name
         box = mesh.get_bounding_box()
         low, high = entry['bounds_m']
