@@ -206,7 +206,8 @@ enabled by default and engine modules are bound only by the BuildId, not by thei
 controller MUST refuse the session before its first `Run` when that evidence is missing, malformed,
 of another version or different. A job's import tables MUST go to `evidence/imports.json`, outside
 `output/`, covering exactly the saved packages, each read from the saved file's own import table
-(path, class, table order), never from asset-registry dependencies; an unreadable table MUST fail the
+(path, class, table order), never from asset-registry dependencies, with each path in Unreal's form
+(`.` after the package, `:` only at the first subobject boundary, `.` for deeper nesting); an unreadable table MUST fail the
 job, never pass with a guessed list (the real-editor reader is proven only by the pending T2
 session). Missing or malformed import evidence MUST be refused. See tests/unreal.rs
 (`the_profile_ignores_locations_and_follows_every_identity_field`,
@@ -309,7 +310,11 @@ changed input is a `dependency` failure). Every output file MUST belong to a pac
 the job, companion files included; a package file written any other way is a `dependency` failure.
 Every collected file MUST hold exactly the bytes its package's last save wrote: the plugin MUST take
 each save's file hashes only after an explicit flush of the save's writes
-(`UPackage::WaitForAsyncFileWrites`), and a mismatch or an unhashed file is a `dependency` failure.
+(`UPackage::WaitForAsyncFileWrites`), and MUST hash only the files that save wrote: its target file,
+and each `.uexp`, `.ubulk` or `.uptnl` companion whose stat stamp (device, inode, size, modification
+time) differs from the stamp taken just before the save. A file the save left alone, such as a plain
+write beside it or the other main extension, is never certified as saved. A mismatch or an unhashed
+file is a `dependency` failure.
 Those SHA1 hashes are an integrity check only and MUST NOT become a key ingredient. Every required
 output file MUST exist when the job ends (otherwise a `job` failure), and a file written into
 `output/` directly is a `dependency` failure. Outputs MUST be moved out of `/Game` into `output/`. A failed job's `output/` MAY hold partially

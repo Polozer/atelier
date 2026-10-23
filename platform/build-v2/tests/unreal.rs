@@ -807,9 +807,11 @@ def run(context):
     p = context.params
     if 'break' in p:
         fake.break_call(p['break'])
+    for relative, data in p.get('before', []):
+        fake.write_file(relative, data.encode())  # plain file I/O before the save
     for name, payload in p.get('create', []):
         fake.create_package(name, payload.encode(), imports=[['/Script/Engine', 'StaticMesh']])
-        fake.save_package(name)
+        fake.save_package(name, bulk=p['bulk'].encode() if 'bulk' in p else None)
         if p.get('save_twice'):
             fake.save_package(name)  # as a rename does: the same package to the same file again
     for name, payload in p.get('import', []):
@@ -1041,6 +1043,7 @@ def run(context):
         let declared = [
             "content/Game/A.uasset",
             "content/Game/A.ubulk?",
+            "content/Game/A.umap?",
             "content/Game/B.uasset?",
         ];
         let cases = [
@@ -1087,7 +1090,20 @@ def run(context):
                 // A declared companion file added by plain file I/O beside a saved package.
                 serde_json::json!({"create": [["/Game/A", "a"]], "overwrite": ["A.ubulk", "bulk"]}),
                 FailureKind::Dependency,
-                "bytes its package save wrote",
+                "not written by its package save",
+            ),
+            (
+                // A declared sibling written before the save: the save of A.uasset never wrote
+                // the other main extension, so it is not certified as saved.
+                serde_json::json!({"before": [["A.umap", "map"]], "create": [["/Game/A", "a"]]}),
+                FailureKind::Dependency,
+                "not written by its package save",
+            ),
+            (
+                // A declared companion written before a save that leaves it alone.
+                serde_json::json!({"before": [["A.ubulk", "bulk"]], "create": [["/Game/A", "a"]]}),
+                FailureKind::Dependency,
+                "not written by its package save",
             ),
             (
                 // The save event arrives before its writes are flushed; hashing unflushed bytes
@@ -1159,6 +1175,17 @@ def run(context):
         );
         assert!(editor.channel.run(deferred.clone()).unwrap().result.is_ok());
         assert_eq!(output(&deferred, "content/Game/A.uasset"), b"a");
+        // A companion the save replaces is the save's own file, even over a plain write before it.
+        let replaced = job(
+            &space,
+            "replaced",
+            serde_json::json!({"before": [["A.ubulk", "stale"]], "create": [["/Game/A", "a"]], "bulk": "fresh"}),
+            &declared,
+            &[],
+        );
+        let result = editor.channel.run(replaced.clone()).unwrap().result;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(output(&replaced, "content/Game/A.ubulk"), b"fresh");
         let good = job(
             &space,
             "good",

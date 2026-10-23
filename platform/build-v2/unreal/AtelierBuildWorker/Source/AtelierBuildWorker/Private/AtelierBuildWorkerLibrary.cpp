@@ -27,6 +27,8 @@
 #include "Serialization/JsonWriter.h"
 #include "ShaderCompiler.h"
 #include "Serialization/ArchiveProxy.h"
+
+#include <sys/stat.h>
 #include "UObject/ObjectResource.h"
 #include "UObject/ObjectSaveContext.h"
 #include "UObject/PackageFileSummary.h"
@@ -40,30 +42,103 @@ namespace
     {
         FString Package;
         FString Filename;
-        /** SHA1 of each of the package's files on disk, taken after the save's writes were flushed. */
+        /** SHA1 of each file this save wrote, taken after the save's writes were flushed. */
         TMap<FString, FString> Files;
     };
 
-    const TCHAR* const GPackageExtensions[] = {TEXT(".uasset"), TEXT(".umap"), TEXT(".uexp"), TEXT(".ubulk"), TEXT(".uptnl")};
+    /** Files a save may write beside its target `.uasset` or `.umap`; the other main extension never is one. */
+    const TCHAR* const GCompanionExtensions[] = {TEXT(".uexp"), TEXT(".ubulk"), TEXT(".uptnl")};
+
+    /** Which file is at a path: a save writes a temporary file and moves it into place. */
+    struct FStamp
+    {
+        bool bExists = false;
+        uint64 Device = 0;
+        uint64 Inode = 0;
+        int64 Size = 0;
+        int64 Seconds = 0;
+        int64 Nanoseconds = 0;
+
+        bool operator==(const FStamp& Other) const
+        {
+            return bExists == Other.bExists && Device == Other.Device && Inode == Other.Inode && Size == Other.Size
+                && Seconds == Other.Seconds && Nanoseconds == Other.Nanoseconds;
+        }
+    };
+
+    FStamp StampOf(const FString& File)
+    {
+        struct stat Info;
+        FStamp Stamp;
+        if (::stat(TCHAR_TO_UTF8(*File), &Info) != 0 || !S_ISREG(Info.st_mode))
+        {
+            return Stamp;
+        }
+        Stamp.bExists = true;
+        Stamp.Device = static_cast<uint64>(Info.st_dev);
+        Stamp.Inode = static_cast<uint64>(Info.st_ino);
+        Stamp.Size = static_cast<int64>(Info.st_size);
+#if PLATFORM_APPLE
+        Stamp.Seconds = static_cast<int64>(Info.st_mtimespec.tv_sec);
+        Stamp.Nanoseconds = static_cast<int64>(Info.st_mtimespec.tv_nsec);
+#else
+        Stamp.Seconds = static_cast<int64>(Info.st_mtim.tv_sec);
+        Stamp.Nanoseconds = static_cast<int64>(Info.st_mtim.tv_nsec);
+#endif
+        return Stamp;
+    }
 
     TArray<FSaved> GSaved;
+    /** Each companion path's stamp just before the save that targets its package. */
+    TMap<FString, FStamp> GBefore;
+    FDelegateHandle GPreSaveHandle;
     FDelegateHandle GSaveHandle;
     FDelegateHandle GEnsureHandle;
     int32 GEnsures = 0;
+
+    void OnPackagePreSave(UPackage*, FObjectPreSaveContext Context)
+    {
+        const FString Target = Context.GetTargetFilename();
+        if (Target.IsEmpty())
+        {
+            return;
+        }
+        UPackage::WaitForAsyncFileWrites();
+        const FString Base = FPaths::ChangeExtension(FPaths::ConvertRelativePathToFull(Target), FString());
+        for (const TCHAR* Extension : GCompanionExtensions)
+        {
+            GBefore.Add(Base + Extension, StampOf(Base + Extension));
+        }
+    }
+
+    void HashInto(TMap<FString, FString>& Files, const FString& File)
+    {
+        TArray<uint8> Bytes;
+        if (FPaths::FileExists(File) && FFileHelper::LoadFileToArray(Bytes, *File))
+        {
+            Files.Add(File, FSHA1::HashBuffer(Bytes.GetData(), Bytes.Num()).ToString().ToLower());
+        }
+    }
 
     void OnPackageSaved(const FString& PackageFileName, UPackage* Package, FObjectPostSaveContext)
     {
         FSaved Saved{Package ? Package->GetName() : FString(), FPaths::ConvertRelativePathToFull(PackageFileName), {}};
         // The event can fire before the package's file writes finish; hash only flushed bytes.
         UPackage::WaitForAsyncFileWrites();
+        // Only the files this save wrote: its target, and each companion it created or replaced.
+        // A file already there that the save left alone (a plain write beside it, or the other
+        // main extension) is never certified as saved.
+        HashInto(Saved.Files, Saved.Filename);
         const FString Base = FPaths::ChangeExtension(Saved.Filename, FString());
-        for (const TCHAR* Extension : GPackageExtensions)
+        for (const TCHAR* Extension : GCompanionExtensions)
         {
             const FString File = Base + Extension;
-            TArray<uint8> Bytes;
-            if (FPaths::FileExists(File) && FFileHelper::LoadFileToArray(Bytes, *File))
+            FStamp Before;
+            const bool bSeen = GBefore.RemoveAndCopyValue(File, Before);
+            const FStamp After = StampOf(File);
+            if (bSeen && After.bExists && !(After == Before))
             {
-                Saved.Files.Add(File, FSHA1::HashBuffer(Bytes.GetData(), Bytes.Num()).ToString().ToLower());
+                HashInto(Saved.Files, File);
             }
         }
         GSaved.Add(MoveTemp(Saved));
@@ -204,6 +279,11 @@ FString UAtelierBuildWorkerLibrary::NativeContext()
 void UAtelierBuildWorkerLibrary::BeginSaveRecording()
 {
     GSaved.Reset();
+    GBefore.Reset();
+    if (!GPreSaveHandle.IsValid())
+    {
+        GPreSaveHandle = UPackage::PreSavePackageWithContextEvent.AddStatic(&OnPackagePreSave);
+    }
     if (!GSaveHandle.IsValid())
     {
         GSaveHandle = UPackage::PackageSavedWithContextEvent.AddStatic(&OnPackageSaved);
@@ -212,11 +292,17 @@ void UAtelierBuildWorkerLibrary::BeginSaveRecording()
 
 FString UAtelierBuildWorkerLibrary::EndSaveRecording()
 {
+    if (GPreSaveHandle.IsValid())
+    {
+        UPackage::PreSavePackageWithContextEvent.Remove(GPreSaveHandle);
+        GPreSaveHandle.Reset();
+    }
     if (GSaveHandle.IsValid())
     {
         UPackage::PackageSavedWithContextEvent.Remove(GSaveHandle);
         GSaveHandle.Reset();
     }
+    GBefore.Reset();
     TArray<TSharedPtr<FJsonValue>> Items;
     for (const FSaved& Saved : GSaved)
     {
@@ -293,9 +379,12 @@ FString UAtelierBuildWorkerLibrary::PackageImports(const FString& Filename)
         FString Path = Import.ObjectName.ToString();
         if (Import.OuterIndex.IsImport())
         {
+            // As Unreal writes object paths: `.` after the package, `:` only at the first
+            // subobject boundary (an outer that is a top-level asset), `.` for deeper nesting.
             const int32 Outer = Import.OuterIndex.ToImport();
-            const bool bOuterIsPackage = Imports[Outer].OuterIndex.IsNull();
-            Path = PathOf(Outer) + (bOuterIsPackage ? TEXT(".") : TEXT(":")) + Path;
+            const FPackageIndex OuterOfOuter = Imports[Outer].OuterIndex;
+            const bool bOuterIsAsset = OuterOfOuter.IsImport() && Imports[OuterOfOuter.ToImport()].OuterIndex.IsNull();
+            Path = PathOf(Outer) + (bOuterIsAsset ? TEXT(":") : TEXT(".")) + Path;
         }
         Paths[Index] = Path;
         return Path;

@@ -128,6 +128,15 @@ scheduled = {'gc': False}  # SystemLibrary.collect_garbage only schedules; a com
 ensures = [0]
 
 
+def stamp(path):
+    """Which file is at `path`, as the plugin's stat stamp: None when there is no regular file."""
+    try:
+        info = path.stat()
+    except FileNotFoundError:
+        return None
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
 def file_of(name):
     if not name.startswith('/Game/'):
         raise ValueError(f'{name} is not under /Game')
@@ -297,23 +306,32 @@ class AtelierFake:
         AtelierFake.save_package(name)
 
     @staticmethod
-    def save_package(name, deferred=False):
-        """Save `name`; a deferred save writes its bytes only when its writes are flushed."""
+    def save_package(name, deferred=False, bulk=None):
+        """Save `name`; a deferred save writes its bytes only when its writes are flushed.
+
+        `bulk` also writes a `.ubulk` companion, moved into place from a temporary file as Unreal does.
+        """
         entry = packages[name]
         path = file_of(name)
         path.parent.mkdir(parents=True, exist_ok=True)
+        companions = [path.with_suffix(suffix) for suffix in ('.uexp', '.ubulk', '.uptnl')]
+        before = {other: stamp(other) for other in companions}  # as the plugin's pre-save handler
         if deferred:
             path.write_bytes(b'not yet written')
             pending[path] = entry['payload']
         else:
             path.write_bytes(entry['payload'])
+        if bulk is not None:
+            temporary = path.with_name(path.name + '.tmp')
+            temporary.write_bytes(bulk)
+            os.replace(temporary, path.with_suffix('.ubulk'))
         entry['dirty'] = False
         registry.add(str(path.resolve()))
         if recording is not None:
             flush()  # as the plugin does before hashing a save's files
-            files = {str(other): hashlib.sha1(other.read_bytes()).hexdigest()
-                     for other in (path.with_suffix(suffix) for suffix in ('.uasset', '.umap', '.uexp', '.ubulk'))
-                     if other.is_file()}
+            # Only what this save wrote: its target and each companion it created or replaced.
+            wrote = [path] + [other for other in companions if stamp(other) not in (None, before[other])]
+            files = {str(other): hashlib.sha1(other.read_bytes()).hexdigest() for other in wrote if other.is_file()}
             recording.append({'package': name, 'filename': str(path), 'files': files})
 
     @staticmethod

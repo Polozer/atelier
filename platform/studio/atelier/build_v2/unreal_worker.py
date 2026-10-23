@@ -533,7 +533,11 @@ class Worker:
                 if package_owning(relative, OUTPUT_CONTENT) not in names:
                     # Only the editor's package saves produce outputs, never plain file writes.
                     raise JobRefused('dependency', f'{relative} was written without saving its package')
-                if written.get(str(path.resolve())) != sha1(path):
+                digest = written.get(str(path.resolve()))
+                if digest is None:
+                    # A file already there that the save left alone: a plain write, not a save.
+                    raise JobRefused('dependency', f'{relative} was not written by its package save')
+                if digest != sha1(path):
                     raise JobRefused('dependency', f'{relative} does not hold the bytes its package save wrote')
                 files[relative] = path
         missing = sorted(path for path, need in declared.items() if need and path not in files)

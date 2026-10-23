@@ -783,7 +783,9 @@ Each job then:
 - gets an empty `/Game` with its input packages copied in read-only;
 - must save exactly its declared packages, which move to `output/content/Game/`. Each collected
   file must hold the bytes its last save wrote, and every required output must exist. The plugin
-  hashes a save's files with SHA1 after flushing its writes; that hash is integrity only, never a key.
+  hashes the files a save wrote (its target, and each companion it created or replaced) with SHA1
+  after flushing its writes; that hash is integrity only, never a key. A file already there that the
+  save left alone fails the job.
   A file written straight into `output/` fails the job;
 - leaves each saved file's own import table in `evidence/imports.json` (`read_import_evidence`). An
   unreadable table fails the job.
