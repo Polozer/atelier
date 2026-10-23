@@ -64,6 +64,10 @@ id = "c3.unreal.frozen_worker_bundle"
 tests = ["atelier-build-v2::unreal/each_session_runs_a_frozen_worker_bundle_whose_digest_is_session_identity"]
 platforms = ["darwin"]
 
+[[scenarios]]
+id = "c3.unreal.worker_bundle_regular_files_only"
+tests = ["atelier-build-v2::unreal/a_worker_bundle_freezes_only_regular_files_and_never_follows_or_blocks"]
+
 [[pending]]
 id = "t2.unreal-worker-purity"
 task = "C3"

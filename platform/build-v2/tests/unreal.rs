@@ -306,6 +306,46 @@ fn the_ddc_folder_persists_per_engine_and_its_flags_and_graph_are_session_identi
 }
 
 #[test]
+fn a_worker_bundle_freezes_only_regular_files_and_never_follows_or_blocks() {
+    let space = Workspace::new();
+    let source = repo_worker();
+    let frozen = |protocol: &dyn Fn(&std::path::Path)| {
+        let dir = space.path(&format!(
+            "bundle-{}",
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::copy(&source, dir.join("unreal_worker.py")).unwrap();
+        protocol(&dir.join("protocol.py"));
+        UnrealWorkerBundle::read(&dir)
+    };
+    let regular = frozen(&|path| {
+        fs::copy(source.with_file_name("protocol.py"), path).unwrap();
+    })
+    .unwrap();
+    assert_eq!(
+        regular.digest(),
+        UnrealWorkerBundle::read(source.parent().unwrap())
+            .unwrap()
+            .digest()
+    );
+    // A leaf already substituted by a link is never followed, even to a valid protocol module.
+    let linked = frozen(&|path| {
+        std::os::unix::fs::symlink(source.with_file_name("protocol.py"), path).unwrap();
+    });
+    assert!(linked.is_err());
+    // A FIFO with no writer is refused at once instead of blocking the read.
+    let started = std::time::Instant::now();
+    let fifo = frozen(&|path| {
+        let name = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o644) }, 0);
+    });
+    let error = fifo.unwrap_err();
+    assert!(error.to_string().contains("not a regular file"), "{error}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+#[test]
 fn the_ddc_policy_allows_only_the_v2_folder_and_the_engine_pak() {
     let policy = DdcPolicy {
         dir: "/store/unreal-ddc/5.8".into(),

@@ -250,8 +250,9 @@ platform/studio/tests/test_build_v2_unreal_worker.py
 (`test_the_worker_plugin_source_is_outside_every_folder_a_game_or_v1_enumerates`).
 
 @cc [owner:fontanierh,label:correctness] build-v2-unreal-frozen-worker
-A context MUST freeze the exact bytes of `unreal_worker.py` and the `protocol.py` it loads (regular
-files, never links) when it is declared. Each session MUST materialize them read-only in
+A context MUST freeze the exact bytes of `unreal_worker.py` and the `protocol.py` it loads when it is
+declared, each read through one descriptor opened without following a link or blocking on a FIFO
+and checked as a regular file on that descriptor. Each session MUST materialize them read-only in
 `<session>/worker/`, and the editor MUST run that copy, which loads its protocol only from its own
 folder, never from the source tree, so a later edit or retarget of the source never reaches a
 session. The bundle's digest (the content identity of the frozen files: no locations and no
@@ -265,6 +266,7 @@ compiled-output views and the semantic settings; it MUST exclude the installed B
 and engine-plugin bytes and the DDC paths, and source compile-input keys are no substitute for
 compiled-output identity. See tests/unreal.rs
 (`each_session_runs_a_frozen_worker_bundle_whose_digest_is_session_identity`,
+`a_worker_bundle_freezes_only_regular_files_and_never_follows_or_blocks`,
 `the_profile_ignores_locations_and_follows_every_identity_field`,
 `a_different_native_context_or_a_module_rebuild_never_says_hello`).
 

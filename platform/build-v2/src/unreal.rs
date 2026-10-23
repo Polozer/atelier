@@ -138,16 +138,34 @@ pub const UNREAL_WORKER_SCRIPT: &str = "unreal_worker.py";
 /// The session folder that holds the frozen bundle.
 pub const WORKER_FOLDER: &str = "worker";
 
+/// The bytes of a regular file, read through one descriptor opened without following a link and
+/// without blocking (a FIFO), and checked as a regular file on that same descriptor.
+fn read_regular(path: &Path) -> io::Result<Vec<u8>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|error| {
+            invalid(format!(
+                "{} is not a readable regular file: {error}",
+                path.display()
+            ))
+        })?;
+    if !file.metadata()?.is_file() {
+        return Err(invalid(format!("{} is not a regular file", path.display())));
+    }
+    let mut bytes = vec![];
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
 impl UnrealWorkerBundle {
     /// Freeze the worker files in `source_dir` (regular files only, never links).
     pub fn read(source_dir: &Path) -> io::Result<Self> {
         let mut files = BTreeMap::new();
         for name in UNREAL_WORKER_FILES {
-            let path = source_dir.join(name);
-            if !fs::symlink_metadata(&path)?.is_file() {
-                return Err(invalid(format!("{} is not a regular file", path.display())));
-            }
-            files.insert(name.to_string(), fs::read(&path)?);
+            files.insert(name.to_string(), read_regular(&source_dir.join(name))?);
         }
         Self::from_files(files)
     }
