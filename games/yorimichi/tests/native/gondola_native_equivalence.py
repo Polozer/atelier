@@ -12,29 +12,31 @@ import re
 from pathlib import Path
 import sys
 
-import unreal
-
 sys.dont_write_bytecode=True
-SPEC=Path(os.environ['ATELIER_GONDOLA_NATIVE_SPEC'])
-if hashlib.sha256(SPEC.read_bytes()).hexdigest()!=os.environ['ATELIER_GONDOLA_NATIVE_SPEC_SHA256']:
-    raise ValueError('Native fixture spec is not byte-bound')
-S=json.loads(SPEC.read_text());GAME=Path(S['game']);ROOT=Path(S['out'])/'gondola';ARCHIVE=Path(S['archive'])
-sys.path[:0]=[str(GAME/'unreal/Scripts'),str(GAME/'world'),str(GAME/'tools')]
+GAME=Path(__file__).resolve().parents[2]
+sys.path[:0]=[str(GAME/'unreal/Scripts'),str(GAME/'world'),str(GAME/'tools'),str(Path(__file__).parent)]
 import yori  # noqa: E402
-from atelier.atomic_files import atomic_json  # noqa: E402
-from atelier.file_copy import copy_file  # noqa: E402
-from atelier.export_manifest import real_directory  # noqa: E402
-from material_assets import import_texture,node,link,save_material  # noqa: E402
-from mesh_materials import assign_materials  # noqa: E402
-import mesh_import  # noqa: E402
-import gondola_native  # noqa: E402
-import atomic_equivalence_capture as capture  # noqa: E402
-import atomic_equivalence as eq  # noqa: E402
+from atelier.atomic_files import atomic_json
+from atelier.file_copy import copy_file
+from atelier.export_manifest import real_directory
+from atomic_equivalence_io import require
+from track_native_equivalence import (actor_scope,release_actor,retire_owned,assets,fixture_files,receiving_startup)
 
-E=unreal.EditorAssetLibrary
-M=unreal.MaterialEditingLibrary
-TOOLS=unreal.AssetToolsHelpers.get_asset_tools()
+SPEC=S=ROOT=ARCHIVE=None
 ACTORS=[]
+
+
+def native_imports():
+    """Load the actual receiving/import/capture helpers with no host geometry verifier."""
+    global unreal,E,M,TOOLS,yori,import_texture,node,link,save_material,assign_materials,mesh_import,gondola_native,capture
+    import unreal
+    import yori
+    from material_assets import import_texture,node,link,save_material
+    from mesh_materials import assign_materials
+    import mesh_import
+    import gondola_native
+    import atomic_equivalence_capture as capture
+    E=unreal.EditorAssetLibrary;M=unreal.MaterialEditingLibrary;TOOLS=unreal.AssetToolsHelpers.get_asset_tools()
 
 
 def unchanged(rows):
@@ -75,7 +77,7 @@ def component(mesh,parent=None,family=None):
     return part
 
 
-def bounds_equal(before,after,parent,frame=None):
+def capture_bounds(before,after,parent,frame=None):
     poses=[unreal.Transform()]
     if frame is not None:
         import math
@@ -86,9 +88,7 @@ def bounds_equal(before,after,parent,frame=None):
         for part in [before,*after]:part.set_world_transform(pose,False,False)
         old=value(unreal.NativeAtomicEquivalence.component_policy(before))
         observed=[value(unreal.NativeAtomicEquivalence.component_policy(part)) for part in after]
-        if any(row['component_bounds']!=old['component_bounds'] or row['matrix']!=old['matrix'] for row in observed):
-            raise ValueError('Original logical box/true sphere/placement differs: '+parent)
-        rows.append(dict(original=old['component_bounds'],actual=[row['component_bounds'] for row in observed],matrix=old['matrix']))
+        rows.append(dict(original=old,actual=observed))
     for part in [before,*after]:part.set_world_transform(unreal.Transform(),False,False)
     return rows
 
@@ -143,37 +143,35 @@ def retain_packages(descriptor,root):
     atomic_json(root.parent/'native-descriptor.json',descriptor)
     return descriptor
 
-def compare(before,after,parent):
-    original=eq.native_raw_set(before,parent);actual=eq.native_raw_set(after,parent)
-    for field in ('source_lods','render_lods','cooked','hulls','settings','source_presence','policy'):
-        if original[field]!=actual[field]:raise ValueError('Actual native '+field+' differs: '+parent)
-    if parent=='GD_floor_rim_Access':
-        count=eq.compare_probes(original['probes'],actual['probes'],parent,set(actual['meshes']),set(original['meshes']),actual['seams'])
-    else:
-        if actual['seams']:raise ValueError('Rope family unexpectedly creates a source-edge seam')
-        left=original['probes']['controls'];right=actual['probes']['controls']
-        if not left or len(left)!=len(right):raise ValueError('NoCollision actual query inventory is missing')
-        for a,b in zip(left,right):
-            if a['hit'] is not None or b['hit'] is not None or not a['kind'].endswith('_negative') or {k:v for k,v in a.items() if k!='target'}!={k:v for k,v in b.items() if k!='target'}:
-                raise ValueError('Original rope NoCollision query policy differs')
-        for binding in [*before['component_policies'],*after['component_policies']]:
-            row=eq.json_artifact(binding)
-            if row['collision_enabled']!=0:raise ValueError('Rope fixture changed original NoCollision policy')
-        count=len(left)
-    return dict(source_gpu_cooked_material_lod_policy_exact=True,actual_controls=count,scope='actual imported native fixture; production runtime and package cook remain separate')
+def allowed_packages(spec,manifest):
+    """Only the finite selected source/material roster authorizes package retirement."""
+    root=spec['namespace']
+    return ({root+'/Before/World/'+name for name in spec['original_names']} |
+            {root+'/After/World/'+name for name in spec['current_names']} |
+            {root+'/Materials/'+name for name in manifest['materials']} |
+            {root+'/Textures/GD_'+texture+'_'+channel for texture in set(manifest['textured_materials'].values())
+             if texture for channel in ('color','rough')})
 
 
-def main():
+def run_native(spec_path,spec_sha):
     """@cc [owner:fontanierh,label:correctness] actual-three-owner-gondola-native-fixture
-    Preserve actual original finishing, shaders, collision and every LOD. Compare
-    all actual source/GPU/cooked/material fields and complete logical box/sphere.
+    Preserve actual original finishing, shaders, collision and every LOD. Emit
+    complete actual source/GPU/cooked/material and logical box/sphere evidence.
+    The HOST MUST compare it after whole0/empty; embedded code MUST NOT import
+    the host geometry verifier, NumPy or mesh IR. Recorded actors and owned
+    packages MUST use strict detach/destroy and complete referencer preflight.
     Access MUST pass exact original/current positive, negative and seam ray/capsule
     checks. Ropes MUST retain actual NoCollision and only negative controls; never
     enable collision to manufacture a positive result. Fixture scope MUST remain
     distinct from production runtime, normal fitting and package cook acceptance.
     """
-    global EDITOR
-    if S.get('schema')!=1 or S.get('region')!='gondola-native':raise ValueError('Foreign native spec')
+    global EDITOR,SPEC,S,ROOT,ARCHIVE,ACTORS
+    sys.dont_write_bytecode=True
+    SPEC=Path(spec_path).absolute();payload=SPEC.read_bytes()
+    require(hashlib.sha256(payload).hexdigest()==spec_sha,'Native fixture spec is not byte-bound')
+    S=json.loads(payload);ROOT=Path(S['out'])/'gondola';ARCHIVE=Path(S['archive']);ACTORS=[]
+    native_imports()
+    if S.get('schema')!=2 or S.get('region')!='gondola-native':raise ValueError('Foreign native spec')
     if any(os.environ.get(name) for name in ('ATELIER_BUILD_TASK','ATELIER_BUILD_GAME','ATELIER_BUILD_SCRIPT','ATELIER_MESH_REUSE_NONCE')):
         raise ValueError('Native fixture must not inherit a build/reuse invocation')
     content=real_directory(Path(unreal.Paths.project_content_dir()).absolute()).resolve()
@@ -182,59 +180,77 @@ def main():
     if not re.fullmatch(r'/Game/AtelierValidation/GondolaAtomicNative_[0-9a-f]{12}',namespace):raise ValueError('Foreign native fixture namespace')
     if os.path.lexists(content/namespace.removeprefix('/Game/')):raise ValueError('Private fixture Content owner root is occupied')
     unchanged(S['source_files']);unchanged(S['frozen_files'])
+    startup=receiving_startup(S,unreal)
     if unreal.EditorLoadingAndSavingUtils.new_blank_map(False) is None:raise ValueError('Cannot create private evidence world')
     unreal.SystemLibrary.execute_console_command(None,'Interchange.FeatureFlags.Import.FBX 0')
     unreal.SystemLibrary.execute_console_command(None,'Editor.AsyncStaticMeshCompilation 0')
+    unreal.SystemLibrary.execute_console_command(None,'MessageLog.DisablePopup 1')
+    require(unreal.SystemLibrary.get_console_variable_int_value('MessageLog.DisablePopup')==1,'Import modal notification suppression unavailable')
     unreal.load_module('StaticMeshEditor');EDITOR=unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
     if EDITOR is None:raise ValueError('StaticMeshEditor unavailable')
     yori.OUT=Path(S['out']);yori.GAME=content.parent.parent
-    manifest=json.loads((ROOT/'manifest.json').read_text())
-    legacy=load('gondola_immutable_mesh_import',ARCHIVE/'mesh_import.py')
-    scope=dict(ROOT=ROOT,E=E,M=M,TOOLS=TOOLS,unreal=unreal,import_texture=import_texture,node=node,link=link,save_material=save_material,
-               assign_materials=assign_materials,EDITOR=EDITOR,import_mesh=legacy.import_mesh,manifest=manifest,report={})
-    exec(compile((ARCHIVE/'material.py').read_text(),str(ARCHIVE/'material.py'),'exec'),scope)
-    scope['mats']={name:scope['material'](name,*values,manifest['textured_materials'].get(name)) for name,values in manifest['materials'].items()}
-    exec(compile((ARCHIVE/'finish_before.py').read_text(),str(ARCHIVE/'finish_before.py'),'exec'),scope)
-    scope['finish_before'](ROOT/'world',namespace+'/Before/World',S['original_names'])
-    old={name:E.load_asset(namespace+'/Before/World/'+name) for name in S['original_names']}
-    if any(mesh is None for mesh in old.values()):raise ValueError('Original native receiver missing')
-    parents={parent:[parent+f'_Piece{index:02d}' for index in range(2)] for parent in S['original_names']}
-    site=dict(exports=S['exports'],rope_groups={line:parents['GD_'+line+'_Rope_LOD0'] for line in ('L1','L2')})
-    gondola_native.DESTINATION=namespace+'/After/World'
-    gondola_native.MATERIAL_DESTINATION=namespace+'/Materials'
-    scope.update(import_mesh=mesh_import.import_mesh,gondola_native=gondola_native,site=site,report={})
-    exec(compile((ARCHIVE/'finish_after.py').read_text(),str(ARCHIVE/'finish_after.py'),'exec'),scope)
-    scope['finish_after'](ROOT/'world',gondola_native.DESTINATION,S['current_names'])
-    for parent,names in parents.items():gondola_native.finish_family(parent.removesuffix('_LOD0'),names,3 if '_Rope_' in parent else 1,scope['report'])
-    state=dict(current=S['current_names'])
-    received=gondola_native.validate_receiving(site,ROOT/'world/atomic-assets',EDITOR,state)
-    output=Path(S['output']);output.mkdir();evidence={};frame=json.loads((Path(SPEC).parent/'source-evidence/current-access-rim/results/proof.json').read_text())['station_frame']
-    try:
+    output=real_directory(Path(S['output']).absolute())
+    require(output.is_dir(),'Missing prepared private Gondola output')
+    atomic_json(output/'startup-ddc.json',startup)
+    actor_editor=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    require(actor_editor is not None,'Missing owned actor subsystem')
+    partial=lambda:dict(package=S['namespace'],observed_packages=sorted(assets(E,S['namespace'])))
+    with actor_scope(ACTORS,actor_editor,unreal.StaticMeshComponent,output,partial):
+        manifest=json.loads((ROOT/'manifest.json').read_text())
+        legacy=load('gondola_immutable_mesh_import',ARCHIVE/'mesh_import.py')
+        scope=dict(ROOT=ROOT,E=E,M=M,TOOLS=TOOLS,unreal=unreal,import_texture=import_texture,node=node,link=link,save_material=save_material,
+                   assign_materials=assign_materials,EDITOR=EDITOR,import_mesh=legacy.import_mesh,manifest=manifest,report={})
+        exec(compile((ARCHIVE/'material.py').read_text(),str(ARCHIVE/'material.py'),'exec'),scope)
+        scope['mats']={name:scope['material'](name,*values,manifest['textured_materials'].get(name)) for name,values in manifest['materials'].items()}
+        exec(compile((ARCHIVE/'finish_before.py').read_text(),str(ARCHIVE/'finish_before.py'),'exec'),scope)
+        scope['finish_before'](ROOT/'world',namespace+'/Before/World',S['original_names'])
+        old={name:E.load_asset(namespace+'/Before/World/'+name) for name in S['original_names']}
+        if any(mesh is None for mesh in old.values()):raise ValueError('Original native receiver missing')
+        parents={parent:[parent+f'_Piece{index:02d}' for index in range(2)] for parent in S['original_names']}
+        site=dict(exports=S['exports'],rope_groups={line:parents['GD_'+line+'_Rope_LOD0'] for line in ('L1','L2')})
+        gondola_native.DESTINATION=namespace+'/After/World'
+        gondola_native.MATERIAL_DESTINATION=namespace+'/Materials'
+        scope.update(import_mesh=mesh_import.import_mesh,gondola_native=gondola_native,site=site,report={})
+        exec(compile((ARCHIVE/'finish_after.py').read_text(),str(ARCHIVE/'finish_after.py'),'exec'),scope)
+        scope['finish_after'](ROOT/'world',gondola_native.DESTINATION,S['current_names'])
+        for parent,names in parents.items():gondola_native.finish_family(parent.removesuffix('_LOD0'),names,3 if '_Rope_' in parent else 1,scope['report'])
+        state=dict(current=S['current_names'])
+        received=gondola_native.validate_receiving(site,ROOT/'world/atomic-assets',EDITOR,state)
+        frame=json.loads((Path(SPEC).parent/'source-evidence/current-access-rim/results/proof.json').read_text())['station_frame']
+        evidence={}
         for parent,names in parents.items():
             before=component(old[parent]);meshes=[E.load_asset(gondola_native.DESTINATION+'/'+name) for name in names]
             family=[mesh.get_path_name() for mesh in meshes]
             after=[component(mesh,parent.removesuffix('_LOD0'),family) for mesh in meshes]
-            bounds=bounds_equal(before,after,parent,frame if parent=='GD_floor_rim_Access' else None)
+            bounds=capture_bounds(before,after,parent,frame if parent=='GD_floor_rim_Access' else None)
             left,right,seams=controls(parent,before,after,received)
             inputs=[SPEC,*map(Path,S['frozen_files'])]
             baseline=capture.capture([before],parent,output/parent/'before',controls=left,inputs=inputs)
             baseline=retain_packages(baseline,output/parent/'before/packages')
             actual=capture.capture(after,parent,output/parent/'after',controls=right,seams=seams,inputs=inputs)
             actual=retain_packages(actual,output/parent/'after/packages')
-            result=compare(baseline,actual,parent);result['logical_bounds_exact']=bounds
-            evidence[parent]=result
-            atomic_json(output/(parent+'-comparison.json'),result)
-            unreal.log('GONDOLA ACTUAL NATIVE EXACT '+parent)
-    finally:
-        editor=unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-        for actor in ACTORS:
-            if not editor.destroy_actor(actor):raise ValueError('Owned native fixture actor cleanup failed')
-    if not E.delete_directory(namespace):raise ValueError('Owned native fixture package cleanup refused')
-    remaining=[str(path.relative_to(content)) for path in (content/namespace.removeprefix('/Game/')).rglob('*') if path.is_file()]
-    if remaining:raise ValueError('Owned native fixture package files remain after deletion')
-    unchanged(S['source_files']);unchanged(S['frozen_files'])
-    atomic_json(output/'result.json',dict(schema=1,owners=evidence,scope=S['scope']))
-    unreal.log('GONDOLA THREE LARGE OWNER NATIVE FIXTURE COMPLETE')
+            evidence[parent]=dict(before=baseline,after=actual,bounds_observations=bounds)
+            atomic_json(output/'native.json',evidence)
+            for actor in tuple(ACTORS):release_actor(actor,actor_editor,unreal.StaticMeshComponent,ACTORS)
+            before=after=meshes=family=actor=None
+            unreal.log('GONDOLA ACTUAL NATIVE CAPTURED '+parent)
+        allowed=allowed_packages(S,manifest)
+        require(assets(E,namespace)==allowed,'Foreign or incomplete Gondola fixture package membership')
+        scope.clear();old.clear();scope=old=None
+        import gc
+        gc.collect();unreal.SystemLibrary.collect_garbage()
+        retire_owned(unreal,allowed,allowed)
+        require(not assets(E,namespace),'Gondola fixture registry is not empty')
+        remaining=fixture_files(content/namespace.removeprefix('/Game/'),allowed,namespace)
+        atomic_json(output/'cleanup.json',dict(root=str(content/namespace.removeprefix('/Game/')),
+            remaining=remaining,allowed_packages=sorted(allowed)))
+        unchanged(S['source_files']);unchanged(S['frozen_files'])
+        require(SPEC.read_bytes()==payload,'Gondola native spec changed')
+    unreal.log('GONDOLA THREE LARGE OWNER NATIVE CAPTURE COMPLETE '+spec_sha)
+
+
+def main():
+    run_native(Path(os.environ['ATELIER_GONDOLA_NATIVE_SPEC']),os.environ['ATELIER_GONDOLA_NATIVE_SPEC_SHA256'])
 
 
 if __name__=='__main__':main()

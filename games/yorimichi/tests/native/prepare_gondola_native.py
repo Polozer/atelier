@@ -63,39 +63,130 @@ def material_namespace(source,prefix):
 
 
 def run(output):
-    """Use a current normal compiled module and ordinary full guard; never build or repair it here."""
-    from atelier import build
-    from atelier.harness.safety import guarded
-    output=real_directory(output.absolute());specfile=output/'spec.json';payload=specfile.read_bytes();spec=json.loads(payload)
-    def bindings():
-        for field in ('source_files','frozen_files'):
-            for name,row in spec[field].items():
-                if identity(Path(name))!=row:raise ValueError('Prepared native input changed')
-    if subprocess.check_output(['git','status','--porcelain'],cwd=REPO):raise ValueError('Freeze the source checkout before native execution')
-    head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO).decode().strip();bindings()
-    ctx=build.Context('yorimichi')
-    if ctx.game_dir!=Path(spec['game']):raise ValueError('Run from the prepared receiving checkout environment')
-    sys.path.insert(0,str(ctx.game_dir/'tools'))
+    """Delegate native launch and full verification to the explicitly host-only runner."""
+    sys.path.insert(0,str(Path(__file__).parent))
+    from run_gondola_native_equivalence import run as execute
+    return execute(output)
+
+
+def runtime_binding(output):
+    """Bind the actual already-current module; this preparation never compiles it."""
+    from atelier import build,engine
+    from track_native_equivalence import private_launch
+    sys.path.insert(0,str(GAME/'tools'))
     from network_review_common import current_native_build
+    ctx=build.Context('yorimichi')
+    if ctx.game_dir!=GAME:raise ValueError('Prepare in the actual receiving environment')
     native=current_native_build(ctx)
-    command=build.UnrealScript(Path(__file__).with_name('gondola_native_equivalence.py'),
-        'GONDOLA THREE LARGE OWNER NATIVE FIXTURE COMPLETE',null_rhi=True,modules=('Yorimichi',),args=('-nosound','-noshaderworker'))
-    with command.prepared(ctx) as (argv,overrides):
-        env=dict(ctx.env(),**dict(overrides),ATELIER_GONDOLA_NATIVE_SPEC=str(specfile),
-                 ATELIER_GONDOLA_NATIVE_SPEC_SHA256=hashlib.sha256(payload).hexdigest(),ATELIER_BUILD_ROOT=str(output/'native-build'))
-        code=guarded.run(argv,output/'guard',timeout=1200,queue_seconds=1800,limit_gib=10.,kind='job',
-            purpose='Gondola three large owner exact native fixture',env=env,progress=25.,track_tree=True)
-    atomic_json(output/'whole-result.json',dict(exit_code=code,head=head,native=native))
-    if code:raise SystemExit(code)
-    guard=json.loads((output/'guard/memory-health-tree.json').read_text())
-    if (guard.get('state')!='child_exited' or guard.get('cleanup_complete') is not True or guard.get('processes')!=[] or guard.get('footprint_bytes')!=0
-            or guard.get('late_reporters',{}).get('unresolved')):raise ValueError('Native fixture cleanup is not positively empty')
-    if command.marker not in (output/'guard/stdout.log').read_text():raise ValueError('Native fixture completion marker is absent')
-    bindings()
-    if (specfile.read_bytes()!=payload or subprocess.check_output(['git','status','--porcelain'],cwd=REPO)
-            or subprocess.check_output(['git','rev-parse','HEAD'],cwd=REPO).decode().strip()!=head or current_native_build(ctx)!=native):
-        raise ValueError('Native source/spec/module changed during execution')
-    print('GONDOLA ACTUAL NATIVE FIXTURE WHOLE/EMPTY COMPLETE; normal fitting/runtime/package cook remain separate',flush=True)
+    launch=private_launch(output,'current',engine.unreal_root())
+    (output/'current/user').mkdir(parents=True);(output/'private-ddc').mkdir()
+    return native,launch
+
+
+def bind_code(sources):
+    from atelier.build_inputs import local_imports
+    fixture=Path(__file__).with_name('gondola_native_equivalence.py')
+    scripts=GAME/'unreal/Scripts'
+    roots=(GAME,GAME/'world',scripts,REPO/'platform/studio',REPO/'platform/harness')
+    entries=(fixture,Path(__file__),Path(__file__).with_name('run_gondola_native_equivalence.py'),
+        Path(__file__).with_name('track_native_equivalence.py'),Path(__file__).with_name('run_track_native_equivalence.py'),
+        scripts/'gondola_native.py',scripts/'mesh_import.py',scripts/'material_assets.py',
+        GAME/'tools/atomic_equivalence.py',GAME/'tools/atomic_equivalence_io.py')
+    for entry in entries:
+        for path in {*local_imports(entry,roots),entry}:sources[str(path)]=identity(path)
+    for name in ('import_gondola.py','mesh_materials.py','atomic_equivalence_capture.py'):
+        path=scripts/name;sources[str(path)]=identity(path)
+    for name in ('GondolaService.h','GondolaService.cpp','NativeAtomicEquivalence.h','NativeAtomicEquivalence.cpp'):
+        path=GAME/'unreal/Source/Yorimichi'/name;sources[str(path)]=identity(path)
+
+
+def reuse_frozen(source,output,content,expected_sha):
+    """Copy only exact existing source evidence/FBX/shaders, never old native outputs or stamps."""
+    from gondola_native_equivalence import unchanged
+    source=real_directory(Path(source).absolute());spec_path=source/'spec.json';spec_before=identity(spec_path)
+    if spec_before['sha256']!=expected_sha:raise ValueError('Frozen Gondola spec differs from explicit authority')
+    old=json.loads(spec_path.read_bytes())
+    if old.get('schema')!=1 or old.get('region')!='gondola-native' or old['original_names']!=list(PARENTS) or old.get('original_revision')!=ORIGINAL:
+        raise ValueError('Exact original three-owner frozen Gondola fixture required')
+    unchanged(old['source_files']);unchanged(old['frozen_files'])
+    if output.exists() or output.is_symlink():raise ValueError('Fresh exclusive fixture output required')
+    # Validate membership before the first copy. The 21 FBXs and shader manifest/12PNG
+    # have independent SHA/stat authority, not a transplanted native success claim.
+    from atelier.model_files import member
+    paths={member(Path(path).relative_to(source).as_posix()):Path(path) for path in old['frozen_files']}
+    if len({path.casefold() for path in paths})!=len(paths):raise ValueError('Aliased frozen input membership')
+    fbx=[p for p in paths if p.endswith('.fbx')]
+    original={f'out/gondola/world/assets/{parent.replace("_LOD0",f"_LOD{lod}")}.fbx' for parent in PARENTS for lod in (range(3) if '_Rope_' in parent else range(1))}
+    current={f'out/gondola/world/atomic-assets/{row["name"]}.fbx' for group in old['exports'] for row in group['pieces']}
+    if set(fbx)!=original|current or len(original)!=7 or len(current)!=14:
+        raise ValueError('Incomplete frozen21 FBX membership')
+    shader={p for p in paths if p.startswith('out/gondola/textures/')}
+    if len(shader)!=12 or any(not p.endswith('.png') for p in shader) or 'out/gondola/manifest.json' not in paths:
+        raise ValueError('Incomplete frozen13 shader input files')
+    source_evidence={f'source-evidence/{kind}/{name}' for kind in ('current-rope','current-access-rim')
+        for name in ('whole-result.json','inputs.json','guard/memory-health-tree.json','results/proof.json')}
+    required=original|current|shader|source_evidence|{'site.json','out/gondola/manifest.json'}|{
+        'archive/'+name for name in ('import_gondola.py','mesh_import.py','material.py','finish_before.py','finish_after.py')}
+    if set(paths)!=required:raise ValueError('Foreign or incomplete frozen source closure')
+    for kind in ('current-rope','current-access-rim'):
+        base='source-evidence/'+kind+'/'
+        whole=json.loads(paths[base+'whole-result.json'].read_bytes());guard=json.loads(paths[base+'guard/memory-health-tree.json'].read_bytes())
+        if (whole.get('exit_code')!=0 or whole.get('source_and_fixture_unchanged') is not True or
+                guard.get('state')!='child_exited' or guard.get('cleanup_complete') is not True or guard.get('processes')!=[] or guard.get('footprint_bytes')!=0):
+            raise ValueError('Frozen source authority lacks original whole0/empty')
+    rope=json.loads(paths['source-evidence/current-rope/results/proof.json'].read_bytes())
+    access=json.loads(paths['source-evidence/current-access-rim/results/proof.json'].read_bytes())
+    profile_sha=identity(paths['site.json'])['sha256']
+    if rope.get('profiles_sha256')!=profile_sha or len(rope.get('assets',{}))!=6:
+        raise ValueError('Incomplete original rope source authority')
+    for parent in PARENTS:
+        family=rope['native_fixture'][parent[3:5]]['lods'] if '_Rope_' in parent else [access['native_fixture']]
+        if len(family)!=(3 if '_Rope_' in parent else 1):raise ValueError('Incomplete original authored FBX LOD authority')
+        for lod,pair in enumerate(family):
+            key=parent.replace('_LOD0',f'_LOD{lod}')
+            if '_Rope_' in parent:
+                row=rope['assets'][key]
+                if (row.get('source_exact') is not True or row.get('serialized_fbx_exact') is not True
+                        or row['max_piece_triangles']>32768 or lod==0 and row['stored_contact'].get('pass') is not True):
+                    raise ValueError('Unproved frozen rope source/export/contact')
+            elif (access.get('source_exact') is not True or access.get('actual_serialized_fbx_exact') is not True
+                    or access['max_piece_triangles']>32768 or len(access['seams'])!=8):
+                raise ValueError('Unproved frozen access source/export/seams')
+            if identity(paths[f'out/gondola/world/assets/{key}.fbx'])['sha256']!=pair['baseline']['sha256']:
+                raise ValueError('Frozen original FBX differs from independent source proof')
+            if len(pair['actual'])!=2:raise ValueError('Incomplete frozen bounded source pair')
+            for index,row in enumerate(pair['actual']):
+                if identity(paths[f'out/gondola/world/atomic-assets/{key}_Piece{index:02d}.fbx'])['sha256']!=row['sha256']:
+                    raise ValueError('Frozen bounded FBX differs from independent source proof')
+    output.mkdir(parents=True);frozen={};sources={str(spec_path):spec_before}
+    for relative,path in paths.items():
+        if relative.startswith('archive/') and relative not in ('archive/mesh_import.py','archive/import_gondola.py'):continue
+        if not (relative.startswith(('out/','source-evidence/','archive/')) or relative=='site.json'):
+            raise ValueError('Foreign frozen input path')
+        target=output/relative;copy_file(path,target)
+        if identity(path)!=old['frozen_files'][str(path)] or identity(target)['sha256']!=old['frozen_files'][str(path)]['sha256']:
+            raise ValueError('Frozen copy authority changed')
+        sources[str(path)]=old['frozen_files'][str(path)];frozen[str(target)]=identity(target)
+    archive=output/'archive';original_source=(archive/'import_gondola.py').read_text();current_source=(GAME/'unreal/Scripts/import_gondola.py').read_text()
+    material=lambda source:next(node for node in ast.parse(source).body if isinstance(node,ast.FunctionDef) and node.name=='material')
+    if ast.dump(material(original_source),include_attributes=False)!=ast.dump(material(current_source),include_attributes=False):
+        raise ValueError('Original/current material constructor differs')
+    namespace='/Game/AtelierValidation/GondolaAtomicNative_'+uuid.uuid4().hex[:12]
+    for name,value in (('material.py',material_namespace(ast.unparse(material(original_source))+'\n',namespace)),
+                       ('finish_before.py',finishing(original_source,'finish_before')),('finish_after.py',finishing(current_source,'finish_after'))):
+        path=archive/name;path.write_text(value);frozen[str(path)]=identity(path)
+    bind_code(sources);native,launch=runtime_binding(output)
+    config=Path(launch['engine_dir'])/'Config/BaseEngine.ini';sources[str(config)]=identity(config)
+    spec=dict(old,schema=2,phase='current',game=str(GAME),out=str(output/'out'),archive=str(archive),output=str(output/'current'),
+        namespace=namespace,content=str(real_directory(content.absolute()).resolve()),profiles=str(output/'site.json'),
+        source_files=sources,frozen_files=frozen,native=native,launch=launch,
+        source_fixture=dict(path=str(spec_path),sha256=spec_before['sha256'],source_success_not_native_acceptance=True))
+    atomic_json(output/'spec.json',spec)
+    unchanged(old['source_files']);unchanged(old['frozen_files'])
+    if identity(spec_path)!=spec_before:raise ValueError('Frozen fixture spec changed')
+    unchanged(sources);unchanged(frozen)
+    return output/'spec.json'
+
 
 def main(argv=None):
     """@cc [owner:fontanierh,label:correctness] frozen-three-owner-gondola-native-inputs
@@ -106,12 +197,19 @@ def main(argv=None):
     """
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run',action='store_true')
+    parser.add_argument('--frozen-fixture',type=Path)
+    parser.add_argument('--frozen-spec-sha256')
     parser.add_argument('--proofs',type=Path)
     parser.add_argument('--kit',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--content',type=Path)
     args=parser.parse_args(argv)
     if args.run:return run(args.output)
+    if args.frozen_fixture:
+        if args.content is None or args.frozen_spec_sha256 is None:parser.error('Frozen preparation requires explicit receiving Content and frozen spec SHA')
+        sys.path.insert(0,str(Path(__file__).parent))
+        path=reuse_frozen(args.frozen_fixture,args.output.absolute(),args.content,args.frozen_spec_sha256)
+        print('GONDOLA FROZEN INPUT NATIVE SPEC',path,identity(path)['sha256']);return
     if any(value is None for value in (args.proofs,args.kit,args.content)):parser.error('Preparation requires proofs, kit and explicit receiving Content')
     if args.output.exists() or args.output.is_symlink():raise ValueError('Fresh exclusive fixture output required')
     args.output.mkdir(parents=True);output=args.output.resolve();stage=output/'out/gondola';archive=output/'archive'
@@ -196,8 +294,10 @@ def main(argv=None):
     roots=(GAME,GAME/'world',scripts,REPO/'platform/studio',REPO/'platform/harness')
     for path in {*local_imports(fixture,roots),Path(__file__),fixture,GAME/'tools/atomic_equivalence.py'}:
         sources[str(path)]=identity(path)
-    spec=dict(schema=1,region='gondola-native',namespace=namespace,original_revision=ORIGINAL,game=str(GAME),out=str(output/'out'),archive=str(archive),
-        output=str(output/'native'),content=str(real_directory(args.content.absolute()).resolve()),profiles=str(output/'site.json'),
+    bind_code(sources);native,launch=runtime_binding(output)
+    config=Path(launch['engine_dir'])/'Config/BaseEngine.ini';sources[str(config)]=identity(config)
+    spec=dict(schema=2,phase='current',native=native,launch=launch,region='gondola-native',namespace=namespace,original_revision=ORIGINAL,game=str(GAME),out=str(output/'out'),archive=str(archive),
+        output=str(output/'current'),content=str(real_directory(args.content.absolute()).resolve()),profiles=str(output/'site.json'),
         exports=exports,current_names=sorted(name for name in expected_actual if not any(token in name for token in ('_Rope_LOD1','_Rope_LOD2'))),
         original_names=list(PARENTS),source_files=sources,frozen_files=frozen,
         scope='three large owners only; native imported source/GPU/cooked/material/LOD/bounds and actual fixture queries; full normal fitting, production runtime and package cook remain separate')
