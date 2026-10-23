@@ -7,7 +7,7 @@ sys.path[:0]=[str(Path(__file__).resolve().parents[3]),str(Path(__file__).resolv
 from atelier import export_assembly
 from atelier.atomic_files import atomic_json
 from atelier.export_manifest import real_directory,sha,validate as validate_export
-from atelier.model_files import regular_files,retain_files
+from atelier.model_files import flat_files,retain_files
 from region_mesh_parts import validate
 from hidamari.prop_roster import PROPS,TREES,members
 
@@ -27,10 +27,9 @@ def assemble(out):
         if [row['name'] for row in value['pieces']]!=[name]:raise ValueError('Prop native membership changed')
         folder=out/'hidamari-prop-data'/name
         parent=name.split('_LOD')[0]
-        if regular_files(folder)!={parent+'.png','record.json'}:raise ValueError('Incomplete/foreign selected prop data')
+        if flat_files(folder)!={parent+'.png','record.json'}:raise ValueError('Incomplete/foreign selected prop data')
         record=json.loads((folder/'record.json').read_text())
         if (record.get('schema')!=1 or record['name']!=name or record['parent']!=parent
-                or regular_files(folder)!={parent+'.png','record.json'}
                 or record['level'][0]!=value['source_triangles']
                 or len(record['hulls'])!=value['source_collision_hulls']):
             raise ValueError('Incomplete/foreign selected prop data')
@@ -69,7 +68,7 @@ def assemble(out):
     diagnostics|={f'view-{name}-{i}{direction}.png' for name in ('black_pine_a','black_pine_b','cedar_a','cedar_b')
         for i,direction in enumerate(('front','right','back','left'))}
     diagnostics|={'lods-'+name+'.png' for name in TREES}
-    if root.exists() and regular_files(root)-wanted-diagnostics:raise ValueError('Foreign prop assembly destination')
+    if root.exists() and flat_files(root)-wanted-diagnostics:raise ValueError('Foreign prop assembly destination')
     export_assembly.assemble(items,meshes)
     for name in names:export_assembly.copy_verified(meshes/(name+'.fbx'),root/(name+'.fbx'))
     for source,name in files:export_assembly.copy_verified(source,root/name)
