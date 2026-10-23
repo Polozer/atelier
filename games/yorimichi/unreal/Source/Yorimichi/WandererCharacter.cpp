@@ -1163,6 +1163,7 @@ void AWandererCharacter::Interact(const FInputActionValue&) {
  if(bReady&&!bMenuOpen&&IsLocallyControlled()&&!SkateRide->IsRiding()&&!OnVehicle()&&!IsZeppelinPassenger()&&AGondolaService::TryInteract(this))return;
  // In the saddle nothing is used (online the host refuses boarding off foot, ServerZeppelinInput).
  if(SkateRide->IsRiding()||Horse->IsEquipped()||!bReady||bMenuOpen)return;
+ if(!OnVehicle()&&!IsZeppelinPassenger()&&CraterParkTower::TryInteract(this))return;
  auto* Ship=GetZeppelin();
  const bool bZeppelinReach=Ship&&(Ship->IsPassenger(this)||Ship->CanReach(this));
  const ASwordTrainer* Trainer=ASwordTrainer::Find(this);
