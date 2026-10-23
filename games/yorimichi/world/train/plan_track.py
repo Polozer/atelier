@@ -38,7 +38,7 @@ def main(argv=None):
     if value.get('schema') != 1 or value.get('asset') != args.asset: raise ValueError('Foreign railway source')
     bpy.ops.wm.read_factory_settings(use_empty=True)
     obj = construct(value)
-    result = plan(obj, args.output, options=dict(export_apply=True))
+    result = plan(obj, args.output, options=dict(export_apply=True), partition='whole')
     palette_root = real_directory(args.materials, create=True)
     expected = {row['name'] + '.json' for row in result['pieces']}
     previous = palette_root / 'manifest.json'
