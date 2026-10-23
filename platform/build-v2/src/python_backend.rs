@@ -1,8 +1,11 @@
 //! Concrete fixed-output Python authority for the static A9 scheduler.
 //! Lifecycle, key encoding, snapshots, publication and installation remain owned by their adapters.
+#[cfg(all(test, target_os = "macos"))]
+#[path = "../tests/support/python_backend_cases.rs"]
+mod tests;
 use crate::checkout_locks::BuildGuard;
 use crate::completion::{CompletionWork, FrozenCompletion};
-use crate::graph::BuildGraph;
+use crate::graph::{BuildGraph, SelectedGraph};
 use crate::groups::ValidatedGroup;
 use crate::install::{
     CheckoutInstaller, CurrentIdentities, InstallError, LeaseIdentity, OwnershipSnapshot,
@@ -64,6 +67,7 @@ enum Origin {
     Recorded {
         transaction: WriteTransaction,
         record: RecordedIdentities,
+        current: Option<CurrentIdentities>,
     },
     Cached {
         transaction: WriteTransaction,
@@ -106,6 +110,23 @@ fn same_view(input: &PreparedInput, stored: &StoredItem) -> Result<(), String> {
         || expected != actual
     {
         return Err("selected source differs from prepared input view".into());
+    }
+    Ok(())
+}
+
+fn agree_current(current: &CurrentIdentities, outputs: &[StoredItem]) -> Result<(), String> {
+    for old in current.items() {
+        let new = outputs
+            .iter()
+            .find(|item| item.item.id == old.item.id)
+            .ok_or("Current item missing from complete output manifest")?;
+        let mut before = old.files.clone();
+        let mut after = new.files.clone();
+        before.sort_by(|a, b| a.path.cmp(&b.path));
+        after.sort_by(|a, b| a.path.cmp(&b.path));
+        if old.item != new.item || before != after || new.external_locator.is_some() {
+            return Err("same-key Current and produced output content disagree".into());
+        }
     }
     Ok(())
 }
@@ -174,12 +195,41 @@ impl ObjectSource for PythonSources<'_> {
             Origin::Recorded {
                 transaction,
                 record,
+                current,
             } => {
                 stored(record.result())?;
-                transaction
-                    .pin_recorded_items(record, &[selected.item.as_str()])
-                    .map_err(|error| refusal(SourceErrorKind::Unavailable, error.to_string()))?
-                    .clone_object(digest, destination)
+                if current.as_ref().is_some_and(|current| {
+                    current
+                        .items()
+                        .iter()
+                        .any(|item| item.item.id == selected.item)
+                }) {
+                    let producer = self.prepared.get(&selected.producer).ok_or_else(|| {
+                        refusal(
+                            SourceErrorKind::Unavailable,
+                            "prepared producer absent".into(),
+                        )
+                    })?;
+                    let pinned = self
+                        .reader
+                        .pin_current_sources(self.guard, producer)
+                        .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
+                        .ok_or_else(|| {
+                            refusal(
+                                SourceErrorKind::Changed,
+                                "producer is no longer Current".into(),
+                            )
+                        })?;
+                    pinned
+                        .objects_for(&[&selected.input])
+                        .map_err(|error| refusal(SourceErrorKind::Changed, error.to_string()))?
+                        .clone_object(digest, destination)
+                } else {
+                    transaction
+                        .pin_recorded_items(record, &[selected.item.as_str()])
+                        .map_err(|error| refusal(SourceErrorKind::Unavailable, error.to_string()))?
+                        .clone_object(digest, destination)
+                }
             }
             Origin::Cached {
                 transaction,
@@ -225,6 +275,7 @@ pub struct PythonTicket {
     transaction: Option<WriteTransaction>,
     local: Option<CompletionWork>,
     cache_failure: Option<ResultError>,
+    current: Option<CurrentIdentities>,
 }
 
 pub struct PythonInputs {
@@ -265,12 +316,22 @@ pub struct PythonBackend<'a> {
     origins: BTreeMap<String, Origin>,
     prepared: BTreeMap<String, PreparedUnit>,
     empty_groups: BTreeMap<String, ValidatedGroup>,
+    needed_items: BTreeMap<String, BTreeSet<String>>,
     io: Rc<RefCell<PythonIo>>,
 }
 
 impl<'a> PythonBackend<'a> {
+    /// @cc [owner:fontanierh,label:correctness] current-recorded-selected-identity
+    /// Selected content needs MUST come from A4's selected edges. Current covers Checkout items
+    /// only; needed store-only sibling identities MUST come from exact recorded metadata or the
+    /// ordinary producer. Unneeded siblings MUST NOT force cache availability. Combined final
+    /// Stored/Checkout requirements MUST independently prove strict storage and revalidated Current,
+    /// refuse same-key content disagreement, and avoid rewriting healthy checkout files.
+    /// See mixed_current_and_recorded_identity_resolves_final_hit_without_store_sibling_bytes and
+    /// dual_explicit_stored_checkout_hit_preserves_healthy_current_files_and_receipts in tests/support/python_backend_cases.rs.
     pub fn new(
         graph: &'a BuildGraph,
+        selected: &SelectedGraph,
         snapshot: &'a SourceSnapshot,
         reader: &'a ReceiptReader,
         guard: &'a BuildGuard,
@@ -280,6 +341,17 @@ impl<'a> PythonBackend<'a> {
         open_cache: impl FnMut() -> Result<CacheAccess, InstallError> + 'a,
         root: impl FnMut(&ResultEnvelope) -> Result<(), String> + 'a,
     ) -> Self {
+        let mut needed_items: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for edge in selected.dependencies() {
+            if matches!(edge.role, crate::graph::EdgeRole::Content) {
+                if let crate::graph::DependencyOutput::Item(item) = &edge.output {
+                    needed_items
+                        .entry(edge.producer.clone())
+                        .or_default()
+                        .insert(item.clone());
+                }
+            }
+        }
         Self {
             graph,
             snapshot,
@@ -293,6 +365,7 @@ impl<'a> PythonBackend<'a> {
             origins: BTreeMap::new(),
             prepared: BTreeMap::new(),
             empty_groups: BTreeMap::new(),
+            needed_items,
             io: Rc::new(RefCell::new(PythonIo::default())),
         }
     }
@@ -314,6 +387,7 @@ impl<'a> PythonBackend<'a> {
                 Origin::Recorded {
                     transaction,
                     record,
+                    ..
                 } => transaction
                     .retain_recorded(&record, |result| (self.root)(result))
                     .map(|_| ())
@@ -398,18 +472,27 @@ impl<'a> PythonBackend<'a> {
         }
         self.prepared.insert(id.clone(), unit.clone());
         // Current is deliberately a checkout subset, never an assertion that store-only siblings exist.
-        if !final_demands.contains(&Demand::Stored)
-            && unit
-                .ingredients()
-                .logical_outputs
-                .iter()
-                .any(|item| item.destination == Destination::Checkout)
+        let mut current = if unit
+            .ingredients()
+            .logical_outputs
+            .iter()
+            .any(|item| item.destination == Destination::Checkout)
         {
-            if let Some(current) = self
-                .reader
+            self.reader
                 .current_identities(self.guard, unit)
                 .map_err(|error| error.to_string())?
-            {
+        } else {
+            None
+        };
+        let complete_needed_identity = current.as_ref().is_some_and(|current| {
+            self.needed_items.get(&id).is_none_or(|needed| {
+                needed
+                    .iter()
+                    .all(|id| current.items().iter().any(|item| item.item.id == *id))
+            })
+        });
+        if !final_demands.contains(&Demand::Stored) && complete_needed_identity {
+            if let Some(current) = current.take() {
                 let checked = self.checked(unit, current.items().to_vec(), true);
                 self.origins.insert(id, Origin::Current(current));
                 return Ok(Lookup::Current(checked));
@@ -419,10 +502,10 @@ impl<'a> PythonBackend<'a> {
         self.io.borrow_mut().cache_opens += 1;
         let cache = match (self.open_cache)() {
             Ok(cache) => cache,
-            Err(InstallError::Cache(error)) => return Ok(Self::miss(error, None)),
+            Err(InstallError::Cache(error)) => return Ok(Self::miss(error, None, current)),
             Err(error) => return Err(error.to_string()),
         };
-        if final_demands.contains(&Demand::Checkout) {
+        if final_demands.contains(&Demand::Checkout) && current.is_none() {
             self.io.borrow_mut().cache_lookups += 1;
             return match cache.checkout.lookup_restore(
                 self.guard,
@@ -442,9 +525,10 @@ impl<'a> PythonBackend<'a> {
                         transaction: Some(transaction),
                         local: None,
                         cache_failure: None,
+                        current,
                     },
                 }),
-                Err(InstallError::Cache(error)) => Ok(Self::miss(error, None)),
+                Err(InstallError::Cache(error)) => Ok(Self::miss(error, None, current)),
                 Err(error) => Err(error.to_string()),
             };
         }
@@ -456,24 +540,36 @@ impl<'a> PythonBackend<'a> {
             identity.upstream_result_keys,
         ) {
             Ok(transaction) => transaction,
-            Err(error) => return Ok(Self::miss(error, None)),
+            Err(error) => return Ok(Self::miss(error, None, current)),
         };
         self.io.borrow_mut().cache_lookups += 1;
-        if final_demands.is_empty() {
+        if final_demands.is_empty()
+            || (current.is_some() && !final_demands.contains(&Demand::Stored))
+        {
             match transaction.lookup_recorded() {
                 Ok(Some(record)) => {
-                    let checked = self.checked(unit, record.result().result.outputs.clone(), false);
+                    if let Some(observed) = &current {
+                        agree_current(observed, &record.result().result.outputs)?;
+                    }
+                    let is_current = current.is_some();
+                    let checked =
+                        self.checked(unit, record.result().result.outputs.clone(), is_current);
                     self.origins.insert(
                         id,
                         Origin::Recorded {
                             transaction,
                             record,
+                            current,
                         },
                     );
-                    return Ok(Lookup::Recorded(checked));
+                    return Ok(if is_current {
+                        Lookup::Current(checked)
+                    } else {
+                        Lookup::Recorded(checked)
+                    });
                 }
                 Ok(None) => {}
-                Err(error) => return Ok(Self::miss(error, Some(transaction))),
+                Err(error) => return Ok(Self::miss(error, Some(transaction), current)),
             }
         } else {
             match transaction.lookup_groups() {
@@ -481,7 +577,11 @@ impl<'a> PythonBackend<'a> {
                     if !groups.is_empty() {
                         return Err("dynamic groups outside static Python backend".into());
                     }
-                    let checked = self.checked(unit, envelope.result.outputs.clone(), false);
+                    if let Some(observed) = &current {
+                        agree_current(observed, &envelope.result.outputs)?;
+                    }
+                    let checked =
+                        self.checked(unit, envelope.result.outputs.clone(), current.is_some());
                     self.origins.insert(
                         id,
                         Origin::Cached {
@@ -492,7 +592,7 @@ impl<'a> PythonBackend<'a> {
                     return Ok(Lookup::Hit(checked));
                 }
                 Ok(None) => {}
-                Err(error) => return Ok(Self::miss(error, Some(transaction))),
+                Err(error) => return Ok(Self::miss(error, Some(transaction), current)),
             }
         }
         Ok(Lookup::Miss {
@@ -501,6 +601,7 @@ impl<'a> PythonBackend<'a> {
                 transaction: Some(transaction),
                 local: None,
                 cache_failure: None,
+                current,
             },
         })
     }
@@ -508,6 +609,7 @@ impl<'a> PythonBackend<'a> {
     fn miss(
         error: ResultError,
         transaction: Option<WriteTransaction>,
+        current: Option<CurrentIdentities>,
     ) -> Lookup<PythonChecked, PythonTicket> {
         let outcome: Result<Option<()>, ResultError> = Err(error);
         let LookupDecision::Miss(reason) = classify_lookup_result(&outcome) else {
@@ -519,6 +621,7 @@ impl<'a> PythonBackend<'a> {
                 transaction,
                 local: None,
                 cache_failure: outcome.err(),
+                current,
             },
         }
     }
@@ -662,6 +765,10 @@ impl Backend for PythonBackend<'_> {
                 |_, _, _| Err("dynamic groups outside static Python backend".into()),
             )
             .map_err(|error| error.to_string())?;
+        let observed_current = ticket.current.take();
+        if let Some(current) = &observed_current {
+            agree_current(current, &frozen.result().result.outputs)?;
+        }
         let publication = match ticket.transaction.take() {
             Some(transaction) => frozen.publish_with(transaction, |result| (self.root)(result)),
             None => Err(ticket
@@ -678,7 +785,22 @@ impl Backend for PythonBackend<'_> {
                 return Err(format!("Python output refused: {reason:?}"));
             }
         };
-        let checked = self.checked(&unit, frozen.result().result.outputs.clone(), false);
+        let still_current = if observed_current.is_some() {
+            match self
+                .reader
+                .current_identities(self.guard, &unit)
+                .map_err(|error| error.to_string())?
+            {
+                Some(current) => {
+                    agree_current(&current, &frozen.result().result.outputs)?;
+                    true
+                }
+                None => false,
+            }
+        } else {
+            false
+        };
+        let checked = self.checked(&unit, frozen.result().result.outputs.clone(), still_current);
         self.origins.insert(id, Origin::Local(frozen));
         self.io.borrow_mut().publications += 1;
         Ok(Published {
@@ -693,7 +815,16 @@ impl Backend for PythonBackend<'_> {
         checked: &mut PythonChecked,
         demand: &FinalDemands,
     ) -> Result<Effects, String> {
-        if !demand.contains(&Demand::Checkout) || checked.current {
+        if !demand.contains(&Demand::Checkout) {
+            return Ok(Effects::default());
+        }
+        if checked.current {
+            let current = self
+                .reader
+                .current_identities(self.guard, unit)
+                .map_err(|error| error.to_string())?
+                .ok_or("Current changed before Checkout fulfillment")?;
+            agree_current(&current, &checked.items)?;
             return Ok(Effects::default());
         }
         let origin = self
