@@ -522,6 +522,9 @@ struct DesiredFile {
 pub struct RestorePlan {
     installer: ReceiptReader,
     completion: Option<PlanCompletion>,
+    retained_sources: Option<PlanCompletion>,
+    retained_rooted: bool,
+    keep_sources: bool,
     result: ResultEnvelope,
     view: OwnershipSnapshot,
     removals: Vec<RemovalIntent>,
@@ -946,6 +949,9 @@ impl ReceiptReader {
         Ok(RestorePlan {
             installer: self.clone(),
             completion: Some(PlanCompletion::Local(completion)),
+            retained_sources: None,
+            retained_rooted: false,
+            keep_sources: false,
             result,
             view: view.clone(),
             removals,
@@ -1152,6 +1158,9 @@ impl CheckoutInstaller {
                 transaction,
                 objects: self.objects.clone(),
             }),
+            retained_sources: None,
+            retained_rooted: false,
+            keep_sources: false,
             result,
             view: view.clone(),
             removals,
@@ -1712,6 +1721,53 @@ impl RestorePlan {
         &self.result
     }
 
+    /// Borrow the sealed local completion after successful local installation.
+    pub fn local_completion(&self) -> Option<&crate::completion::FrozenCompletion> {
+        match &self.retained_sources {
+            Some(PlanCompletion::Local(completion)) => Some(completion),
+            _ => None,
+        }
+    }
+
+    /// Borrow only already-pinned cached sources, before commit or after an opted-in commit.
+    pub fn cached_sources(&self) -> Option<crate::results::SelectedItems<'_>> {
+        match self.completion.as_ref().or(self.retained_sources.as_ref()) {
+            Some(PlanCompletion::Cache { transaction, .. }) => Some(transaction.pinned_objects()),
+            _ => None,
+        }
+    }
+
+    /// Retain cached source claims after durable installation/rooting for downstream staging.
+    /// Normal commit still releases per-unit claims. Dropping retained custody conservatively
+    /// preserves claims; finish_sources releases only after durable rooting succeeds.
+    pub fn commit_with_sources(
+        &mut self,
+        guard: &BuildGuard,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> Result<InstallOutcome, InstallError> {
+        self.keep_sources = true;
+        let result = self.commit(guard, root);
+        self.keep_sources = false;
+        result
+    }
+
+    pub fn finish_sources(
+        &mut self,
+        root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
+    ) -> Result<(), InstallError> {
+        if let Some(PlanCompletion::Cache { transaction, .. }) = self.retained_sources.as_mut() {
+            if !self.retained_rooted {
+                root(&self.result).map_err(|reason| {
+                    InstallError::Cache(crate::results::ResultError::Root(reason))
+                })?;
+                self.retained_rooted = true;
+            }
+            transaction.release_sources().map_err(InstallError::Cache)?;
+            self.retained_sources = None;
+        }
+        Ok(())
+    }
+
     /// Root a pinned cached result used only as metadata, without installing its files.
     pub fn retain_cached(
         mut self,
@@ -1844,6 +1900,15 @@ impl RestorePlan {
         root: impl FnOnce(&ResultEnvelope) -> Result<(), String>,
     ) -> InstallOutcome {
         match self.completion.take().unwrap() {
+            completion @ PlanCompletion::Cache { .. } if self.keep_sources => {
+                let failure = root(&self.result).err();
+                self.retained_rooted = failure.is_none();
+                self.retained_sources = Some(completion);
+                match failure {
+                    None => InstallOutcome::Installed,
+                    Some(error) => InstallOutcome::InstalledWithRootPending(error),
+                }
+            }
             PlanCompletion::Cache { transaction, .. } => match transaction.retain_hit(root) {
                 Ok(_) => InstallOutcome::Installed,
                 Err(error) => InstallOutcome::InstalledWithRootPending(error.to_string()),
@@ -1863,6 +1928,7 @@ impl RestorePlan {
                 if failure.is_none() {
                     completion.work.lease = lease;
                 }
+                self.retained_sources = Some(PlanCompletion::Local(completion));
                 InstallOutcome::InstalledLocally {
                     retention_error: failure,
                 }

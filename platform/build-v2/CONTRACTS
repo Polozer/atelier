@@ -163,3 +163,15 @@ is pending, even when every fake-adapter check succeeds. See tests/harness.rs.
 @cc [owner:fontanierh,label:correctness] build-v2-seeded-reproduction
 A seeded graph, edit or store-failure mismatch MUST carry the seed and ordered steps needed to
 reconstruct the scenario, and the same seed MUST rebuild the same scenario. See tests/harness.rs.
+
+@cc [owner:fontanierh,label:correctness] build-v2-selected-source-retention
+Selected recorded item sources MUST validate only requested fixed items and persist their digest
+claims under the shared GC mutex before exposing a borrowed provider. Providers MUST use their
+transaction's own object store and refuse unclaimed digests, with clone-only restoration and no
+payload hashing. Metadata-only retention MUST root the exact sealed record before claim release
+without asserting byte availability. Opt-in installed cached sources MUST retain live claims until
+explicit finish_sources, even after root success; normal commit semantics remain unchanged.
+Committed local plans MUST retain their private completion proof for store-only sibling staging.
+See recorded_retention_roots_metadata_without_payload_claims_and_rejects_cross_store,
+selected_recorded_sources_require_durable_claims_and_preserve_clone_independence in tests/results.rs,
+and retained_restore_sources_survive_settlement_until_explicit_release in tests/installs.rs.
