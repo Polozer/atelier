@@ -40,11 +40,11 @@ jobs:
       - name: Collect T0 and check active registry
         run: |
           cargo nextest list --locked --profile ci --message-format json > ../../build/build-v2/test-list.json
-          python3 tools/check_registry.py --registry tests/registry.toml --listing ../../build/build-v2/test-list.json
+          python3 tools/check_registry.py --registry-dir tests/registry --listing ../../build/build-v2/test-list.json
       - name: Run T0 within ten seconds after compilation
         run: cargo nextest run --locked --profile ci --no-tests=fail
       - name: Verify complete execution and timing
-        run: python3 tools/check_registry.py --registry tests/registry.toml --listing ../../build/build-v2/test-list.json --junit ../../build/build-v2/nextest/ci/junit.xml
+        run: python3 tools/check_registry.py --registry-dir tests/registry --listing ../../build/build-v2/test-list.json --junit ../../build/build-v2/nextest/ci/junit.xml
       - name: Keep T0 collection and result evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, Node 24
