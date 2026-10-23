@@ -15,9 +15,10 @@ worker every 50 ms), busy_samples (samples that also list an unclassified proces
 controller can see a real exit report and the worker's last replies). With custody descriptors it
 also reports a stand-in custody monitor identity (itself) after child_started and writes
 cleanup.json before finished, as the real bridge does; no_monitor reports none, monitor_changed
-reports a second, different one. stop_after_start holds the lock its stop handler needs from
-child_started until the launcher's SIGTERM has been delivered (a handshake on the signal wakeup
-pipe, never a delay), so a stop that lands right after child_started meets that lock every run.
+reports a second, different one. stop_after_start waits from child_started until the launcher's
+SIGTERM has been delivered (a handshake on the signal wakeup pipe, never a delay), so the stop
+always lands right after child_started. The stop handler only records the signal: it takes no
+lock, since it runs on the main thread wherever that thread was interrupted.
 It records its PID in bridge.pid and bounds itself: once the controller is gone, if its main thread
 has not finished within 2 s, it kills and reaps its own worker (within 2 s) and exits, so the
 launcher reaps it and no bridge outlives its test.
@@ -34,7 +35,7 @@ import threading
 import time
 import uuid
 
-stopping = threading.Event()
+stopped = []
 spawned = []  # the worker, once started
 done = []  # set when the main thread has reported finished
 
@@ -89,11 +90,18 @@ def main():
             pass  # the controller is gone; keep cleaning up
 
     def stop(number, frame):
-        stopping.set()
+        stopped.append(number)  # no lock: this may interrupt the main thread anywhere
     wake_r, wake_w = os.pipe()
     os.set_blocking(wake_w, False)
     signal.set_wakeup_fd(wake_w)  # one byte per delivered signal, written before the handler runs
     signal.signal(signal.SIGTERM, stop)
+
+    def stop_delivered(timeout):
+        # A stop delivered after the check still wakes select through its pipe byte; `stopped`,
+        # not the byte, is the evidence, so draining the pipe can never lose a stop.
+        if not stopped and select.select([wake_r], [], [], timeout)[0]:
+            os.read(wake_r, 512)
+        return bool(stopped)
 
     def watch_liveness():
         while os.read(args.liveness_fd, 1):
@@ -117,7 +125,7 @@ def main():
 
     emit('queued')
     if args.scenario == 'queue_forever':
-        while not stopping.wait(timeout=0.02):
+        while not stop_delivered(0.02):
             pass
         emit('finished', cleanup='confirmed', reason=None)
         return 0
@@ -139,10 +147,9 @@ def main():
         if args.scenario == 'monitor_changed':
             emit('monitor', pid=monitor[0], started=str(monitor[1] + 1), boot='fake-boot', invocation=invocation)
     if args.scenario == 'stop_after_start':
-        # Until the stop is delivered (its wakeup byte) or the worker exits, with the lock held.
-        with stopping._cond:
-            while child.poll() is None and not select.select([wake_r], [], [], 0.02)[0]:
-                pass
+        # Until the stop is delivered (its wakeup byte) or the worker exits.
+        while child.poll() is None and not stop_delivered(0.02):
+            pass
     if args.scenario == 'early_exit':
         emit('child_exited', returncode=0, stopped_by=None, **identity)
     stopped_by = None
@@ -155,7 +162,7 @@ def main():
             if args.scenario == 'busy_samples':
                 processes.append([child.pid + 1, 'unclassified'])
             emit('tree_sample', time=time.time(), processes=processes)
-        if stopping.wait(timeout=0.05 if args.scenario.endswith('samples') else 0.02):
+        if stop_delivered(0.05 if args.scenario.endswith('samples') else 0.02):
             child.kill()
             stopped_by = stopped_by or 'cancel'
             break
