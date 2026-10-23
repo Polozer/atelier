@@ -45,6 +45,7 @@ inside, `output/`.
 The editor surface is `Editor`: the `unreal` module plus the editor-only `AtelierBuildWorker`
 plugin library, whose functions this file defines by use (the T0 stand-in implements the same).
 """
+from decimal import Decimal
 import hashlib
 import importlib.util
 import json
@@ -111,16 +112,23 @@ def worker_identity():
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def same_value(declared, actual):
-    """A declared setting value and the editor's, equal as text or as numbers."""
+DECIMAL = re.compile(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?')
+
+
+def same_value(declared, actual, numeric):
+    """Whether the editor holds a declared setting value: `actual` is its readback, None when unset.
+
+    Ini values compare as exact text. A console variable may also print a number its own way
+    (`1` as `1.000000`), so with `numeric` two finite decimal texts of the same exact value match;
+    nothing is rounded through a binary float, so distinct values never alias.
+    """
     if actual is None:
         return False
     if declared == actual:
         return True
-    try:
-        return float(declared) == float(actual)
-    except ValueError:
+    if not numeric or not (DECIMAL.fullmatch(declared) and DECIMAL.fullmatch(actual)):
         return False
+    return Decimal(declared) == Decimal(actual)
 
 
 def ddc_problem(policy, nodes):
@@ -364,15 +372,15 @@ class Worker:
         # Once per session: the declared engine plugins' bytes, and the declared settings as the editor holds them.
         engine_plugins = {name: plugin_identity(native['plugins'][name], name) if name in native['plugins'] else 'not loaded'
                           for name in expected['engine_plugins']}
-        cvars = self.editor.settings()
+        cvars, reads = self.editor.settings(), []
         loaded = {'worker_version': WORKER_VERSION, 'profile': expected['profile'], 'build_id': native['build_id'],
                   'modules': sorted(native['modules']), 'plugins': sorted(plugins), 'libraries': libraries,
                   'engine_plugins': engine_plugins, 'worker': worker_identity(),
-                  'settings': [self.observed_setting(token, cvars) for token in expected['settings']],
+                  'settings': [self.observed_setting(token, cvars, reads) for token in expected['settings']],
                   'rhi': native['rhi'], 'ddc': expected['ddc']}
         graph = self.editor.ddc_graph()
         write_atomic(self.project.parent / CONTEXT_REPORT,
-                     {'version': EVIDENCE_VERSION, 'loaded': loaded, 'ddc_graph': graph})
+                     {'version': EVIDENCE_VERSION, 'loaded': loaded, 'ddc_graph': graph, 'settings_read': reads})
         if loaded != {**expected, 'modules': sorted(expected['modules']), 'plugins': sorted(expected['plugins'])}:
             raise StartRefused('the editor loaded a different native context than the session declared')
         problem = ddc_problem(expected['ddc'], graph['nodes'])
@@ -381,20 +389,31 @@ class Worker:
         if any(self.content.iterdir()) or self.editor.registry_game_assets():
             raise StartRefused('/Game is not empty at startup')
 
-    def observed_setting(self, token, cvars):
-        """A declared setting rebuilt from the editor's own values: equal to `token` only if the editor applied it."""
+    def observed_setting(self, token, cvars, reads):
+        """A declared setting rebuilt from the editor's own values: equal to `token` only if the editor applied it.
+
+        Each raw readback is appended to `reads`. A value the editor does not hold at all never
+        rebuilds a token, whatever the declared text.
+        """
         if token.startswith('-ForceDPCVars='):
             pairs = []
             for pair in token[len('-ForceDPCVars='):].split(','):
                 name, _, value = pair.partition('=')
-                actual = cvars.get(name, [None])[0]
-                pairs.append(f'{name}={value if same_value(value, actual) else actual}')
+                actual = cvars[name][0] if name in cvars else None
+                reads.append({'setting': token, 'name': name, 'actual': actual})
+                if actual is None:
+                    return f'missing {name} in {token}'
+                pairs.append(f'{name}={value if same_value(value, actual, numeric=True) else actual}')
             return '-ForceDPCVars=' + ','.join(pairs)
         match = INI_SETTING.fullmatch(token)
         if match:
             file, section, key, value = match.groups()
             actual = self.editor.config_value(file, section, key)
-            return f'-ini:{file}:[{section}]:{key}={value if same_value(value, actual) else actual}'
+            reads.append({'setting': token, 'name': f'{file}:[{section}]:{key}', 'actual': actual})
+            if actual is None:
+                return f'missing {file}:[{section}]:{key} in {token}'
+            return f'-ini:{file}:[{section}]:{key}={value if same_value(value, actual, numeric=False) else actual}'
+        reads.append({'setting': token, 'name': '', 'actual': None})
         return f'unreadable {token}'
 
     def serve(self):
@@ -494,11 +513,17 @@ class Worker:
         finally:
             if recording:
                 touched.update(item['package'] for item in self.editor.saved_packages())
-        files_of, written = {}, {}
+        # Every file a save attested, with the package that saved it: in save order, so a file's
+        # latest attestation wins, and a later save that leaves a companion alone keeps its hash.
+        files_of, attested, shared = {}, {}, set()
         for item in saved:  # a rename saves the same package twice to the same file: one save
             files_of.setdefault(item['package'], set()).add(item['filename'])
-            written[item['package']] = {str(Path(path).resolve()): digest for path, digest in item['files'].items()}
-        written = {path: digest for files in written.values() for path, digest in files.items()}
+            for path, digest in item['files'].items():
+                resolved = str(Path(path).resolve())
+                owner = attested.get(resolved, (item['package'], None))[0]
+                if owner != item['package']:
+                    shared.add(resolved)
+                attested[resolved] = (item['package'], digest)
         # The registry forgets every saved file at reset, even one the op deleted afterwards.
         moved.extend(Path(filename) for filenames in files_of.values() for filename in filenames)
         names = set(files_of)
@@ -506,6 +531,8 @@ class Worker:
         split = sorted(name for name, files in files_of.items() if len(files) > 1)
         if split:
             raise JobRefused('dependency', f'saved packages to more than one file: {split}')
+        if shared:
+            raise JobRefused('dependency', f'more than one package saved the same file: {sorted(shared)}')
         ensures = self.editor.ensures()
         if ensures:
             raise JobRefused('job', f'the editor reported {ensures} failed ensure(s) during the job')
@@ -530,13 +557,16 @@ class Worker:
                 relative = OUTPUT_CONTENT + str(path.relative_to(self.content))
                 if relative not in declared:
                     raise JobRefused('dependency', f'wrote undeclared file {relative}')
-                if package_owning(relative, OUTPUT_CONTENT) not in names:
+                package = package_owning(relative, OUTPUT_CONTENT)
+                if package not in names:
                     # Only the editor's package saves produce outputs, never plain file writes.
                     raise JobRefused('dependency', f'{relative} was written without saving its package')
-                digest = written.get(str(path.resolve()))
-                if digest is None:
+                owner, digest = attested.get(str(path.resolve()), (None, None))
+                if owner is None:
                     # A file already there that the save left alone: a plain write, not a save.
                     raise JobRefused('dependency', f'{relative} was not written by its package save')
+                if owner != package:
+                    raise JobRefused('dependency', f'{relative} was saved by {owner}, not by {package}')
                 if digest != sha1(path):
                     raise JobRefused('dependency', f'{relative} does not hold the bytes its package save wrote')
                 files[relative] = path

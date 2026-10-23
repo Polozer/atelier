@@ -671,6 +671,20 @@ pub struct ContextReport {
     pub loaded: LoadedContext,
     /// The editor's effective cache graph, read from the editor (never from the command line).
     pub ddc_graph: DdcGraph,
+    /// Each declared setting's raw readback, as the editor reported it.
+    pub settings_read: Vec<SettingRead>,
+}
+
+/// One declared setting's value as the editor holds it, kept verbatim beside the comparison.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingRead {
+    /// The declared `-ForceDPCVars=` or `-ini:` token.
+    pub setting: String,
+    /// The console variable, or the ini key as `File:[Section]:Key`.
+    pub name: String,
+    /// The editor's value; `None` when it does not hold the setting at all.
+    pub actual: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

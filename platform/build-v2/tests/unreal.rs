@@ -714,6 +714,7 @@ fn context_and_import_evidence_are_required_well_formed_and_exact() {
                 graph: "inline".into(),
                 nodes,
             },
+            settings_read: vec![],
         };
         fs::write(&report, serde_json::to_vec(&value).unwrap()).unwrap();
     };
@@ -814,6 +815,9 @@ def run(context):
         fake.save_package(name, bulk=p['bulk'].encode() if 'bulk' in p else None)
         if p.get('save_twice'):
             fake.save_package(name)  # as a rename does: the same package to the same file again
+    for name, payload, into in p.get('save_into', []):
+        fake.create_package(name, payload.encode(), imports=[['/Script/Engine', 'StaticMesh']])
+        fake.save_package(name, into=into)  # a save with an explicit filename: another package's file
     for name, payload in p.get('import', []):
         fake.import_package(name, payload.encode())
     for name, payload in p.get('create_deferred', []):
@@ -1113,6 +1117,18 @@ def run(context):
                 "bytes its package save wrote",
             ),
             (
+                // A second package saved into the first one's file: the bytes are not A's.
+                serde_json::json!({"create": [["/Game/A", "a"]], "save_into": [["/Game/B", "b", "/Game/A"]]}),
+                FailureKind::Dependency,
+                "more than one package saved the same file",
+            ),
+            (
+                // A companion the save wrote, then overwritten by plain file I/O.
+                serde_json::json!({"create": [["/Game/A", "a"]], "bulk": "bulk", "overwrite": ["A.ubulk", "forged"]}),
+                FailureKind::Dependency,
+                "bytes its package save wrote",
+            ),
+            (
                 // Saved, then deleted: a required output is missing.
                 serde_json::json!({"create": [["/Game/A", "a"]], "delete": "A.uasset"}),
                 FailureKind::Job,
@@ -1186,6 +1202,17 @@ def run(context):
         let result = editor.channel.run(replaced.clone()).unwrap().result;
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(output(&replaced, "content/Game/A.ubulk"), b"fresh");
+        // A later save that leaves its companion alone keeps the earlier save's attestation of it.
+        let resaved = job(
+            &space,
+            "resaved",
+            serde_json::json!({"create": [["/Game/A", "a"]], "bulk": "bulk", "save_twice": true}),
+            &declared,
+            &[],
+        );
+        let result = editor.channel.run(resaved.clone()).unwrap().result;
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(output(&resaved, "content/Game/A.ubulk"), b"bulk");
         let good = job(
             &space,
             "good",
@@ -1365,32 +1392,86 @@ def run(context):
             "{error}"
         );
 
-        // A declared setting the editor did not apply (an unknown CVar) never says hello; an
-        // applied ini override does.
-        for (setting, applied) in [
-            ("-ForceDPCVars=r.Unknown=1", false),
-            ("-ini:Engine:[Core.Log]:LogPython=Verbose", true),
+        // A declared setting the editor does not hold exactly never says hello. A missing value
+        // never matches, even a literal `None`; ini values compare as exact text; console
+        // variables as exact text or as the same finite decimal, never through a binary float.
+        // The editor's raw readback is recorded either way.
+        for (setting, readback, actual, applied) in [
+            ("-ForceDPCVars=r.Unknown=1", None, None, false),
+            ("-ForceDPCVars=r.Unknown=None", None, None, false),
+            (
+                "-ini:Engine:[Core.Log]:LogPython=None",
+                Some("-FakeReadback=Engine:[Core.Log]:LogPython"),
+                None,
+                false,
+            ),
+            (
+                "-ForceDPCVars=r.Existing=9007199254740993",
+                Some("-FakeReadback=r.Existing|9007199254740992"),
+                Some("9007199254740992"),
+                false,
+            ),
+            (
+                "-ForceDPCVars=r.Existing=1e999",
+                Some("-FakeReadback=r.Existing|2e999"),
+                Some("2e999"),
+                false,
+            ),
+            (
+                "-ini:Engine:[Core.Log]:LogPython=01",
+                Some("-FakeReadback=Engine:[Core.Log]:LogPython|1"),
+                Some("1"),
+                false,
+            ),
+            (
+                "-ini:Engine:[Core.Log]:LogPython=Verbose",
+                None,
+                Some("Verbose"),
+                true,
+            ),
+            (
+                "-ForceDPCVars=r.Existing=1",
+                Some("-FakeReadback=r.Existing|1.000000"),
+                Some("1.000000"),
+                true,
+            ),
         ] {
             let space = Workspace::new();
             fake_engine(&space, "5.8-build");
             let mut declared = context(&space);
             declared.settings.push(setting.into());
-            let mut session = editor(&space, &declared);
+            let mut session = editor_with(&space, &declared, |args| {
+                args.extend(readback.map(String::from));
+            });
             assert_eq!(session.channel.handshake().is_ok(), applied, "{setting}");
             if applied {
                 session.channel.shutdown().unwrap();
                 assert!(session.process.wait().unwrap().success());
                 session.scratch.verify_context_report().unwrap();
             } else {
-                assert!(!session.process.wait().unwrap().success());
-                let report: ContextReport = serde_json::from_slice(
-                    &fs::read(session.scratch.session().join(CONTEXT_REPORT)).unwrap(),
-                )
-                .unwrap();
-                assert_eq!(
-                    report.loaded.settings.last().unwrap(),
-                    "-ForceDPCVars=r.Unknown=None",
-                    "the editor's own value is recorded"
+                assert!(!session.process.wait().unwrap().success(), "{setting}");
+            }
+            let report: ContextReport = serde_json::from_slice(
+                &fs::read(session.scratch.session().join(CONTEXT_REPORT)).unwrap(),
+            )
+            .unwrap();
+            let read = report.settings_read.last().unwrap();
+            assert_eq!(read.setting, setting);
+            assert_eq!(
+                read.actual.as_deref(),
+                actual,
+                "{setting}: the raw readback is kept"
+            );
+            if actual.is_none() {
+                assert!(
+                    report
+                        .loaded
+                        .settings
+                        .last()
+                        .unwrap()
+                        .starts_with("missing "),
+                    "{setting}: {:?}",
+                    report.loaded.settings
                 );
             }
         }

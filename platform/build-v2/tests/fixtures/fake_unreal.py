@@ -43,6 +43,9 @@ if len(argv) < flags_end + 1 or argv[1] != '-run=pythonscript' or not argv[2].st
 if argv[3:flags_end] != FLAGS or not argv[flags_end].startswith('-UserDir='):
     fail(f'unexpected flags {argv[3:flags_end + 1]}')
 settings, ddc = [], {'flags': [], 'graph': None}
+# Test-only: what this stand-in reports instead of a setting's applied value (None: not set), as
+# a real editor may print a console variable its own way or ignore an ini key.
+readback = {}
 for token in argv[flags_end + 1:]:
     if token == '--request-fd':
         break
@@ -52,6 +55,9 @@ for token in argv[flags_end + 1:]:
         ddc['graph'] = token[len('-DDC='):]
     elif token.startswith(('-ini:', '-ForceDPCVars=')):
         settings.append(token)
+    elif token.startswith('-FakeReadback='):
+        target, separator, value = token[len('-FakeReadback='):].partition('|')
+        readback[target] = value if separator else None
     else:
         fail(f'undeclared argument {token}')
 
@@ -120,6 +126,18 @@ for token in settings:
         file, section, rest = token[len('-ini:'):].split(':', 2)
         key, _, value = rest.partition('=')
         config[(file, section.strip('[]'), key)] = value
+for target, value in readback.items():
+    if ':[' in target:
+        file, rest = target.split(':[', 1)
+        section, key = rest.split(']:', 1)
+        store, slot = config, (file, section, key)
+    else:
+        store, slot = cvars, target
+        value = None if value is None else [value, 'Commandline']
+    if value is None:
+        store.pop(slot, None)
+    else:
+        store[slot] = value
 pending = {}  # path -> bytes a deferred save writes only when its writes are flushed
 registry = set()
 recording = None
@@ -306,13 +324,14 @@ class AtelierFake:
         AtelierFake.save_package(name)
 
     @staticmethod
-    def save_package(name, deferred=False, bulk=None):
+    def save_package(name, deferred=False, bulk=None, into=None):
         """Save `name`; a deferred save writes its bytes only when its writes are flushed.
 
         `bulk` also writes a `.ubulk` companion, moved into place from a temporary file as Unreal does.
+        `into` saves to another package's file, as a save with an explicit filename can.
         """
         entry = packages[name]
-        path = file_of(name)
+        path = file_of(into or name)
         path.parent.mkdir(parents=True, exist_ok=True)
         companions = [path.with_suffix(suffix) for suffix in ('.uexp', '.ubulk', '.uptnl')]
         before = {other: stamp(other) for other in companions}  # as the plugin's pre-save handler

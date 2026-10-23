@@ -875,7 +875,9 @@ flags, `-NullRHI`, `-nocrashreports`, `-UserDir=<session>/user`, the DDC flags a
 declared settings. The launcher appends the
 protocol descriptors. Once per session, before `hello`, the worker:
 - recomputes each declared engine plugin's identity from the folder the editor loaded it from;
-- reads every declared setting back from the editor;
+- reads every declared setting back from the editor: a missing value never matches, ini values
+  compare as exact text and CVars as exact text or the same finite decimal, and each raw readback
+  is kept in `settings_read`;
 - writes `<session>/unreal-context.json` (what the editor loaded and holds).
 
 The controller reads that file with `verify_context_report()` before the first `Run`.
@@ -885,7 +887,8 @@ Each job then:
   file must hold the bytes its last save wrote, and every required output must exist. The plugin
   hashes the files a save wrote (its target, and each companion it created or replaced) with SHA1
   after flushing its writes; that hash is integrity only, never a key. A file already there that the
-  save left alone fails the job.
+  save left alone fails the job. Each file keeps its latest attestation and the package that saved
+  it: a file saved by two packages, or attested by another package's save, fails the job.
   A file written straight into `output/` fails the job;
 - leaves each saved file's own import table in `evidence/imports.json` (`read_import_evidence`). An
   unreadable table fails the job.

@@ -185,9 +185,23 @@ def test_a_plugin_identity_covers_its_descriptor_and_binaries_by_relative_path(t
     assert unreal_worker.plugin_identity(tmp_path / 'Missing', 'Missing').startswith('unreadable')
 
 
-def test_a_declared_setting_matches_the_editor_value_as_text_or_number():
-    assert unreal_worker.same_value('0', '0')
-    assert unreal_worker.same_value('0.5', '0.500000')
-    assert not unreal_worker.same_value('1', '0')
-    assert not unreal_worker.same_value('1', None)
-    assert not unreal_worker.same_value('Log', 'Verbose')
+def test_a_declared_setting_matches_the_editor_value_as_text_or_an_exact_number():
+    same = unreal_worker.same_value
+    # Console variables: exact text, or the same finite decimal value printed another way.
+    assert same('0', '0', numeric=True)
+    assert same('0.5', '0.500000', numeric=True)
+    assert same('1', '1.0', numeric=True)
+    assert not same('1', '0', numeric=True)
+    assert not same('Log', 'Verbose', numeric=True)
+    # Never rounded through a binary float: neighbouring integers and overflowing texts stay distinct.
+    assert not same('9007199254740993', '9007199254740992', numeric=True)
+    assert not same('1e999', '2e999', numeric=True)
+    assert not same('1e999', 'inf', numeric=True)
+    assert not same('nan', 'nan ', numeric=True)
+    # A setting the editor does not hold is never a match, whatever the declared text.
+    assert not same('None', None, numeric=True)
+    assert not same('None', None, numeric=False)
+    # Ini values: exact text only.
+    assert same('Verbose', 'Verbose', numeric=False)
+    assert not same('01', '1', numeric=False)
+    assert not same('0.5', '0.500000', numeric=False)
