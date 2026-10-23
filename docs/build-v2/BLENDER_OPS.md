@@ -15,6 +15,14 @@ source-face/material mapping and whole-collision ownership, then fully decodes e
 member before returning. It never mutates the declared output roster. Existing A4b expansion and
 private one-member projections remain the authority for child generation and exact retirements.
 
+Concrete frozen entry scripts live directly under `platform/studio/`, whose directory is the
+existing worker's project import root: `build_v2_blender_plan.py` adapts exactly one declared
+`source` file without re-encoding it; register that explicit slot on `BlenderPlanSpec`.
+`build_v2_blender_export.py` calls `blender_ops.run_export_piece(context)`. Their script files
+are additional declared code, alongside `blender_code_files(kind)`; no live PYTHONPATH is used.
+A project-specific planner entry may replace the whole adapter while retaining the same fixed
+contract and declaring its actually used helper closure.
+
 The piece entry script calls `blender_ops.run_export_piece(context)`. Its sole content input is
 `payload`, a selected one-file `GeometryPayload` Item. Keyed parameters are `payload_member`,
 `payload_encoding=mesh_ir`, `payload_role=geometry`, `format=fbx`, and optional per-piece `options`

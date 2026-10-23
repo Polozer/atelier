@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import runpy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -196,7 +197,7 @@ def test_per_piece_options_cannot_widen_owned_outputs_or_silently_override_selec
             ops.export_options(options, {})
 
 
-def test_retained_village_schema2_sample_decodes_complete_mesh_and_owned_collision(tmp_path):
+def test_retained_village_schema2_sample_decodes_complete_mesh_and_owned_collision(tmp_path, monkeypatch):
     """Old source sample coverage only; no reconstructed execution or native fidelity claim."""
     root = Path(__file__).resolve().parents[2] / 'build-v2/tests/fixtures/blender'
     raw = (root / 'Village_Edges.npz').read_bytes()
@@ -221,6 +222,15 @@ def test_retained_village_schema2_sample_decodes_complete_mesh_and_owned_collisi
     assert ops.verify_plan(output, parent='Village_Edges', limits=LIMITS) == manifest
     assert (output / 'Village_Edges.npz').read_bytes() == raw
     assert manifest['collision_owner'] == 'Village_Edges'
+    script = Path(__file__).resolve().parents[1] / 'build_v2_blender_plan.py'
+    entry = runpy.run_path(str(script))['run']
+    context = SimpleNamespace(inputs={'source': root / 'Village_Edges.npz'},
+                              input=lambda _slot: root / 'Village_Edges.npz',
+                              params=dict(output_root='output/geometry', parent='Village_Edges', plan_limits=LIMITS))
+    monkeypatch.chdir(tmp_path)
+    entry(context)
+    assert ops.verify_plan(tmp_path / 'output/geometry', parent='Village_Edges', limits=LIMITS) == manifest
+
     with pytest.raises(ValueError):
         ops.emit_whole_payload(output, raw, parent='Village_Edges')
 
