@@ -268,11 +268,104 @@ policy (C1b, A3), execution (C2), deadlines, retries and crash classification (C
 are not here; nor is validation of returned output paths.
 
 `platform/studio/atelier/build_v2/protocol.py` is the standard-library Python framing: the same frames,
-size limit and strict shapes, as plain dicts. It writes Rust's bytes, including serde_json's float text. [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
+size limit and strict shapes, as plain dicts, encoded with stdlib `json`. Interoperability means equal
+decoded values, not identical text: no key, digest or comparison consumes wire bytes (keys are computed
+in Rust from typed values, and responses carry no numbers). [tests/vectors/protocol_v1.json](tests/vectors/protocol_v1.json)
 holds byte vectors that both `tests/worker_session.rs` and `platform/studio/tests/test_build_v2_protocol.py`
-decode and, where canonical, re-encode byte for byte. The pipe tests start
+decode to the same values; canonical vectors also pin Rust's own text. The pipe tests start
 [tests/fixtures/fake_worker.py](tests/fixtures/fake_worker.py) with its protocol on two inherited pipe
 descriptors and logs on stdout/stderr, under a five-second watchdog; the Rust T0 job needs `python3`.
+
+## Staging and the Python job loop (C1b, C2a)
+
+`staging::stage(&PreparedUnit, frozen_code, objects, job_dir, job_id)` creates a fresh job folder (it
+must not exist) holding exactly the unit's declared code and inputs at their declared job-relative
+paths, plus an empty writable `output/`. Code bytes come from the frozen snapshot A3 keyed, checked
+against the keyed digests; live sources are never reread. `Bytes` inputs (raw, selected or reference
+descriptors) are files; `Item` inputs are directories of exactly their recorded members, cloned through
+an `ObjectSource` with their recorded size; optional absence creates nothing. Files stage 0444 (item
+executables 0555) and every directory except `output/` is made 0555. `PinnedObjects` clones B1 objects
+while a live B2 `WriteTransaction` (which claims the upstream result keys) is borrowed; restores clone
+and hash nothing. Staging failure removes only its own fresh folder. The request it returns names the
+staged paths and drops output `install_path`s; locators, selectors and logical paths never appear.
+
+`staging::collect_outputs` walks `output/` without following links and requires the worker's reported
+files to equal the regular files found. It returns every actual file as `results::ActualOutput` (path and
+source), declared or not, which is exactly what `WriteTransaction::stage_groups` consumes: fixed outputs
+and group members alike reach the result store, which holds the exact contracts and decides
+membership; nothing hashes here. `fixed_sources` maps a fixed-only unit's
+files to their items for B2's `WriteTransaction::stage` and refuses any other file.
+`remove_job` deletes a job folder after B2 has staged or refused its outputs.
+
+`launch::StartWorker` is the launcher seam: start a `WorkerCommand` (program, args, complete
+environment, working folder) with a dedicated pipe, appending `--request-fd N --response-fd M`, and
+later `stop` or `wait` it. C7's supervised launcher implements it with admission, guards and deadlines;
+`DirectChild` starts an owned child for tests and local tools only. `launch::run_staged` runs one
+staged job: handshake, the staged request, then `collect_outputs` on `completed`; failures, protocol
+breaks and reported/actual mismatches give no outputs, and a broken worker is stopped. Nothing is published
+or deleted there.
+
+`platform/studio/atelier/build_v2/python_worker.py` is the Python job loop. It makes both protocol
+descriptors non-inheritable at startup, sends `hello` (`atelier-python-job-1`), and for each `run`
+sends `started`, runs the job in its own child process and sends one terminal response; `cancel` kills
+that child and answers `cancelled`. The child runs `python -P -s -S -B` with the bootstrap
+`python_job.py` passed as source text, in the job folder, with only `LC_ALL=C`, `TZ=UTC`,
+`PYTHONHASHSEED=0` and two Python I/O settings. The entry script defines `run(context)`; the
+`JobContext` (documented in `python_job.py`) exposes slot paths (`None` when absent), read-only params,
+declared outputs and the seed, never the job ID, folder or any locator. Only platform modules and the
+unit's declared code load, and the checkout is never on `sys.path`. Wall-clock reads (including
+`clock_gettime` of realtime clocks) return a fixed instant, `random` is seeded with the declared
+`seed` (default 0) even when reseeded without an argument, and OS entropy, `uuid1/4` and `secrets`
+raise; this makes ordinary scripts reproducible, not the OS deterministic. Elapsed-time clocks, file
+timestamps and native-library random generators are not fixed: outputs must not depend on them.
+The job configuration travels on the child's stdin, so no valid request can exceed argument limits,
+and a failure to start the child still gives the job its one terminal `failed` response.
+
+On macOS each child runs under a deny-default `sandbox-exec` profile: it may read the installed
+interpreter and its libraries, a few platform files (locale, time zone, user database) and its job
+folder, and write only `output/`. Any other existing path read, stat or listing, and any network use,
+kills the child, which the loop reports as `failed{dependency}` (the loop itself is never killed, so
+C7 sees no crash). The kernel reports a missing path as ENOENT without a sandbox decision, so a Python
+path guard (an audit hook plus checked `os.stat`/`lstat`/`access`) also ends the job, uncatchably, on
+any undeclared read, existence check, listing or write, present or missing (descriptor-relative
+`dir_fd` access is resolved against the descriptor's real directory, and directory changes are
+refused), and on process starts,
+links and sockets. Elsewhere jobs fail with `dependency`: the production entry has no unsandboxed mode at all. The
+profile lets the child execute only the interpreter binary (and a framework build's re-executed
+`Python.app`). Portable tests reach an unsandboxed loop only through the test-only entry
+[tests/fixtures/unsandboxed_job_loop.py](tests/fixtures/unsandboxed_job_loop.py), which announces
+`atelier-python-job-1+unsandboxed-test`; a session keyed to the production worker version refuses it,
+so its results can never pass for production ones.
+The loop reports every regular file under `output/` (any group folder there is writable too) and fails
+on links or special files; membership is the controller's.
+
+**Scope.** Job code is trusted project code. The macOS kernel filesystem and network sandbox is the
+enforcement. The Python guard is extra detection of *accidental* undeclared dependencies, not an
+adversarial Python jail. A real bug in a supported check is still a bug to fix; this scope is not a
+blanket exception.
+
+Supported Python-level checks:
+- reads, existence checks and listings, by path or by descriptor (`dir_fd`, or a descriptor in place
+  of a path), resolved against the job folder or the descriptor's real directory;
+- writes outside `output/`;
+- refused directory changes, links, process starts, sockets and named `ctypes` libraries;
+- imports limited to installed platform modules and the declared code;
+- fixed wall clocks (`time.time`/`time_ns`, default `localtime`/`gmtime`/`ctime`/`strftime`,
+  `datetime` now/today, `clock_gettime` of realtime clocks);
+- `random` on the declared seed, including `random.seed()` and `Random()`;
+- refused Python entropy APIs (`os.urandom`, `getrandom`, `uuid1/4`, `SystemRandom`, `secrets`).
+
+Known gaps, which these checks do not intercept:
+- native extension code that probes a *missing* undeclared path through the C library (an existing
+  one is still killed by the kernel), so nothing here proves undeclared absence probes cannot happen;
+- monotonic, performance-counter and CPU-time clocks, and file timestamps, which stay real;
+- random generators in native libraries that read OS entropy themselves.
+
+Unit code MUST NOT derive outputs from real clocks, timestamps or native entropy. Clean-room and
+determinism fixtures remain required.
+
+Other open work: Linux has no sandbox yet. The worker implementation digest, B3 installs, A6 live-edit
+revalidation and C3/C7 supervision are not here.
 
 ## B2 fixed-result publication and leases
 
@@ -385,9 +478,9 @@ journal and block readers. Modes are replayed from result metadata; cache hits d
 payloads, copy bytes, or scan output folders. Root failure after commit preserves installed
 receipts and conservative cache claims. B4/B5 root/GC policy, B7 fallback, and real C7 monitor
 custody/caller integration remain separate; the custody accessor alone is not lifecycle proof.
-Both hosts compiled in the first validation campaign; final-head APFS acceptance and peer
-review remain pending. Before the Ready marker, a crash (including clone return before inode
-observation) can abort only after verifying the unchanged old index and exact old file
+The macOS APFS tests cover transaction rollback and resumable pre-install abort. Before
+the Ready marker, a crash (including clone return before inode observation) can abort only
+after verifying the unchanged old index and exact old file
 observations, absent trash, and the pre-owned scope directory identity. Recovery journals an
 abort intent, durably archives the SHA-bound journal, and atomically quarantines the entire
 private scope without adopting/deleting unknown leaves. It rechecks the old checkout and
@@ -412,6 +505,10 @@ or `Hit(RestorePlan)`, preserving the original miss lease for dispatch. A pinned
 rooted via `retain_cached` without installing checkout files. The older `prepare_restore`
 wrapper conservatively drops a miss; new scheduling callers use the explicit enum. Stored-only
 planner token lookup remains B2 `lookup_groups`; no parallel graph/controller lives here.
+Current checks and install preflight share the complete owner-to-index membership validator;
+an extra indexed path cannot certify Current. Postcommit cleanup is resumable after each owned
+leaf/directory removal, including an already-removed scope parent. New scope allocation reserves
+both transaction and quarantine namespaces, including dangling entries, across PID reuse.
 
 ## Offline verification and integrity classification (B7a)
 

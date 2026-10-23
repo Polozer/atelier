@@ -964,3 +964,130 @@ fn metadata_only_cached_use_roots_same_transaction_without_materializing_checkou
     );
     drop(reader);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn interrupted_cleanup_resumes_after_each_leaf_directory_and_barrier_removal() {
+    use atelier_build_v2::checkout_locks::LockError;
+    for cut in [
+        CleanupEvent::Leaf(1),
+        CleanupEvent::Leaf(3),
+        CleanupEvent::Directory(0),
+        CleanupEvent::Directory(1),
+        CleanupEvent::Directory(2),
+        CleanupEvent::BarrierCleared,
+    ] {
+        let workspace = Workspace::new();
+        let installer = workspace.installer("first");
+        let guard = installer.locks().try_build_exclusive().unwrap();
+        let (g1, u1) = fixture("first", "1");
+        publish(&workspace, &u1, b"old", Some(b"old-side"), 0o644);
+        restore(&installer, &guard, &u1, &view("first", &g1));
+        let (g2, u2) = fixture("first", "2");
+        let view = view("first", &g2);
+        publish(&workspace, &u2, b"new", Some(b"new-side"), 0o644);
+        let mut plan = installer
+            .prepare_restore(&guard, &u2, identity(), &view, vec![])
+            .unwrap()
+            .unwrap();
+        assert!(
+            plan.commit_with(
+                &guard,
+                |event| if event == InstallEvent::Cleanup(cut) {
+                    Err(std::io::Error::other("cleanup cut"))
+                } else {
+                    Ok(())
+                },
+                |_| Ok(())
+            )
+            .is_err(),
+            "{cut:?}"
+        );
+        if cut != CleanupEvent::BarrierCleared {
+            assert!(matches!(
+                installer.locks().try_read_content(),
+                Err(LockError::RecoveryRequired)
+            ));
+        }
+        installer.recover(&guard, &view).unwrap();
+        installer.recover(&guard, &view).unwrap();
+        assert_eq!(
+            fs::read(workspace.path("games/first/Content/Shared.bin")).unwrap(),
+            b"new"
+        );
+        assert_eq!(
+            fs::read(workspace.path("games/first/Content/Shared.side")).unwrap(),
+            b"new-side"
+        );
+        assert!(
+            !workspace
+                .path("build/build-v2/install/journal.json")
+                .exists()
+        );
+        assert!(matches!(
+            installer.receipt_status(&guard, &u2).unwrap(),
+            CurrentStatus::Current(_)
+        ));
+        installer.locks().try_read_content().unwrap();
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn extra_owner_index_membership_refuses_current_and_restore_without_mutation() {
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture("first", "1");
+    let view = view("first", &graph);
+    publish(&workspace, &unit, b"valid", None, 0o644);
+    restore(&installer, &guard, &unit, &view);
+    let path = workspace.path("build/build-v2/install/index.json");
+    let mut index: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let owner = index["paths"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .clone();
+    index["paths"]
+        .as_object_mut()
+        .unwrap()
+        .insert("games/first/content/extra.bin".into(), owner);
+    let malformed = serde_json::to_vec(&index).unwrap();
+    fs::write(&path, &malformed).unwrap();
+    let foreign = workspace.path("games/first/Content/extra.bin");
+    fs::write(&foreign, b"preserve").unwrap();
+    assert!(matches!(
+        installer.receipt_status(&guard, &unit),
+        Err(InstallError::RecoveryRequired(_))
+    ));
+    let reader = ReceiptReader::open(
+        &workspace.0,
+        InstallPolicy {
+            project: namespace("first"),
+            allowed_install_roots: vec!["games/first/Content".into()],
+        },
+    )
+    .unwrap();
+    assert!(matches!(
+        reader.receipt_status(&guard, &unit),
+        Err(InstallError::RecoveryRequired(_))
+    ));
+    let mut plan = installer
+        .prepare_restore(&guard, &unit, identity(), &view, vec![])
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        plan.commit(&guard, |_| Ok(())),
+        Err(InstallError::RecoveryRequired(_))
+    ));
+    assert_eq!(fs::read(&path).unwrap(), malformed);
+    assert_eq!(fs::read(&foreign).unwrap(), b"preserve");
+    assert!(
+        !workspace
+            .path("build/build-v2/install/journal.json")
+            .exists()
+    );
+}

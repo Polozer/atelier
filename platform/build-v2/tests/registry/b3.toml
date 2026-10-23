@@ -79,3 +79,18 @@ platforms = ["darwin"]
 id = "b3.installs.metadata_only_cached_use_roots_same_transaction_without_materializing_checkout"
 tests = ["atelier-build-v2::installs/metadata_only_cached_use_roots_same_transaction_without_materializing_checkout"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.interrupted_cleanup_resumes_after_each_leaf_directory_and_barrier_removal"
+tests = ["atelier-build-v2::installs/interrupted_cleanup_resumes_after_each_leaf_directory_and_barrier_removal"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.extra_owner_index_membership_refuses_current_and_restore_without_mutation"
+tests = ["atelier-build-v2::installs/extra_owner_index_membership_refuses_current_and_restore_without_mutation"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "b3.installs.scope_allocator_preserves_occupied_transaction_and_quarantine_names"
+tests = ["atelier-build-v2/install::tests::scope_allocator_preserves_occupied_transaction_and_quarantine_names"]
+platforms = ["darwin", "linux"]
