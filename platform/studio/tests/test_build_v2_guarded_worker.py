@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from atelier.build_v2.guarded_worker import classify, cleanup
+from atelier.build_v2.guarded_worker import classify, cleanup, tree_sample
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKER = ROOT / 'platform/build-v2/tests/fixtures/disposable_worker.py'
@@ -51,6 +51,14 @@ def run(command, folder, timeout=0., purpose=None, env=None, limit_gib=10., kind
     if scenario == 'unconfirmed':
         tree.update(state='cleanup_incomplete', termination_reason='child_exited', cleanup_complete=False)
     try:
+        if scenario == 'sampling':
+            running = dict(owner=child.pid, owner_started=start, state='running', time=time.time(),
+                           processes=[dict(pid=child.pid, started=start, name='python', depth=0, footprint_bytes=1)])
+            (folder / 'memory-health-tree.json').write_text(json.dumps(running))
+            on_poll(child.pid)
+            on_poll(child.pid)  # the same receipt again: no second sample
+            running.update(time=time.time() + .001, processes=running['processes'] + [dict(pid=1, started=7)])
+            (folder / 'memory-health-tree.json').write_text(json.dumps(running))
         on_poll(child.pid)
         if scenario == 'memory':
             child.kill()
@@ -305,3 +313,59 @@ def test_no_child_is_confirmed_only_for_an_unwind_before_admission_without_recei
                     invocation=INVOCATION, timings=None, custody=None)
     evidence.update(change)
     assert judge(**evidence)[0] is False
+
+
+@darwin
+def test_running_tree_receipts_become_samples_of_the_pinned_child_once_each(tmp_path):
+    bridge = Bridge(tmp_path, 'sampling')
+    assert bridge.next() == {'event': 'queued'}
+    assert bridge.next() == {'event': 'admitted'}
+    started = bridge.next()
+    assert started['event'] == 'child_started'
+    first = bridge.next()
+    assert first['event'] == 'tree_sample' and set(first) == {'event', 'time', 'processes'}
+    assert first['processes'] == [[started['pid'], started['started']]]
+    second = bridge.next()
+    assert second['event'] == 'tree_sample' and second['time'] > first['time']
+    assert second['processes'] == [[started['pid'], started['started']], [1, '7']], 'reported, not judged'
+    bridge.hello_then_close()
+    assert bridge.next()['event'] == 'child_exited'
+    assert bridge.next()['event'] == 'finished'
+    bridge.finish()
+
+
+SINCE, NOW, CHILD = 1000., 2000., (42, 77)
+
+
+def running(**change):
+    value = dict(owner=42, owner_started=77, state='running', time=1500.,
+                 processes=[dict(pid=42, started=77, name='python', depth=0, footprint_bytes=1)])
+    value.update(change)
+    return value
+
+
+def test_a_fresh_running_receipt_of_the_pinned_child_is_a_sample():
+    assert tree_sample(running(), CHILD, SINCE, NOW, None) == dict(time=1500., processes=[[42, '77']])
+    two = running(processes=running()['processes'] + [dict(pid=9, started=3)])
+    assert tree_sample(two, CHILD, SINCE, NOW, 1400.)['processes'] == [[42, '77'], [9, '3']]
+
+
+@pytest.mark.parametrize('tree, last', [
+    (None, None),  # absent
+    ('not a receipt', None),  # malformed
+    (running(time=999.), None),  # stale: before this invocation
+    (running(time=NOW + 60), None),  # from the future
+    (running(time=float('nan')), None),  # malformed time
+    (running(time=True), None),  # malformed time
+    (running(), 1500.),  # not newer than the last sample
+    (running(owner=43), None),  # another identity
+    (running(owner_started=78), None),  # a reused pid
+    (running(owner_started='77'), None),  # malformed identity
+    (running(state='child_exited'), None),  # not a running sample
+    (running(processes='42'), None),  # malformed list
+    (running(processes=[dict(pid=42)]), None),  # a process without its start time
+    (running(processes=[dict(pid='42', started=77)]), None),  # malformed pid
+])
+def test_absent_stale_future_malformed_or_foreign_receipts_are_never_samples(tree, last):
+    assert tree_sample(tree, CHILD, SINCE, NOW, last) is None
+    assert tree_sample(running(), None, SINCE, NOW, None) is None, 'no pinned child yet'

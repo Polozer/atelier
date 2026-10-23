@@ -123,3 +123,15 @@ tests = ["atelier-build-v2::session_lifecycle/a_unit_a_session_could_never_serve
 [[scenarios]]
 id = "c5c.session.run_session_refuses_custody_not_held_in_its_declared_scope"
 tests = ["atelier-build-v2::guard_adapter/run_session_refuses_custody_not_held_in_its_declared_scope"]
+
+[[scenarios]]
+id = "c5c.session.quiescence_refuses_every_sample_that_is_not_fresh_exact_evidence"
+tests = ["atelier-build-v2::guard_adapter/quiescence_refuses_every_sample_that_is_not_fresh_exact_evidence"]
+
+[[scenarios]]
+id = "c5c.session.tree_sample_events_decode_strictly"
+tests = ["atelier-build-v2::guard_adapter/tree_sample_events_decode_strictly"]
+
+[[scenarios]]
+id = "c5c.session.a_resident_session_reuses_its_worker_only_on_fresh_exact_samples"
+tests = ["atelier-build-v2::guard_adapter/a_resident_session_reuses_its_worker_only_on_fresh_exact_samples"]

@@ -935,3 +935,158 @@ fn run_session_refuses_custody_not_held_in_its_declared_scope() {
     let again = lock_with(&space.path("build.lock"), libc::LOCK_EX);
     drop(again);
 }
+
+fn pinned(pid: u32, started: &str) -> ProcessIdentity {
+    ProcessIdentity {
+        pid,
+        boot: "boot".into(),
+        started: started.into(),
+    }
+}
+
+fn sample(time: f64, processes: &[(u32, &str)]) -> TreeSample {
+    TreeSample {
+        time,
+        processes: processes
+            .iter()
+            .map(|(pid, started)| (*pid, started.to_string()))
+            .collect(),
+    }
+}
+
+#[test]
+fn quiescence_refuses_every_sample_that_is_not_fresh_exact_evidence() {
+    let worker = pinned(42, "77");
+    let (after, now) = (1_000.0, 1_010.0);
+    let check = |s: TreeSample| quiescence(&s, &worker, after, now);
+    assert_eq!(check(sample(1_005.0, &[(42, "77")])), Ok(()));
+    assert_eq!(
+        check(sample(1_000.0, &[(42, "77")])),
+        Err(SampleRefusal::Stale),
+        "taken at the terminal reply's receipt: not after it"
+    );
+    assert_eq!(
+        check(sample(999.0, &[(42, "77")])),
+        Err(SampleRefusal::Stale)
+    );
+    assert_eq!(
+        check(sample(now + SAMPLE_CLOCK_SKEW_SECONDS + 0.5, &[(42, "77")])),
+        Err(SampleRefusal::Future)
+    );
+    assert_eq!(
+        check(sample(f64::NAN, &[(42, "77")])),
+        Err(SampleRefusal::Malformed)
+    );
+    assert_eq!(
+        check(sample(f64::INFINITY, &[(42, "77")])),
+        Err(SampleRefusal::Malformed)
+    );
+    assert_eq!(check(sample(1_005.0, &[])), Err(SampleRefusal::Empty));
+    assert_eq!(
+        check(sample(1_005.0, &[(42, "77"), (43, "5")])),
+        Err(SampleRefusal::Unclassified),
+        "a job's surviving process"
+    );
+    assert_eq!(
+        check(sample(1_005.0, &[(41, "77")])),
+        Err(SampleRefusal::WrongIdentity)
+    );
+    assert_eq!(
+        check(sample(1_005.0, &[(42, "78")])),
+        Err(SampleRefusal::WrongIdentity),
+        "a reused pid"
+    );
+}
+
+#[test]
+fn tree_sample_events_decode_strictly() {
+    let receipts = Path::new("receipts");
+    assert_eq!(
+        decode_event(
+            r#"{"event":"tree_sample","time":12.5,"processes":[[42,"77"]]}"#,
+            receipts
+        ),
+        LaunchEvent::TreeSample(sample(12.5, &[(42, "77")]))
+    );
+    for line in [
+        r#"{"event":"tree_sample","time":"12.5","processes":[[42,"77"]]}"#,
+        r#"{"event":"tree_sample","time":12.5,"processes":[[42,77]]}"#,
+        r#"{"event":"tree_sample","time":12.5,"processes":"42"}"#,
+        r#"{"event":"tree_sample","time":12.5}"#,
+        r#"{"event":"tree_sample","time":12.5,"processes":[],"extra":1}"#,
+    ] {
+        assert!(
+            matches!(decode_event(line, receipts), LaunchEvent::Fault(_)),
+            "{line}"
+        );
+    }
+}
+
+fn resident_spec(space: &Workspace, job_spec: &JobSpec, quiet_ms: u64) -> SessionSpec {
+    let mut session = session_spec(space, job_spec);
+    session.config = atelier_build_v2::session_lifecycle::SessionConfig {
+        cleanup: Duration::from_secs(3),
+        lifetime: Duration::from_secs(30),
+        idle: Duration::from_secs(2),
+        quiescence: Some(Duration::from_millis(quiet_ms)),
+    };
+    session
+}
+
+fn resident_limits() -> Limits {
+    Limits {
+        job: Duration::from_secs(20),
+        cleanup: Duration::from_secs(6),
+        overall: Some(Duration::from_secs(60)),
+    }
+}
+
+fn run_resident(bridge: &str, quiet_ms: u64) -> (SessionReport, Vec<(String, ProcessIdentity)>) {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let session = resident_spec(&space, &job_spec, quiet_ms);
+    let (handle, inbox) = session_channel();
+    handle.submit(unit_with("a", "a", resident_limits(), key(&job_spec)));
+    handle.submit(unit_with("b", "b", resident_limits(), key(&job_spec)));
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let mut registered = vec![];
+    let report = run_session(
+        &mut launcher(bridge),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |unit, worker| {
+            registered.push((unit.clone(), worker.clone()));
+            Ok(())
+        },
+        published,
+    )
+    .unwrap();
+    (report, registered)
+}
+
+#[test]
+fn a_resident_session_reuses_its_worker_only_on_fresh_exact_samples() {
+    let (report, registered) = run_resident("samples", 2_000);
+    assert_eq!(report.sessions.len(), 1, "one admission for both units");
+    assert!(report.units.iter().all(|u| u.outcome.end == End::Completed));
+    assert!(
+        report.units[0].attempts[0].quiescent.is_some(),
+        "a settled by evidence"
+    );
+    assert_eq!(registered.len(), 2);
+    assert_eq!(
+        registered[0].1, registered[1].1,
+        "the same worker served both"
+    );
+    assert_eq!(report.sessions[0].custody, Custody::Released);
+
+    // Samples that list another process are never evidence: a fresh session for b.
+    let (report, registered) = run_resident("busy_samples", 300);
+    assert_eq!(report.sessions.len(), 2);
+    assert!(report.units.iter().all(|u| u.outcome.end == End::Completed));
+    assert_eq!(report.units[0].attempts[0].quiescent, None);
+    assert_eq!(report.units[0].attempts[0].custody, Custody::Released);
+    assert_ne!(registered[0].1, registered[1].1);
+}

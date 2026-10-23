@@ -847,7 +847,10 @@ impl SessionLifecycle {
     /// is configured; otherwise each session serves one unit. Without evidence within the bound
     /// the session MUST stop, and the unit then settles only by the session's cleanup receipt. A
     /// running unit's cancel or job limit MUST cancel only that job when the session stays up for
-    /// others, and MUST NOT release anything. See tests/session_lifecycle.rs
+    /// others, and MUST NOT release anything. Evidence rests on two things: the job sandbox
+    /// denying fork and spawn (an assumption tied to that profile; see
+    /// platform/studio/tests/test_build_v2_job_fork.py) and the driver accepting only fresh, exact
+    /// tree samples (quiescence-sample-evidence). See tests/session_lifecycle.rs
     /// (`a_reused_session_runs_the_next_unit_only_after_quiescence_evidence`,
     /// `without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_unit`,
     /// `cancelling_a_running_unit_cancels_only_its_job_when_others_wait`,
@@ -1241,7 +1244,10 @@ impl SessionLifecycle {
             return Ok(());
         }
         match event {
-            LaunchEvent::Queued | LaunchEvent::Finished { .. } => Ok(()),
+            // A tree sample becomes evidence only through the driver's validation, as `Quiescent`.
+            LaunchEvent::Queued | LaunchEvent::Finished { .. } | LaunchEvent::TreeSample(_) => {
+                Ok(())
+            }
             LaunchEvent::Admitted => {
                 if self.sessions[s].record.admitted {
                     return self.fault(now, s, out);

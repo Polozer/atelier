@@ -10,6 +10,7 @@
 use crate::failure_policy::{JobPolicy, Limits, MonoTime, Outcome, PolicyError};
 use crate::guard_adapter::{
     AdmissionRequest, AttemptEvent, LaunchEvent, WorkerAttempt, WorkerCommand, WorkerLauncher,
+    quiescence,
 };
 use crate::leases::ProcessIdentity;
 use crate::protocol::{JobOutputs, JobRequest, Request, Response, read_frame, write_frame};
@@ -492,6 +493,15 @@ struct Live<A> {
     /// Queue to the attempt's writer thread; dropping it closes the request pipe once the
     /// thread finishes any write in progress.
     writer: Option<Sender<Request>>,
+    /// When the controller received the latest terminal reply (seconds since the epoch): a tree
+    /// sample is evidence only if taken after it.
+    terminal_at: Option<f64>,
+}
+
+fn wall_clock() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64())
 }
 
 fn reader(attempt: u32, mut stream: Box<dyn Read + Send>, sink: Sender<Message>) {
@@ -640,12 +650,7 @@ pub fn run_session<L: WorkerLauncher>(
         command: &spec.key.command,
         purpose: &spec.purpose,
         memory_gib: spec.key.memory_gib,
-        // Until the bridge reports tree samples (C5c slice 3) there is no quiescence evidence,
-        // so every session serves one unit (session-reuse-after-quiescence).
-        config: SessionConfig {
-            quiescence: None,
-            ..spec.config
-        },
+        config: spec.config,
         report_root: &spec.report_root,
         custody: &spec.custody,
         key: Some(&spec.key),
@@ -742,6 +747,7 @@ fn drive<L: WorkerLauncher>(
                                     handle,
                                     session: Session::new(spec.worker_version),
                                     writer,
+                                    terminal_at: None,
                                 },
                             );
                         }
@@ -879,6 +885,30 @@ fn drive<L: WorkerLauncher>(
                         session: attempt,
                         event: Err(WorkerFault::Disconnected(error)),
                     },
+                    Some(Message::Launch(AttemptEvent {
+                        attempt,
+                        event: LaunchEvent::TreeSample(sample),
+                    })) => {
+                        // Evidence only when fresh and exact for the pinned worker, after the
+                        // latest terminal reply (quiescence-sample-evidence); otherwise dropped.
+                        let pinned = lifecycle
+                            .sessions()
+                            .into_iter()
+                            .find(|record| record.attempt == attempt)
+                            .and_then(|record| record.worker);
+                        let after = live.get(&attempt).and_then(|entry| entry.terminal_at);
+                        match (pinned, after) {
+                            (Some(pinned), Some(after))
+                                if quiescence(&sample, &pinned, after, wall_clock()).is_ok() =>
+                            {
+                                SessionInput::Quiescent {
+                                    session: attempt,
+                                    sample_time: sample.time,
+                                }
+                            }
+                            _ => continue,
+                        }
+                    }
                     Some(Message::Launch(event)) => {
                         if matches!(event.event, LaunchEvent::Finished { .. }) {
                             // The admission owner is done; drop its pipes and handle.
@@ -893,7 +923,13 @@ fn drive<L: WorkerLauncher>(
                             continue;
                         };
                         let event = match frame {
-                            Ok(Some(response)) => entry.session.receive(response).map_err(fault_of),
+                            Ok(Some(response)) => {
+                                let event = entry.session.receive(response).map_err(fault_of);
+                                if matches!(event, Ok(WorkerEvent::Finished(_))) {
+                                    entry.terminal_at = Some(wall_clock());
+                                }
+                                event
+                            }
                             Ok(None) => match entry.session.end_of_stream() {
                                 Ok(()) => continue,
                                 Err(error) => Err(fault_of(error)),

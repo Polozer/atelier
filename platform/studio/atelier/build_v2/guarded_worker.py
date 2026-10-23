@@ -10,7 +10,8 @@ no broker, lock, reservation or reaper. It only:
 - passes checkout-lock custody descriptors as `custody_fds`, so the aggregate monitor keeps its
   own duplicates until owned cleanup is verified; the worker never receives them;
 - reports what the guard observed as JSON lines on the events descriptor: queued, admitted
-  (`on_slot`), child_started (`on_poll`, with the guard's pinned identity), child_exited and
+  (`on_slot`), child_started (`on_poll`, with the guard's pinned identity), tree_sample (`on_poll`,
+  each fresh running tree receipt of that identity; see `tree_sample`), child_exited and
   finished (`confirmed` only on fresh, matching, empty receipts; see `cleanup`);
 - stops its own run through the guard's normal TERM/HUP unwind when asked, or when the
   controller's liveness pipe closes.
@@ -91,6 +92,35 @@ def _fresh(value, since, now):
     observed = value.get('time')
     return (type(observed) in (int, float) and math.isfinite(observed)
             and since <= observed <= now + CLOCK_SKEW_SECONDS)
+
+
+def tree_sample(tree, child, since, now, last):
+    """@cc [owner:fontanierh,label:safety] guarded-worker-tree-sample
+    The bridge MUST emit a tree sample only from a running aggregate tree receipt of its own pinned
+    child (owner and start time), with a finite time from this invocation that is not in the future
+    beyond the clock skew and is later than the last sample it emitted, and only when every listed
+    process has an integer pid and start time. Anything else MUST be dropped, never repaired. The
+    sample is `{time, processes: [[pid, started], ...]}`, exactly the receipt's processes, with
+    shared services already excluded by the guard; whether it shows quiescence is the
+    controller's decision. See tests/test_build_v2_guarded_worker.py.
+    """
+    if child is None or not isinstance(tree, dict) or tree.get('state') != 'running':
+        return None
+    if type(tree.get('owner')) is not int or type(tree.get('owner_started')) is not int:
+        return None
+    if (tree['owner'], tree['owner_started']) != tuple(child) or not _fresh(tree, since, now):
+        return None
+    if last is not None and not tree['time'] > last:
+        return None
+    processes = tree.get('processes')
+    if type(processes) is not list:
+        return None
+    rows = []
+    for row in processes:
+        if not isinstance(row, dict) or type(row.get('pid')) is not int or type(row.get('started')) is not int:
+            return None
+        rows.append([row['pid'], str(row['started'])])
+    return dict(time=tree['time'], processes=rows)
 
 
 def _same_files(recorded, expected):
@@ -199,7 +229,7 @@ def main(argv=None, run=None):
     command = [spec['program'], *spec['args'], '--request-fd', str(args.request_fd),
                '--response-fd', str(args.response_fd)]
     boot = boot_id()
-    state = dict(admitted=False, child=None, cancelled=False, finished=False)
+    state = dict(admitted=False, child=None, cancelled=False, finished=False, sample=None)
 
     def stop(number, frame):
         raise SystemExit(128 + number)
@@ -229,6 +259,11 @@ def main(argv=None, run=None):
             except Exception:
                 return  # exited already; the tree receipt pins it below
             emit('child_started', pid=pid, started=str(state['child'][1]), boot=boot)
+        sample = tree_sample(_read(args.report / 'memory-health-tree.json'), state['child'], since, time.time(),
+                             state['sample'])
+        if sample is not None:
+            state['sample'] = sample['time']
+            emit('tree_sample', **sample)
 
     emit('queued')
     returncode, error = None, None

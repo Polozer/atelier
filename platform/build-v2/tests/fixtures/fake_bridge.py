@@ -9,7 +9,8 @@ Usage: fake_bridge.py SCENARIO --report DIR ... -- (the real bridge flags). Scen
 normal, queue_forever (never admitted; holds until stopped), guard_stop (the "guard" kills the
 worker), foreign_exit (reports another identity's exit), unconfirmed (cleanup not confirmed),
 spec_closed (closes its spec descriptor unread, so the launcher's spec write fails after the spawn;
-it then waits to be stopped and reports nothing).
+it then waits to be stopped and reports nothing), samples (normal, plus a tree sample of only the
+worker every 50 ms), busy_samples (samples that also list an unclassified process).
 """
 import argparse
 import json
@@ -103,7 +104,12 @@ def main():
         child.kill()
         stopped_by = 'guard'
     while child.poll() is None:
-        if stopping.wait(timeout=0.02):
+        if args.scenario in ('samples', 'busy_samples'):
+            processes = [[child.pid, identity['started']]]
+            if args.scenario == 'busy_samples':
+                processes.append([child.pid + 1, 'unclassified'])
+            emit('tree_sample', time=time.time(), processes=processes)
+        if stopping.wait(timeout=0.05 if args.scenario.endswith('samples') else 0.02):
             child.kill()
             stopped_by = stopped_by or 'cancel'
             break
