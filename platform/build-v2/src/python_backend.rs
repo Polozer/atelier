@@ -42,6 +42,8 @@ pub struct PythonIo {
     pub staged_jobs: usize,
     pub input_clones: usize,
     pub launches: usize,
+    /// Complete lifecycle worker-attempt observations only; a missing submitted unit is unknown.
+    pub launches_by_unit: BTreeMap<String, usize>,
     pub worker_files_written: usize,
     pub publications: usize,
     pub installs: usize,
