@@ -121,6 +121,17 @@ def package_of(relative, root):
     return None
 
 
+def package_owning(relative, root):
+    """`/Game/A/B` for any package file `root/A/B.<package suffix>` (companions included), else None."""
+    if not relative.startswith(root):
+        return None
+    rest = relative[len(root):]
+    for suffix in PACKAGE_FILES:
+        if rest.endswith(suffix):
+            return GAME + rest[:-len(suffix)]
+    return None
+
+
 def _job_relative(path, label):
     parts = path.split('/')
     if not path or path.startswith('/') or '\\' in path or '\0' in path or any(p in ('', '.', '..') for p in parts):
@@ -274,7 +285,10 @@ class Worker:
                      'failure': {'kind': 'job', 'message': f'{type(error).__name__}: {error}'}}
         else:
             reply = {'type': 'completed', 'job_id': job_id, 'outputs': {'files': files}}
-        problem = self.reset(job, touched, moved, state)
+        try:
+            problem = self.reset(job, touched, moved, state)
+        except Exception as error:  # the editor is in an unknown state: reply, then retire
+            problem = f'reset raised {type(error).__name__}: {error}'
         self.send(reply)
         return problem
 
@@ -357,6 +371,9 @@ class Worker:
                 relative = OUTPUT_CONTENT + str(path.relative_to(self.content))
                 if relative not in declared:
                     raise JobRefused('dependency', f'wrote undeclared file {relative}')
+                if package_owning(relative, OUTPUT_CONTENT) not in names:
+                    # Only the editor's package saves produce outputs, never plain file writes.
+                    raise JobRefused('dependency', f'{relative} was written without saving its package')
                 files[relative] = path
         for relative, path in files.items():
             target = job_dir / 'output' / relative

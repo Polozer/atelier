@@ -228,14 +228,17 @@ One editor MUST run one job at a time, starting each with an empty `/Game` and e
 Input packages MUST be copied read-only to their logical paths and removed afterwards. The packages
 saved during a job MUST be exactly its declared output packages (an undeclared save or file is a
 `dependency` failure, a missing required package or an unsaved change is a `job` failure, and a
-changed input is a `dependency` failure), and outputs MUST be moved out of `/Game` into `output/`.
+changed input is a `dependency` failure). Every output file MUST belong to a package saved during
+the job, companion files included; a package file written any other way is a `dependency` failure.
+Outputs MUST be moved out of `/Game` into `output/`. A failed job's `output/` MAY hold partially
+moved files, so the controller MUST collect `output/` only from a completed job.
 After every job the worker MUST restore its Python state, empty `/Game` and the asset registry,
 unload every package the job touched and confirm each is gone by name (`find_object`), never by the
 unload call's own result, and confirm the editor settings digest is unchanged. When any of that
-fails, the worker MUST still send the job's terminal reply and then exit instead of serving another
+fails or raises, the worker MUST still send the job's terminal reply and then exit instead of serving another
 job. This is detection, not isolation: native engine state outside these checks is a named T2
 limitation. See tests/unreal.rs
 (`one_editor_serves_jobs_in_order_with_a_clean_game_folder_between_them`,
 `undeclared_saves_files_dirty_packages_and_op_errors_fail_and_the_next_job_runs`,
-`a_package_left_loaded_or_a_changed_setting_retires_the_editor_after_its_reply`) and
+`a_package_left_loaded_a_changed_setting_or_a_raising_reset_retires_the_editor_after_its_reply`) and
 platform/studio/tests/test_build_v2_unreal_worker.py.

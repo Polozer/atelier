@@ -455,6 +455,11 @@ def run(context):
         fake.set_cvar(p['cvar'], '1')
     if 'stray' in p:
         fake.write_file(p['stray'], b'x')
+    if 'forge' in p:
+        with open(context.content_dir / p['forge'], 'wb') as stream:
+            stream.write(b'not a saved package')
+    if 'break' in p:
+        fake.break_call(p['break'])
     if 'raise' in p:
         raise ValueError(p['raise'])
 "#;
@@ -535,7 +540,10 @@ def run(context):
         "job_id": name, "unit": format!("unit.{name}"), "op": {"kind": "unreal_fixture", "version": "1"},
         "job_dir": dir.to_str().unwrap(), "script": "ops/op.py", "code": ["ops/op.py"],
         "inputs": staged, "params": params,
-        "outputs": outputs.iter().map(|path| serde_json::json!({"path": path, "required": true})).collect::<Vec<_>>(),
+        "outputs": outputs.iter().map(|path| match path.strip_suffix('?') {
+            Some(optional) => serde_json::json!({"path": optional, "required": false}),
+            None => serde_json::json!({"path": path, "required": true}),
+        }).collect::<Vec<_>>(),
     }))
     .unwrap()
     }
@@ -621,7 +629,7 @@ def run(context):
         let context = context(&space);
         let mut editor = editor(&space, &context);
         editor.channel.handshake().unwrap();
-        let declared = ["content/Game/A.uasset"];
+        let declared = ["content/Game/A.uasset", "content/Game/B.uasset?"];
         let cases = [
             (
                 serde_json::json!({"create": [["/Game/A", "a"], ["/Game/Extra", "x"]]}),
@@ -643,6 +651,12 @@ def run(context):
                 serde_json::json!({"raise": "bad mesh"}),
                 FailureKind::Job,
                 "bad mesh",
+            ),
+            (
+                // A declared package file written by plain file I/O, with no package save.
+                serde_json::json!({"create": [["/Game/A", "a"]], "forge": "B.uasset"}),
+                FailureKind::Dependency,
+                "without saving its package",
             ),
         ];
         for (index, (params, kind, reason)) in cases.into_iter().enumerate() {
@@ -684,10 +698,13 @@ def run(context):
     }
 
     #[test]
-    fn a_package_left_loaded_or_a_changed_setting_retires_the_editor_after_its_reply() {
+    fn a_package_left_loaded_a_changed_setting_or_a_raising_reset_retires_the_editor_after_its_reply()
+     {
         for (name, extra) in [
             ("keep", serde_json::json!({"keep": ["/Game/A"]})),
             ("cvar", serde_json::json!({"cvar": "r.Test"})),
+            // A reset that raises still sends the job's reply before the editor exits.
+            ("unload", serde_json::json!({"break": "unload"})),
         ] {
             let space = Workspace::new();
             fake_engine(&space, "5.8-build");

@@ -32,6 +32,10 @@ def test_package_names_come_only_from_primary_files_under_the_content_root():
     assert unreal_worker.package_of('content/Game/Maps/Crater.umap', 'content/Game/') == '/Game/Maps/Crater'
     assert unreal_worker.package_of('content/Game/Meshes/Rock.ubulk', 'content/Game/') is None
     assert unreal_worker.package_of('other/Rock.uasset', 'content/Game/') is None
+    # Ownership covers companion files: every package file names the package whose save made it.
+    assert unreal_worker.package_owning('content/Game/Meshes/Rock.ubulk', 'content/Game/') == '/Game/Meshes/Rock'
+    assert unreal_worker.package_owning('content/Game/Meshes/Rock.uexp', 'content/Game/') == '/Game/Meshes/Rock'
+    assert unreal_worker.package_owning('content/Game/Meshes/Rock.txt', 'content/Game/') is None
     for path in ('', '/abs', 'a/../b', 'a//b', 'a\\b', './a'):
         with pytest.raises(JobRefused):
             unreal_worker._job_relative(path, 'output')

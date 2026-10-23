@@ -9,7 +9,7 @@ module, which fails on the read-only clone, as the real editor would), then inst
 The fake `unreal` module models only what the worker uses: a package table (loaded, dirty, pinned),
 saved-package recording, the asset registry's view of `/Game`, settings, and `find_object`. Its
 test-only `AtelierFake` class lets fixture ops create, save, load, pin and dirty packages, set a
-CVar and write a stray file. Real Unreal behaviour is proven only by the admitted T2 session.
+CVar, write a stray file and make an editor call raise. Real Unreal behaviour is proven only by the admitted T2 session.
 """
 import hashlib
 import json
@@ -71,6 +71,7 @@ packages = {}  # name -> {'loaded', 'dirty', 'pinned', 'imports'}
 cvars = {token: '' for token in settings}
 registry = set()
 recording = None
+broken = set()  # editor calls a fixture op made raise
 
 
 def file_of(name):
@@ -123,6 +124,8 @@ class Paths:
 class EditorLoadingAndSavingUtils:
     @staticmethod
     def unload_packages(objects):
+        if 'unload' in broken:
+            raise RuntimeError('unload_packages failed')
         any_unloaded = False
         for value in objects:
             entry = packages.get(value.get_name())
@@ -233,6 +236,10 @@ class AtelierFake:
     @staticmethod
     def set_cvar(name, value):
         cvars[name] = value
+
+    @staticmethod
+    def break_call(name):
+        broken.add(name)
 
     @staticmethod
     def write_file(relative, data):

@@ -38,7 +38,7 @@ platforms = ["darwin"]
 
 [[scenarios]]
 id = "c3.unreal.reset_failure_retires_editor"
-tests = ["atelier-build-v2::unreal/editor_session::a_package_left_loaded_or_a_changed_setting_retires_the_editor_after_its_reply"]
+tests = ["atelier-build-v2::unreal/editor_session::a_package_left_loaded_a_changed_setting_or_a_raising_reset_retires_the_editor_after_its_reply"]
 platforms = ["darwin"]
 
 [[scenarios]]
