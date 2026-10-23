@@ -133,6 +133,43 @@ def test_each_tier_has_its_own_budget():
             't1a': ET.fromstring('<testsuites time="30.01" />')})
 
 
+def two_tier_evidence():
+    registry = {'schema_version': 1, 'pending': [], 'scenarios': [
+        {'id': 'one', 'tests': ['fixture/test'], 'tier': 't0'},
+        {'id': 'two', 'tests': ['fixture/python'], 'tier': 't1a'}]}
+    return registry, listing_of('fixture/test', 'fixture/python')
+
+
+def skipped_case(junit, suite_name, name, message=None):
+    case = ET.SubElement(suite_of(junit, suite_name), 'testcase', classname=suite_name, name=name)
+    ET.SubElement(case, 'skipped',
+                  message=_module.FILTER_SKIP_MESSAGE if message is None else message)
+
+
+def test_another_tiers_filter_exclusion_is_accepted_but_never_a_pass():
+    registry, listing = two_tier_evidence()
+    t0 = junit_of('fixture/test')
+    skipped_case(t0, 'fixture', 'python')
+    summary = check_registry(registry, listing, results={
+        't0': t0, 't1a': junit_of('fixture/python')})
+    assert summary['tiers']['t0'] == {'scenarios': 1, 'tests': 1, 'test_seconds': 0.1,
+                                      'excluded_other_tier': 1}
+
+
+@pytest.mark.parametrize(('name', 'message', 'error'), [
+    ('python', 'Skipped: something else', 'without the filter message'),
+    ('ghost', None, 'not another host tier'),
+    ('test', None, 'not another host tier'),
+])
+def test_a_skip_that_is_not_another_tiers_filter_exclusion_fails(name, message, error):
+    registry, listing = two_tier_evidence()
+    t0 = junit_of('fixture/test')
+    skipped_case(t0, 'fixture', name, message)
+    with pytest.raises(ValueError, match=error):
+        check_registry(registry, listing, results={
+            't0': t0, 't1a': junit_of('fixture/python')})
+
+
 def test_execution_evidence_must_cover_every_host_tier():
     registry, listing, junit = evidence()
     with pytest.raises(ValueError, match='every host CI tier'):
@@ -207,6 +244,26 @@ def test_a_tier_listing_from_another_host_is_refused():
     registry, listing, _ = evidence()
     with pytest.raises(ValueError, match='listing host darwin does not match the collection host linux'):
         check_registry(registry, listing, tier_listings={'t0': listing_of('fixture/test', triple=DARWIN)})
+
+
+def test_a_filtered_listing_may_report_only_empty_skipped_suites():
+    registry, listing, _ = evidence()
+    filtered = listing_of('fixture/test')
+    filtered['rust-suites']['unmatched'] = {'status': 'skipped', 'testcases': {}}
+    summary = check_registry(registry, listing, tier_listings={'t0': filtered})
+    assert summary['tiers']['t0']['listed'] == 1
+
+
+def test_a_filtered_listing_refuses_skipped_tests_and_unknown_statuses():
+    registry, listing, _ = evidence()
+    filtered = listing_of('fixture/test')
+    filtered['rust-suites']['unmatched'] = {'status': 'skipped', 'testcases': {
+        'stale': {'ignored': False, 'filter-match': {'status': 'mismatch'}}}}
+    with pytest.raises(ValueError, match='skipped suite carries tests'):
+        check_registry(registry, listing, tier_listings={'t0': filtered})
+    filtered['rust-suites']['unmatched'] = {'status': 'failed', 'testcases': {}}
+    with pytest.raises(ValueError, match='unlisted suite'):
+        check_registry(registry, listing, tier_listings={'t0': filtered})
 
 
 def test_overlapping_tier_assignment_is_refused():
