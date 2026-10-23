@@ -273,7 +273,7 @@ fn worker_command(sandboxed: bool) -> WorkerCommand {
     } else {
         "tests/fixtures/unsandboxed_job_loop.py"
     });
-    WorkerCommand::python_job_loop(python(), script.canonicalize().unwrap())
+    WorkerCommand::python_job_loop(python(), script.canonicalize().unwrap()).unwrap()
 }
 
 fn worker_identity(sandboxed: bool) -> ImplementationIdentity {
