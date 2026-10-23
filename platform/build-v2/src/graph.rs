@@ -20,10 +20,16 @@ pub enum EdgeRole {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DependencyOutput {
+    Item(String),
+    GroupMember { group: String, piece: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Dependency {
     pub producer: String,
     pub consumer: String,
-    pub item: String,
+    pub output: DependencyOutput,
     pub input: String,
     pub role: EdgeRole,
 }
@@ -58,24 +64,47 @@ impl BuildGraph {
         for unit in &declaration.units {
             let mut unit_parents = BTreeSet::new();
             for input in &unit.inputs {
-                let (name, producer, item, role) = match input {
+                let (name, producer, output, role) = match input {
                     Input::Content {
                         name,
                         source: ContentSource::Item { unit, item },
                         ..
-                    } => (name, unit, item, EdgeRole::Content),
+                    } => (
+                        name,
+                        unit,
+                        DependencyOutput::Item(item.clone()),
+                        EdgeRole::Content,
+                    ),
+                    Input::Content {
+                        name,
+                        source: ContentSource::GroupMember { unit, group, piece },
+                        ..
+                    } => (
+                        name,
+                        unit,
+                        DependencyOutput::GroupMember {
+                            group: group.clone(),
+                            piece: piece.clone(),
+                        },
+                        EdgeRole::Content,
+                    ),
                     Input::Reference {
                         name,
                         producer: Some(producer),
                         ..
-                    } => (name, &producer.unit, &producer.item, EdgeRole::Reference),
+                    } => (
+                        name,
+                        &producer.unit,
+                        DependencyOutput::Item(producer.item.clone()),
+                        EdgeRole::Reference,
+                    ),
                     _ => continue,
                 };
                 unit_parents.insert(producer.clone());
                 dependencies.push(Dependency {
                     producer: producer.clone(),
                     consumer: unit.id.clone(),
-                    item: item.clone(),
+                    output,
                     input: name.clone(),
                     role,
                 });

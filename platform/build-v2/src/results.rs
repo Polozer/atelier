@@ -129,6 +129,11 @@ impl ResultStore {
         upstream_result_keys: BTreeSet<String>,
     ) -> Result<WriteTransaction, ResultError> {
         digest(unit.key())?;
+        if !unit.ingredients().output_groups.is_empty() {
+            return Err(invalid(
+                "dynamic groups require sealed-token publication support",
+            ));
+        }
         for key in &upstream_result_keys {
             digest(key)?;
         }
@@ -177,6 +182,9 @@ impl ResultStore {
             || &envelope.result.ingredients != unit.ingredients()
         {
             return Err(invalid("stored result version/key/ingredients differ"));
+        }
+        if !envelope.result.output_groups.is_empty() {
+            return Err(invalid("dynamic group records require their typed adapter"));
         }
         check_manifest(unit, &envelope.result.outputs)?;
         for key in &envelope.upstream_result_keys {
@@ -324,6 +332,7 @@ impl WriteTransaction {
                 key: self.unit.key().into(),
                 ingredients: self.unit.ingredients().clone(),
                 outputs,
+                output_groups: vec![],
                 provenance: self.provenance.clone(),
             },
             upstream_result_keys: self.upstream.clone(),

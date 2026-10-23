@@ -1,7 +1,8 @@
 # Build v2 interfaces (A0)
 
 This unused Rust library is the shared interface for the build-v2 tracks. Production v1 is unchanged.
-Declaration schema **1**, result schema **2** and protocol version **1** are the wire contracts; incompatible changes
+Declaration schema **2** (fixed declarations v1 remain readable), result schema **3** and protocol
+version **1** are the wire contracts; incompatible changes
 require a version bump and coordination with consumers. The lockfile pins this crate's dependencies,
 not game cache identities.
 
@@ -179,7 +180,7 @@ must not influence semantic output. The pending `c1.staged-view-semantic-indepen
 actual worker output equality under different control metadata and source locators; logs may differ.
 A3 tests establish encoding and Run mapping only, not that future workers already enforce isolation.
 
-**Result schema 2:** `IdentityIngredients.script` identifies the selected entrypoint even when the code
+**Result schema 3:** `IdentityIngredients.script` identifies the selected entrypoint even when the code
 closure is unchanged; `staged_inputs` records the visible slot map and `input_kinds` binds each slot
 as a file or item directory, even if content digests coincide. `StoredFile.mode` is 0644 or 0755.
 B1 blob hashes remain byte-only and stored blobs immutable. B2 must normalize captured source mode
@@ -187,7 +188,9 @@ B1 blob hashes remain byte-only and stored blobs immutable. B2 must normalize ca
 B3 must restore semantic modes before publishing checkout installs. C1/B2/B3 and package tests must
 prove those mode rules. General ACL/xattr handling is outside this format. Old result records lack
 these required fields; B2 must reject unsupported result versions rather than infer missing metadata.
-Declaration schema and worker framing protocol remain version 1.
+Declaration schema 2 adds fixed output groups and selected member references; fixed schema1
+declarations remain readable. Result3 adds required group contracts/runtime membership; key encoding2
+binds fixed group contracts. Worker framing protocol remains version1.
 
 `SourceHashCache` hashes each frozen whole-file or selected-view version once. Its advisory version
 hint includes device, inode, size, nanosecond mtime and ctime; selector hints also identify the selected
@@ -300,7 +303,7 @@ transaction alive while consuming/cloning the hit, then call `retain_hit(require
 Missing or malformed entries return absence/error; B7 defines higher-level miss/current-but-not-cached
 handling. Whole-store corruption auditing remains separate.
 
-Envelope version 1 wraps result schema 2 and `upstream_result_keys` for future retention traversal.
+Envelope version 1 wraps result schema 3 and `upstream_result_keys` for future retention traversal.
 Those links, provenance and unit labels never participate in semantic winner equality. The first
 winner retains its own immutable lineage/evidence even when an equivalent unit has another graph ID.
 Different complete output manifests, including file modes, report non-determinism without replacing
@@ -335,6 +338,7 @@ path, byte digest, size and mode. A complete saved manifest can restore a token 
 trusted reader with named object checks, without scanning mutable output folders. Group/roster
 changes remain separate from a selected member's content view.
 
-This first slice is unused: declaration/result/key schema additions, B2 sealed-token publication,
-child graph expansion and removal intents are not yet integrated. Existing B2 explicitly refuses
-unknown group fields. No worker, store publication, install/removal or native equivalence is claimed.
+This slice is unused: declaration2/result3/key2 bind fixed groups and selected member identities.
+B2 sealed-token publication, child graph expansion and removal intents are not yet integrated.
+B2 explicitly refuses nonempty group contracts/records until publication support is implemented.
+No worker, store publication, install/removal or native equivalence is claimed.

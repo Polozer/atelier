@@ -1,11 +1,13 @@
 //! Shared, versioned wire schemas. Strings containing paths or digests are untrusted
 //! until the consuming validator checks them; these types do not compute keys.
+use crate::groups::{OutputGroupContract, StoredOutputGroup};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const SCHEMA_VERSION: u32 = 1;
-/// Results v2 bind entrypoint/staged input paths and normalized semantic file modes.
-pub const RESULT_SCHEMA_VERSION: u32 = 2;
+pub const LEGACY_SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
+/// Results v3 add complete immutable runtime output groups; declarations v2 add fixed contracts.
+pub const RESULT_SCHEMA_VERSION: u32 = 3;
 pub type Params = BTreeMap<String, serde_json::Value>;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -35,7 +37,10 @@ pub struct Unit {
     pub inputs: Vec<Input>,
     #[serde(default)]
     pub params: Params,
+    #[serde(default)]
     pub outputs: Vec<Item>,
+    #[serde(default)]
+    pub output_groups: Vec<OutputGroupContract>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conditional: Option<String>,
 }
@@ -75,6 +80,11 @@ pub enum ContentSource {
     Item {
         unit: String,
         item: String,
+    },
+    GroupMember {
+        unit: String,
+        group: String,
+        piece: String,
     },
 }
 
@@ -136,6 +146,7 @@ pub struct ResultRecord {
     pub key: String,
     pub ingredients: IdentityIngredients,
     pub outputs: Vec<StoredItem>,
+    pub output_groups: Vec<StoredOutputGroup>,
     pub provenance: Provenance,
 }
 
@@ -158,6 +169,7 @@ pub struct IdentityIngredients {
     pub staged_inputs: BTreeMap<String, String>,
     pub input_kinds: BTreeMap<String, InputKind>,
     pub logical_outputs: Vec<Item>,
+    pub output_groups: Vec<OutputGroupContract>,
 }
 
 /// Filesystem shape observed at a staged slot, separate from its content digest.

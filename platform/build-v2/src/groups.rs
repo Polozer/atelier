@@ -116,7 +116,7 @@ impl ValidatedGroup {
     }
 }
 
-fn name(value: &str) -> Result<(), String> {
+pub(crate) fn name(value: &str) -> Result<(), String> {
     if !value
         .as_bytes()
         .first()
@@ -405,8 +405,7 @@ mod tests {
     use crate::keys::canonical_bytes;
     use crate::source_hashes::sha256;
 
-    #[test]
-    fn recorded_group_projects_only_selected_member_without_output_reads() {
+    fn fixture() -> (OutputGroupContract, StoredOutputGroup) {
         let contract = OutputGroupContract {
             id: "geometry".into(),
             root: "geometry".into(),
@@ -438,8 +437,14 @@ mod tests {
             },
         ];
         let roster = parse_manifest(&contract, bytes, &files).unwrap();
+        (contract, roster.stored)
+    }
+
+    #[test]
+    fn recorded_group_projects_only_selected_member_without_output_reads() {
+        let (contract, stored) = fixture();
         let mut checked = Vec::new();
-        let first = restore_recorded(&contract, roster.stored(), |file| {
+        let first = restore_recorded(&contract, &stored, |file| {
             checked.push(file.path.clone());
             Ok(())
         })
@@ -492,5 +497,346 @@ mod tests {
         assert!(restore_recorded(&contract, &changed, |_| Err("blob absent".into())).is_err());
         changed.projections.get_mut("Sibling").unwrap().payload = "missing.npz".into();
         assert!(restore_recorded(&contract, &changed, |_| Ok(())).is_err());
+    }
+    fn key_fixture(
+        contract: &OutputGroupContract,
+    ) -> (
+        crate::schema::Declaration,
+        crate::validate::OpRegistry,
+        crate::validate::SourceSnapshot,
+    ) {
+        use crate::schema::*;
+        use crate::validate::*;
+        let planner = Unit {
+            id: "planner".into(),
+            op: Op {
+                kind: "fixture".into(),
+                version: "1".into(),
+            },
+            script: "ops/plan.py".into(),
+            code: vec!["ops/plan.py".into()],
+            inputs: vec![],
+            params: BTreeMap::from([(
+                "output_root".into(),
+                Value::String("output/geometry".into()),
+            )]),
+            outputs: vec![],
+            output_groups: vec![contract.clone()],
+            conditional: None,
+        };
+        let child = Unit {
+            id: "export.Village_Edges".into(),
+            op: planner.op.clone(),
+            script: "ops/export.py".into(),
+            code: vec!["ops/export.py".into()],
+            inputs: vec![Input::Content {
+                name: "payload".into(),
+                source: ContentSource::GroupMember {
+                    unit: "planner".into(),
+                    group: "geometry".into(),
+                    piece: "Village_Edges".into(),
+                },
+                whole: None,
+                conditional: None,
+            }],
+            params: BTreeMap::from([
+                (
+                    "payload_member".into(),
+                    Value::String("Village_Edges.npz".into()),
+                ),
+                ("format".into(), Value::String(".fbx".into())),
+            ]),
+            outputs: vec![Item {
+                id: "mesh".into(),
+                logical_path: "/Game/Village/Village_Edges".into(),
+                class: "StaticMeshSource".into(),
+                files: vec![
+                    OutputFile {
+                        path: "Village_Edges.fbx".into(),
+                        install_path: None,
+                        required: true,
+                    },
+                    OutputFile {
+                        path: "export.json".into(),
+                        install_path: None,
+                        required: true,
+                    },
+                ],
+                destination: Destination::Store,
+            }],
+            output_groups: vec![],
+            conditional: None,
+        };
+        let registry = BTreeMap::from([(
+            ("fixture".into(), "1".into()),
+            OpDefinition {
+                inputs: BTreeMap::from([(
+                    "payload".into(),
+                    InputRule {
+                        role: InputRole::Content,
+                        required: false,
+                        allow_absent_file: false,
+                        allow_selector: false,
+                        require_whole_reason: false,
+                        item_classes: BTreeSet::from(["GeometryPayload".into()]),
+                    },
+                )]),
+                output_classes: BTreeSet::from([
+                    "GeometryPayload".into(),
+                    "StaticMeshSource".into(),
+                ]),
+                params: ["output_root", "payload_member", "format"]
+                    .into_iter()
+                    .map(|name| {
+                        (
+                            name.into(),
+                            ParamRule {
+                                kind: ParamKind::String,
+                                required: false,
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+        )]);
+        let snapshot = BTreeMap::from([
+            (
+                "ops/plan.py".into(),
+                SnapshotEntry::File(b"fixture planner v1".to_vec()),
+            ),
+            (
+                "ops/export.py".into(),
+                SnapshotEntry::File(b"fixture exporter v1".to_vec()),
+            ),
+        ]);
+        (
+            Declaration {
+                schema_version: SCHEMA_VERSION,
+                cache_version: "fixture-1".into(),
+                units: vec![planner, child],
+            },
+            registry,
+            snapshot,
+        )
+    }
+
+    fn prepared(
+        declaration: &crate::schema::Declaration,
+        registry: &crate::validate::OpRegistry,
+        snapshot: &crate::validate::SourceSnapshot,
+        groups: &crate::keys::ProducedGroups,
+        unit: &str,
+    ) -> Result<crate::keys::PreparedUnit, String> {
+        use crate::keys::*;
+        let validated = crate::validate::validate(declaration, registry, snapshot, &[])
+            .map_err(|e| e.to_string())?;
+        let staged = if unit == "planner" {
+            BTreeMap::new()
+        } else {
+            BTreeMap::from([("payload".into(), "inputs/payload".into())])
+        };
+        let implementation = ImplementationIdentity {
+            version: "fixture-worker-1".into(),
+            digest: "c".repeat(64),
+        };
+        prepare(
+            declaration,
+            &validated,
+            unit,
+            &KeyContext {
+                snapshot,
+                versions: &BTreeMap::new(),
+                produced: &BTreeMap::new(),
+                produced_groups: groups,
+                staged_inputs: &staged,
+                worker: &implementation,
+                validator: &implementation,
+            },
+            &mut crate::source_hashes::SourceHashCache::default(),
+        )
+    }
+
+    #[test]
+    fn fixed_group_contract_keys_planner_without_runtime_membership() {
+        let (contract, stored) = fixture();
+        let (mut declaration, registry, snapshot) = key_fixture(&contract);
+        let mut groups = BTreeMap::from([(
+            ("planner".into(), "geometry".into()),
+            restore_recorded(&contract, &stored, |_| Ok(())).unwrap(),
+        )]);
+        let before = prepared(&declaration, &registry, &snapshot, &groups, "planner").unwrap();
+        groups.clear();
+        assert_eq!(
+            before.key(),
+            prepared(&declaration, &registry, &snapshot, &groups, "planner")
+                .unwrap()
+                .key()
+        );
+        declaration.units[0].output_groups[0].max_pieces += 1;
+        assert_ne!(
+            before.key(),
+            prepared(&declaration, &registry, &snapshot, &groups, "planner")
+                .unwrap()
+                .key()
+        );
+        declaration.units[0].output_groups[0].max_pieces -= 1;
+        declaration.units[0].output_groups[0].adapter_version = "d2.mesh-plan/2".into();
+        assert_ne!(
+            before.key(),
+            prepared(&declaration, &registry, &snapshot, &groups, "planner")
+                .unwrap()
+                .key()
+        );
+        declaration.schema_version = crate::schema::LEGACY_SCHEMA_VERSION;
+        assert!(prepared(&declaration, &registry, &snapshot, &groups, "planner").is_err());
+    }
+
+    #[test]
+    fn member_keys_cut_off_planner_and_sibling_changes_but_bind_selected_view() {
+        let (contract, stored) = fixture();
+        let (declaration, registry, mut snapshot) = key_fixture(&contract);
+        let mut groups = BTreeMap::from([(
+            ("planner".into(), "geometry".into()),
+            restore_recorded(&contract, &stored, |_| Ok(())).unwrap(),
+        )]);
+        let first = prepared(
+            &declaration,
+            &registry,
+            &snapshot,
+            &groups,
+            "export.Village_Edges",
+        )
+        .unwrap();
+        let planner_before =
+            prepared(&declaration, &registry, &snapshot, &groups, "planner").unwrap();
+        snapshot.insert(
+            "ops/plan.py".into(),
+            crate::validate::SnapshotEntry::File(b"fixture planner v1 # comment".to_vec()),
+        );
+        assert_ne!(
+            planner_before.key(),
+            prepared(&declaration, &registry, &snapshot, &groups, "planner")
+                .unwrap()
+                .key()
+        );
+        assert_eq!(
+            first.key(),
+            prepared(
+                &declaration,
+                &registry,
+                &snapshot,
+                &groups,
+                "export.Village_Edges"
+            )
+            .unwrap()
+            .key()
+        );
+        let mut changed = stored.clone();
+        changed
+            .files
+            .iter_mut()
+            .find(|file| file.path == "plan.json")
+            .unwrap()
+            .digest = "d".repeat(64);
+        changed.files.push(StoredFile {
+            path: "Sibling.npz".into(),
+            digest: "e".repeat(64),
+            size: 10,
+            mode: 0o644,
+        });
+        changed.projections.insert(
+            "Sibling".into(),
+            MemberProjection {
+                payload: "Sibling.npz".into(),
+                encoding: PlanEncoding::MeshIr,
+            },
+        );
+        groups.insert(
+            ("planner".into(), "geometry".into()),
+            restore_recorded(&contract, &changed, |_| Ok(())).unwrap(),
+        );
+        assert_eq!(
+            first.key(),
+            prepared(
+                &declaration,
+                &registry,
+                &snapshot,
+                &groups,
+                "export.Village_Edges"
+            )
+            .unwrap()
+            .key()
+        );
+        changed
+            .files
+            .iter_mut()
+            .find(|file| file.path == "Village_Edges.npz")
+            .unwrap()
+            .digest = "a".repeat(64);
+        groups.insert(
+            ("planner".into(), "geometry".into()),
+            restore_recorded(&contract, &changed, |_| Ok(())).unwrap(),
+        );
+        let changed_bytes = prepared(
+            &declaration,
+            &registry,
+            &snapshot,
+            &groups,
+            "export.Village_Edges",
+        )
+        .unwrap();
+        assert_ne!(first.key(), changed_bytes.key());
+        changed
+            .files
+            .iter_mut()
+            .find(|file| file.path == "Village_Edges.npz")
+            .unwrap()
+            .mode = 0o755;
+        groups.insert(
+            ("planner".into(), "geometry".into()),
+            restore_recorded(&contract, &changed, |_| Ok(())).unwrap(),
+        );
+        assert_ne!(
+            changed_bytes.key(),
+            prepared(
+                &declaration,
+                &registry,
+                &snapshot,
+                &groups,
+                "export.Village_Edges"
+            )
+            .unwrap()
+            .key()
+        );
+        let mut unknown = declaration.clone();
+        let crate::schema::Input::Content {
+            source: crate::schema::ContentSource::GroupMember { piece, .. },
+            ..
+        } = &mut unknown.units[1].inputs[0]
+        else {
+            panic!()
+        };
+        *piece = "Missing".into();
+        assert!(
+            prepared(
+                &unknown,
+                &registry,
+                &snapshot,
+                &groups,
+                "export.Village_Edges"
+            )
+            .is_err()
+        );
+        groups.clear();
+        assert!(
+            prepared(
+                &declaration,
+                &registry,
+                &snapshot,
+                &groups,
+                "export.Village_Edges"
+            )
+            .is_err()
+        );
     }
 }

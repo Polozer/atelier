@@ -438,8 +438,8 @@ id = "b2.results.lease_is_durable_before_staging_and_unknown_liveness_never_expi
 tests = ["atelier-build-v2::results/lease_is_durable_before_staging_and_unknown_liveness_never_expires"]
 
 [[scenarios]]
-id = "b2.results.unsupported_result_versions_and_dynamic_group_fields_refuse"
-tests = ["atelier-build-v2::results/unsupported_result_versions_and_dynamic_group_fields_refuse"]
+id = "b2.results.unsupported_result_versions_and_undeclared_groups_refuse"
+tests = ["atelier-build-v2::results/unsupported_result_versions_and_undeclared_groups_refuse"]
 
 [[scenarios]]
 id = "b2.leases.dangling_lease_and_staging_names_remain_occupied"
@@ -510,3 +510,11 @@ tests = ["atelier-build-v2::groups/source_validator_reads_the_same_frozen_object
 [[scenarios]]
 id = "a4b.groups.recorded_group_projects_only_selected_member_without_output_reads"
 tests = ["atelier-build-v2/groups::tests::recorded_group_projects_only_selected_member_without_output_reads"]
+
+[[scenarios]]
+id = "a4b.groups.fixed_group_contract_keys_planner_without_runtime_membership"
+tests = ["atelier-build-v2/groups::tests::fixed_group_contract_keys_planner_without_runtime_membership"]
+
+[[scenarios]]
+id = "a4b.groups.member_keys_cut_off_planner_and_sibling_changes_but_bind_selected_view"
+tests = ["atelier-build-v2/groups::tests::member_keys_cut_off_planner_and_sibling_changes_but_bind_selected_view"]

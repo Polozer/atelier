@@ -29,7 +29,7 @@ fn job() -> JobRequest {
 #[test]
 fn declaration_roundtrips_toml_and_json() {
     let original = declaration();
-    assert_eq!(original.schema_version, SCHEMA_VERSION);
+    assert_eq!(original.schema_version, LEGACY_SCHEMA_VERSION);
     assert_eq!(original.units.len(), 2);
     let encoded = toml::to_string(&original).unwrap();
     assert_eq!(parse_declaration(&encoded).unwrap(), original);
@@ -68,6 +68,7 @@ fn result_roundtrip_keeps_input_key_and_output_content_distinct() {
             staged_inputs: BTreeMap::new(),
             input_kinds: BTreeMap::new(),
             logical_outputs: unit.outputs.clone(),
+            output_groups: vec![],
         },
         outputs: vec![StoredItem {
             item: unit.outputs[0].clone(),
@@ -79,6 +80,7 @@ fn result_roundtrip_keeps_input_key_and_output_content_distinct() {
             }],
             external_locator: None,
         }],
+        output_groups: vec![],
         provenance: Provenance {
             checkout: "fixture-checkout".into(),
             branch: "main".into(),
