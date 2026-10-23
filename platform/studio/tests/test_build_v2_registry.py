@@ -153,13 +153,13 @@ def test_another_tiers_filter_exclusion_is_accepted_but_never_a_pass():
     summary = check_registry(registry, listing, results={
         't0': t0, 't1a': junit_of('fixture/python')})
     assert summary['tiers']['t0'] == {'scenarios': 1, 'tests': 1, 'test_seconds': 0.1,
-                                      'excluded_other_tier': 1}
+                                      'excluded_other_tier': 1, 'excluded_native': 0}
 
 
 @pytest.mark.parametrize(('name', 'message', 'error'), [
     ('python', 'Skipped: something else', 'without the filter message'),
-    ('ghost', None, 'not another host tier'),
-    ('test', None, 'not another host tier'),
+    ('ghost', None, 'neither another host tier'),
+    ('test', None, 'neither another host tier'),
 ])
 def test_a_skip_that_is_not_another_tiers_filter_exclusion_fails(name, message, error):
     registry, listing = two_tier_evidence()
@@ -168,6 +168,37 @@ def test_a_skip_that_is_not_another_tiers_filter_exclusion_fails(name, message, 
     with pytest.raises(ValueError, match=error):
         check_registry(registry, listing, results={
             't0': t0, 't1a': junit_of('fixture/python')})
+
+
+def test_a_declared_native_test_may_be_filter_excluded_and_is_never_a_pass():
+    registry, listing = two_tier_evidence()
+    registry['scenarios'].append({'id': 'native', 'tests': ['fixture/blender'], 'tier': 't1b'})
+    listing['rust-suites']['fixture']['testcases']['blender'] = {
+        'ignored': False, 'filter-match': {'status': 'matches'}}
+    listing['test-count'] = 3
+    t0 = junit_of('fixture/test')
+    skipped_case(t0, 'fixture', 'blender')
+    t1a = junit_of('fixture/python')
+    skipped_case(t1a, 'fixture', 'blender')
+    skipped_case(t1a, 'fixture', 'test')
+    summary = check_registry(registry, listing, results={'t0': t0, 't1a': t1a})
+    assert summary['tiers']['t0'] == {'scenarios': 1, 'tests': 1, 'test_seconds': 0.1,
+                                      'excluded_other_tier': 0, 'excluded_native': 1}
+    assert summary['tiers']['t1a']['excluded_native'] == 1
+    assert summary['tiers']['t1a']['excluded_other_tier'] == 1
+    assert summary['native_excluded_tests'] == 1
+
+
+def test_a_native_test_that_passes_in_a_host_tier_is_a_mismatch():
+    registry, listing = two_tier_evidence()
+    registry['scenarios'].append({'id': 'native', 'tests': ['fixture/blender'], 'tier': 't2'})
+    listing['rust-suites']['fixture']['testcases']['blender'] = {
+        'ignored': False, 'filter-match': {'status': 'matches'}}
+    listing['test-count'] = 3
+    with pytest.raises(ValueError, match='t0 execution mismatch'):
+        check_registry(registry, listing, results={
+            't0': junit_of('fixture/test', 'fixture/blender'),
+            't1a': junit_of('fixture/python')})
 
 
 def test_execution_evidence_must_cover_every_host_tier():
@@ -414,26 +445,20 @@ def test_repository_fragments_load_with_the_tiered_schema():
     assert registry['schema_version'] == 1
     assert registry['scenarios'] and all(row['tests'] for row in registry['scenarios'])
     assert all(row['tier'] in {'t0', 't1a', 't1b', 't2'} for row in registry['scenarios'])
-    t1a = {row['id'] for row in registry['scenarios'] if row['tier'] == 't1a'}
-    assert t1a == {
-        'c1a.worker_session.python_worker_round_trip_over_dedicated_pipes',
-        'c1a.worker_session.python_worker_faults_break_the_session_over_dedicated_pipes',
-        'c1.staged-view-semantic-independence',
-        'c1b.staging.pinned_item_clones',
-        'c1b.unsandboxed-loop-refused-by-production-handshake',
-        'c2a.python.seed_and_params_change_output',
-        'c2a.python.failures_yield_no_outputs',
-        'c2a.python.sandboxed_semantic_independence',
-        'c2a.python.sandbox_refuses_undeclared_access',
-        'd1.py_data.op_definition_restricts_classes_to_data_and_requires_explicit_slots',
-        'd1.py_data.clean_rebuild_byte_equality_across_workspaces_and_locators',
-        'd1.py_data.identical_selection_cutoff_and_relevant_edit_isolation',
-        'd1.py_data.optional_absent_versus_present_and_reference_only_identity',
-        'd1.py_data.executable_and_data_member_modes_roundtrip',
-        'd1.py_data.validator_and_staging_refuse_missing_extra_links_and_malformed_domain_data',
-        'd1.py_data.undeclared_reads_and_missing_required_inputs_fail_without_partial_publish',
-        'd1.py_data.seed_determinism_and_job_alone_versus_sequential_worker_purity',
-    }
+    # One pinned sentinel: the real Python op rows must stay T1a, so a mass re-tiering is caught.
+    py_data = [row for row in registry['scenarios'] if row['id'].startswith('d1.py_data.')]
+    assert len(py_data) == 8 and all(row['tier'] == 't1a' for row in py_data)
+    # The tier the checker collects is the tier the fragments declare on this host.
+    applicable = [row for row in registry['scenarios']
+                  if 'linux' in row.get('platforms', ['linux', 'darwin'])]
+    listing = listing_of(*(test for row in applicable for test in row['tests']), triple=LINUX)
+    plan = _module._plan(registry, listing)
+    declared = {}
+    for row in applicable:
+        declared.setdefault(row['tier'], set()).update(row['tests'])
+    assert plan['expected']['t0'] == declared.get('t0', set())
+    assert plan['expected']['t1a'] == declared.get('t1a', set())
+    assert set(plan['native']) == declared.get('t1b', set()) | declared.get('t2', set())
 
 
 def test_cli_writes_one_filter_per_tier_from_the_registry(tmp_path, monkeypatch, capsys):
