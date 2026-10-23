@@ -47,3 +47,7 @@ tests = ["atelier-build-v2::worker_lifecycle/completed_work_is_kept_and_later_fa
 [[scenarios]]
 id = "c5b.lifecycle.settlement_never_outlasts_the_overall_deadline"
 tests = ["atelier-build-v2::worker_lifecycle/settlement_never_outlasts_the_overall_deadline"]
+
+[[scenarios]]
+id = "c5b.lifecycle.a_worker_that_stops_reading_cannot_block_the_overall_deadline"
+tests = ["atelier-build-v2::guard_adapter/a_worker_that_stops_reading_cannot_block_the_overall_deadline"]

@@ -4,7 +4,8 @@ Usage: disposable_worker.py SCENARIO --request-fd N --response-fd M (the launche
 flags). It marks both protocol descriptors non-inheritable, then starts exactly one descendant that
 lives until this worker's pipe to it closes, so a guard sees a two-process tree. Scenarios after
 `started`: normal (completed), fail (failed/job), crash (exit 3), crash_once (exit 3 unless the
-CRASH_MARKER file exists, which it creates), hang (wait until stopped or the pipe closes).
+CRASH_MARKER file exists, which it creates), hang (wait until stopped or the pipe closes),
+deaf (sends hello, then never reads again until stopped).
 WORKER_FD_REPORT, when set, names a JSON file recording the descriptors this process holds.
 Only the standard library and the Python protocol module, loaded by path, are used.
 """
@@ -14,6 +15,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 _path = Path(__file__).resolve().parents[3] / 'studio/atelier/build_v2/protocol.py'
 _spec = importlib.util.spec_from_file_location('build_v2_protocol', _path)
@@ -69,6 +71,9 @@ def main(argv):
         sys.exit(code)
 
     send({'type': 'hello', 'worker_version': VERSION})
+    if scenario == 'deaf':
+        while True:
+            time.sleep(.05)  # never reads its request pipe; only a stop ends this worker
     while True:
         request = receive()
         if request is None:

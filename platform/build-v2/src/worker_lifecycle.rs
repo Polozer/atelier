@@ -15,7 +15,7 @@ use crate::guard_adapter::{
     WorkerCommand, WorkerLauncher,
 };
 use crate::leases::ProcessIdentity;
-use crate::protocol::{JobOutputs, JobRequest, Response, read_frame, write_frame};
+use crate::protocol::{JobOutputs, JobRequest, Request, Response, read_frame, write_frame};
 use crate::worker_session::{Event as WorkerEvent, Session, SessionError};
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -630,6 +630,10 @@ enum Message {
         attempt: u32,
         frame: io::Result<Option<Response>>,
     },
+    WriteFailed {
+        attempt: u32,
+        error: String,
+    },
     Cancel,
 }
 
@@ -646,7 +650,9 @@ impl Canceller {
 struct Live<A> {
     handle: A,
     session: Session,
-    writer: Option<Box<dyn Write + Send>>,
+    /// Queue to the attempt's writer thread; dropping it closes the request pipe once the
+    /// thread finishes any write in progress.
+    writer: Option<Sender<Request>>,
 }
 
 fn reader(attempt: u32, mut stream: Box<dyn Read + Send>, sink: Sender<Message>) {
@@ -659,6 +665,29 @@ fn reader(attempt: u32, mut stream: Box<dyn Read + Send>, sink: Sender<Message>)
             }
         }
     });
+}
+
+/// Requests are written on their own thread, so a worker that stops reading can never block
+/// the lifecycle's deadline, cancellation or stop handling (failure-policy-time-limits). A
+/// blocked write ends when the guard stops the worker and the pipe closes.
+fn writer(
+    attempt: u32,
+    mut stream: Box<dyn Write + Send>,
+    sink: Sender<Message>,
+) -> Sender<Request> {
+    let (requests, queue) = mpsc::channel::<Request>();
+    thread::spawn(move || {
+        for request in queue {
+            if let Err(error) = write_frame(&mut stream, &request) {
+                let _ = sink.send(Message::WriteFailed {
+                    attempt,
+                    error: error.to_string(),
+                });
+                return;
+            }
+        }
+    });
+    requests
 }
 
 /// A channel pair for [`run_job`]: hand out the [`Canceller`], pass the other half in.
@@ -737,7 +766,7 @@ pub fn run_job<L: WorkerLauncher>(
                         Ok(mut handle) => {
                             let writer = handle.take_pipes().map(|(response, request)| {
                                 reader(attempt, response, inbox.sender.clone());
-                                request
+                                writer(attempt, request, inbox.sender.clone())
                             });
                             live.insert(
                                 attempt,
@@ -765,11 +794,12 @@ pub fn run_job<L: WorkerLauncher>(
                             _ => entry.session.shutdown(),
                         };
                         let sent = request.map_err(fault_of).and_then(|request| {
-                            let writer = entry.writer.as_mut().ok_or_else(|| {
+                            let writer = entry.writer.as_ref().ok_or_else(|| {
                                 WorkerFault::Disconnected("no request pipe".into())
                             })?;
-                            write_frame(writer, &request)
-                                .map_err(|error| WorkerFault::Disconnected(error.to_string()))
+                            writer.send(request).map_err(|_| {
+                                WorkerFault::Disconnected("the request pipe closed".into())
+                            })
                         });
                         if let Err(fault) = sent {
                             pending.push(Input::Worker {
@@ -809,6 +839,10 @@ pub fn run_job<L: WorkerLauncher>(
                 match message {
                     None => Input::Tick,
                     Some(Message::Cancel) => Input::Cancel,
+                    Some(Message::WriteFailed { attempt, error }) => Input::Worker {
+                        attempt,
+                        event: Err(WorkerFault::Disconnected(error)),
+                    },
                     Some(Message::Launch(event)) => {
                         if matches!(event.event, LaunchEvent::Finished { .. }) {
                             // The admission owner is done; drop its pipes and handle.

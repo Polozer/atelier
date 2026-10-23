@@ -596,6 +596,39 @@ fn driver_reports_launch_failure_only_before_a_spawn() {
 }
 
 #[test]
+fn a_worker_that_stops_reading_cannot_block_the_overall_deadline() {
+    // Paid review: hello, then the worker never reads; the job request is larger than any pipe
+    // buffer. The 1 s overall deadline must still end the job long before the 120 s job limit.
+    let space = Workspace::new();
+    let mut job = spec(&space, "deaf", 200);
+    job.limits = Limits {
+        job: Duration::from_secs(120),
+        cleanup: Duration::from_millis(200),
+        overall: Some(Duration::from_secs(1)),
+    };
+    job.job
+        .params
+        .insert("padding".into(), Value::String("x".repeat(1 << 20)));
+    let (_canceller, inbox) = job_channel();
+    let began = std::time::Instant::now();
+    let report = run_job(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &job,
+        inbox,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    assert!(
+        began.elapsed() < Duration::from_secs(10),
+        "returned in {:?}",
+        began.elapsed()
+    );
+    assert_eq!(report.outcome.end, End::Failed(Stop::OverallDeadline));
+    assert_eq!(report.attempts.len(), 1);
+}
+
+#[test]
 fn concurrent_handshakes_stay_within_bound() {
     // Two attempts at once must not share descriptors or events.
     let handles: Vec<_> = (0..2)
