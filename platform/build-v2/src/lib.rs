@@ -9,6 +9,7 @@ pub mod cleanup;
 pub mod completion;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod demand;
+pub mod explain;
 pub mod failure_policy;
 pub mod fixture;
 pub mod graph;
@@ -31,6 +32,7 @@ pub mod python_executor;
 pub mod python_sources;
 pub mod python_worker;
 pub mod results;
+pub mod roots;
 pub mod scheduler;
 pub mod schema;
 pub mod source_hashes;

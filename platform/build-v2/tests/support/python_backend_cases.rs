@@ -235,6 +235,7 @@ impl Control for Running {
 
 struct Run {
     report: scheduler::Report,
+    summary: crate::explain::BuildSummary,
     io: PythonIo,
     items: BTreeMap<(String, String), StoredItem>,
     fresh_bytes: BTreeMap<String, Vec<u8>>,
@@ -403,10 +404,11 @@ fn run_graph(
         },
     };
     let mut executor = PythonExecutor::scripted_fixture(launcher, config);
+    let recorder = crate::explain::Recorder::default();
     let report = scheduler::run(
         request,
-        &mut backend,
-        &mut executor,
+        &mut recorder.backend(&mut backend),
+        &mut recorder.executor(&mut executor),
         &Running,
         &mut SourceHashCache::default(),
     )
@@ -455,8 +457,21 @@ fn run_graph(
         }
     }
     let io = backend.finish().unwrap();
+    let summary = recorder
+        .summarize(&report, &BTreeMap::new(), Some(&io.launches_by_unit))
+        .unwrap();
+    assert_eq!(
+        summary.counts.cached + summary.counts.not_cached,
+        io.publications
+    );
+    assert_eq!(summary.counts.installed_units, io.installs);
+    assert_eq!(summary.counts.receipt_writes, io.receipt_writes);
+    if let Some(launches) = summary.counts.launched_attempts {
+        assert_eq!(launches, io.launches);
+    }
     Run {
         report,
+        summary,
         io,
         items,
         fresh_bytes,
@@ -514,6 +529,8 @@ fn failed_submission_keeps_abort_reason_without_claiming_user_cancellation() {
         result.report.states
     );
     assert_eq!(result.io.launches, 0);
+    assert_eq!(result.summary.counts.launched_attempts, Some(0));
+    assert_eq!(result.summary.counts.worker_completed, 0);
     assert_eq!(result.io.worker_files_written, 3);
     assert_eq!(result.io.publications, 0);
     assert_eq!(result.io.installs, 0);
@@ -530,6 +547,8 @@ fn actual_python_first_build_and_current_noop_have_real_zero_launch_and_write_ev
     let first = build(&space, chain(None), &["a", "b"], StoreMode::Ready);
     assert!(first.report.fatal.is_none(), "{:?}", first.report.states);
     assert_eq!(first.io.launches, 2);
+    assert_eq!(first.summary.counts.launched_attempts, Some(2));
+    assert_eq!(first.summary.counts.cached, 2);
     assert_eq!(first.io.input_clones, 1);
     assert_eq!(first.io.installs, 2);
     assert_eq!(first.io.receipt_writes, 2);
@@ -546,6 +565,9 @@ fn actual_python_first_build_and_current_noop_have_real_zero_launch_and_write_ev
             .all(|state| *state == State::Current)
     );
     assert_eq!(noop.io, PythonIo::default());
+    assert_eq!(noop.summary.counts.current, 2);
+    assert_eq!(noop.summary.counts.launched_attempts, Some(0));
+    assert_eq!(noop.summary.counts.receipt_writes, 0);
     assert_eq!(observations(&space.0), before);
 }
 
@@ -751,6 +773,7 @@ fn actual_python_not_cached_local_output_feeds_a_consumer_and_finishes_checkout(
         ));
     }
     assert_eq!(result.io.launches, 2);
+    assert_eq!(result.summary.counts.not_cached, 2);
     assert_eq!(result.io.input_clones, 1);
     assert_eq!(result.io.installs, 1);
     assert!(!space.path("cache").exists());

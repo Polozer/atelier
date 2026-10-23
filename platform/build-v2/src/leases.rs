@@ -44,8 +44,10 @@ pub struct LeaseRecord {
 }
 
 impl LeaseRecord {
-    pub fn may_reclaim(&self, mut probe: impl FnMut(&ProcessIdentity) -> Liveness) -> bool {
-        // No timestamp participates: even one unknown worker prevents reclamation.
+    /// Base identity rule only: every owner and worker must be positively dead. This is not a
+    /// reclamation decision; `roots::may_reclaim` is the only public one, because a dead session
+    /// custodian still needs durably confirmed guard cleanup. No timestamp participates.
+    pub fn identities_all_dead(&self, mut probe: impl FnMut(&ProcessIdentity) -> Liveness) -> bool {
         std::iter::once(&self.owner)
             .chain(self.workers.iter())
             .all(|process| probe(process) == Liveness::Dead)
@@ -199,6 +201,11 @@ impl LeaseStore {
 }
 
 impl MetadataGuard {
+    /// Canonical store root this guard locks. A guard MUST only certify its own store's metadata.
+    pub(crate) fn store_root(&self) -> &Path {
+        &self.root
+    }
+
     fn path(&self, id: &str) -> PathBuf {
         self.root.join("leases").join(format!("{id}.json"))
     }
