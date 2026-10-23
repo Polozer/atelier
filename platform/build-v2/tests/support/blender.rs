@@ -350,10 +350,12 @@ pub fn fake_loop(blender: &Path) -> WorkerCommand {
         fixture_file("unsandboxed_blender_loop.py")
             .canonicalize()
             .unwrap(),
-    );
-    command
-        .args
-        .extend(["--blender".into(), blender.to_string_lossy().into_owned()]);
+    )
+    .unwrap();
+    command.args.extend([
+        "--blender".into(),
+        blender.to_str().expect("UTF-8 test path").into(),
+    ]);
     command
 }
 

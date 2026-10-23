@@ -29,7 +29,7 @@ fn main() {
         .join("../studio/atelier/build_v2/blender_worker.py")
         .canonicalize()
         .unwrap();
-    let command = WorkerCommand::blender_job_loop(blender.clone(), script);
+    let command = WorkerCommand::blender_job_loop(blender.clone(), script).unwrap();
     let op = fs::read_to_string(fixture_file("t1b/pyramid_op.py")).unwrap();
     let space = Workspace::new();
     let secret = space.path("outside/secret.txt");

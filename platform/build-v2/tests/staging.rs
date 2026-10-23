@@ -632,7 +632,7 @@ fn job_loop(sandboxed: bool) -> WorkerCommand {
     } else {
         "tests/fixtures/unsandboxed_job_loop.py"
     });
-    WorkerCommand::python_job_loop(python(), script.canonicalize().unwrap())
+    WorkerCommand::python_job_loop(python(), script.canonicalize().unwrap()).unwrap()
 }
 
 fn loop_version(sandboxed: bool) -> &'static str {

@@ -5,6 +5,10 @@ id = "c2b.blender.loop_command_threads_before_script"
 tests = ["atelier-build-v2::blender_jobs/blender_job_loop_command_keeps_explicit_threads_before_the_script"]
 
 [[scenarios]]
+id = "c2b.launch.non_utf8_script_path_refused"
+tests = ["atelier-build-v2::blender_jobs/job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it"]
+
+[[scenarios]]
 id = "c2b.blender.unsandboxed_loop_refused_by_production_handshake"
 tests = ["atelier-build-v2::blender_jobs/an_unsandboxed_blender_loop_never_passes_a_production_keyed_handshake"]
 

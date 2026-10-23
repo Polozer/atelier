@@ -19,7 +19,8 @@ fn blender_job_loop_command_keeps_explicit_threads_before_the_script() {
     let command = WorkerCommand::blender_job_loop(
         PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
         PathBuf::from("/checkout/platform/studio/atelier/build_v2/blender_worker.py"),
-    );
+    )
+    .unwrap();
     assert_eq!(
         command.args,
         [
@@ -49,6 +50,26 @@ fn blender_job_loop_command_keeps_explicit_threads_before_the_script() {
         "nothing else is inherited"
     );
     assert_ne!(BLENDER_JOB_LOOP_VERSION, PYTHON_JOB_LOOP_VERSION);
+}
+
+#[test]
+fn job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it() {
+    use std::os::unix::ffi::OsStringExt;
+    let script = PathBuf::from(std::ffi::OsString::from_vec(
+        b"/checkout/build_v2/worker\xff.py".to_vec(),
+    ));
+    let program = PathBuf::from("/usr/bin/worker");
+    for refusal in [
+        WorkerCommand::python_job_loop(program.clone(), script.clone()).unwrap_err(),
+        WorkerCommand::blender_job_loop(program.clone(), script.clone()).unwrap_err(),
+    ] {
+        assert_eq!(refusal.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(refusal.to_string().contains("not UTF-8"), "{refusal}");
+    }
+    // The same path in UTF-8 is kept byte for byte.
+    let script = PathBuf::from("/checkout/build_v2/worker\u{e9}.py");
+    let command = WorkerCommand::python_job_loop(program, script).unwrap();
+    assert_eq!(command.args, ["-I", "/checkout/build_v2/worker\u{e9}.py"]);
 }
 
 #[test]
