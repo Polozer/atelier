@@ -100,16 +100,18 @@ def bind_code(sources):
         path=GAME/'unreal/Source/Yorimichi'/name;sources[str(path)]=identity(path)
 
 
-def reuse_frozen(source,output,content,expected_sha):
-    """Copy only exact existing source evidence/FBX/shaders, never old native outputs or stamps."""
+def frozen_inputs(source,expected_sha):
+    """Validate consumed frozen source authority without requiring a retired producer checkout."""
     from gondola_native_equivalence import unchanged
     source=real_directory(Path(source).absolute());spec_path=source/'spec.json';spec_before=identity(spec_path)
     if spec_before['sha256']!=expected_sha:raise ValueError('Frozen Gondola spec differs from explicit authority')
     old=json.loads(spec_path.read_bytes())
     if old.get('schema')!=1 or old.get('region')!='gondola-native' or old['original_names']!=list(PARENTS) or old.get('original_revision')!=ORIGINAL:
         raise ValueError('Exact original three-owner frozen Gondola fixture required')
-    unchanged(old['source_files']);unchanged(old['frozen_files'])
-    if output.exists() or output.is_symlink():raise ValueError('Fresh exclusive fixture output required')
+    # Historical producer checkout rows are provenance in the bound old spec.
+    # Native receiving consumes its independently frozen files; current executable
+    # code is rebound by bind_code/current_native_build, never inherited from it.
+    unchanged(old['frozen_files'])
     # Validate membership before the first copy. The 21 FBXs and shader manifest/12PNG
     # have independent SHA/stat authority, not a transplanted native success claim.
     from atelier.model_files import member
@@ -137,6 +139,14 @@ def reuse_frozen(source,output,content,expected_sha):
     rope=json.loads(paths['source-evidence/current-rope/results/proof.json'].read_bytes())
     access=json.loads(paths['source-evidence/current-access-rim/results/proof.json'].read_bytes())
     profile_sha=identity(paths['site.json'])['sha256']
+    site=json.loads(paths['site.json'].read_bytes())
+    for relative in shader|{'out/gondola/manifest.json'}:
+        key=relative.removeprefix('out/gondola/')
+        if identity(paths[relative])['sha256']!=site['inputs']['kit'][key]:
+            raise ValueError('Frozen shader differs from original source authority')
+    for name in ('mesh_import.py','import_gondola.py'):
+        if identity(paths['archive/'+name])['sha256']!=site['inputs']['code']['games/yorimichi/unreal/Scripts/'+name]:
+            raise ValueError('Frozen immutable importer differs from original source authority')
     if rope.get('profiles_sha256')!=profile_sha or len(rope.get('assets',{}))!=6:
         raise ValueError('Incomplete original rope source authority')
     for parent in PARENTS:
@@ -158,6 +168,17 @@ def reuse_frozen(source,output,content,expected_sha):
             for index,row in enumerate(pair['actual']):
                 if identity(paths[f'out/gondola/world/atomic-assets/{key}_Piece{index:02d}.fbx'])['sha256']!=row['sha256']:
                     raise ValueError('Frozen bounded FBX differs from independent source proof')
+    unchanged(old['frozen_files'])
+    if identity(spec_path)!=spec_before:raise ValueError('Frozen fixture spec changed')
+    return old,paths,spec_before
+
+
+def reuse_frozen(source,output,content,expected_sha):
+    """Copy only exact existing source evidence/FBX/shaders, never old native outputs or stamps."""
+    from gondola_native_equivalence import unchanged
+    if output.exists() or output.is_symlink():raise ValueError('Fresh exclusive fixture output required')
+    source=real_directory(Path(source).absolute());spec_path=source/'spec.json'
+    old,paths,spec_before=frozen_inputs(source,expected_sha)
     output.mkdir(parents=True);frozen={};sources={str(spec_path):spec_before}
     for relative,path in paths.items():
         if relative.startswith('archive/') and relative not in ('archive/mesh_import.py','archive/import_gondola.py'):continue
@@ -180,9 +201,9 @@ def reuse_frozen(source,output,content,expected_sha):
     spec=dict(old,schema=2,phase='current',game=str(GAME),out=str(output/'out'),archive=str(archive),output=str(output/'current'),
         namespace=namespace,content=str(real_directory(content.absolute()).resolve()),profiles=str(output/'site.json'),
         source_files=sources,frozen_files=frozen,native=native,launch=launch,
-        source_fixture=dict(path=str(spec_path),sha256=spec_before['sha256'],source_success_not_native_acceptance=True))
+        source_fixture=dict(path=str(spec_path),sha256=spec_before['sha256'],consumed_authority='frozen_files',source_success_not_native_acceptance=True))
     atomic_json(output/'spec.json',spec)
-    unchanged(old['source_files']);unchanged(old['frozen_files'])
+    unchanged(old['frozen_files'])
     if identity(spec_path)!=spec_before:raise ValueError('Frozen fixture spec changed')
     unchanged(sources);unchanged(frozen)
     return output/'spec.json'

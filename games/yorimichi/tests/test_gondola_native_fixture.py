@@ -161,6 +161,14 @@ def frozen_fixture(tmp_path):
                            ('results/proof.json',report)]:put('source-evidence/'+kind+'/'+name,json.dumps(value).encode())
     for name in ('mesh_import.py','import_gondola.py'):put('archive/'+name,(host.GAME/'unreal/Scripts'/name).read_bytes())
     for name in ('material.py','finish_before.py','finish_after.py'):put('archive/'+name,b'# unexecuted prior namespace wrapper\n')
+    site.write_text(json.dumps(dict(inputs=dict(
+        kit={Path(name).relative_to(root/'out/gondola').as_posix():row['sha256'] for name,row in files.items()
+             if name.startswith(str(root/'out/gondola/textures')+'/') or name==str(root/'out/gondola/manifest.json')},
+        code={'games/yorimichi/unreal/Scripts/'+name:files[str(root/'archive'/name)]['sha256']
+              for name in ('mesh_import.py','import_gondola.py')}))))
+    files[str(site)]=host.identity(site)
+    rope['profiles_sha256']=host.identity(site)['sha256']
+    report=root/'source-evidence/current-rope/results/proof.json';report.write_text(json.dumps(rope));files[str(report)]=host.identity(report)
     source=tmp_path/'actual_source.py';source.write_text('# frozen source authority\n')
     spec=dict(schema=1,region='gondola-native',original_revision=host.ORIGINAL,original_names=list(host.PARENTS),exports=exports,
         current_names=sorted(p['name'] for row in exports if '_Rope_LOD1' not in row['name'] and '_Rope_LOD2' not in row['name'] for p in row['pieces']),
@@ -171,12 +179,18 @@ def frozen_fixture(tmp_path):
 def test_preparation_reuses_only_exact_frozen_inputs_and_rebinds_current_driver(tmp_path,monkeypatch):
     import json
     root,path,old=frozen_fixture(tmp_path)
+    # The old live producer is retired. Its exact independent frozen handoff,
+    # not a producer checkout or old native certificate, is the consumed authority.
+    for name in old['source_files']:Path(name).unlink()
     monkeypatch.setattr(host,'bind_code',lambda rows:rows.update({str(PATH):host.identity(PATH)}))
     engine=tmp_path/'engine/Engine';(engine/'Config').mkdir(parents=True);(engine/'Config/BaseEngine.ini').write_text('unit engine config')
     monkeypatch.setattr(host,'runtime_binding',lambda output:({'unit_compiled_binding':True},{'engine_dir':str(engine)}))
     target=tmp_path/'prepared';result=host.reuse_frozen(root,target,tmp_path/'receiving/Content',host.identity(path)['sha256'])
     current=json.loads(result.read_bytes())
     assert current['schema']==2 and current['native']=={'unit_compiled_binding':True}
+    assert current['source_fixture']['consumed_authority']=='frozen_files'
+    assert not set(old['source_files']) & set(current['source_files'])
+    assert str(PATH) in current['source_files']
     assert len(list((target/'out').rglob('*.fbx')))==21
     assert len(list((target/'out/gondola/textures').glob('*.png')))==12
     assert current['namespace'] in (target/'archive/material.py').read_text()
