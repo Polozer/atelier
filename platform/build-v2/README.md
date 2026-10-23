@@ -439,3 +439,28 @@ remains, which `LeaseRecord::may_reclaim` reclaims once the owner is dead.
 later B7/A5/A9 integration. Store, lease, clone or root failures after local output validation preserve
 valid work as `CompletedNotCached`, whereas invalid producer outputs, validator rejections and
 same-key nondeterminism fail the unit.
+
+## Unit demand (A5)
+
+The unused `demand` module separates checkout satisfaction from stored availability.
+`checkout` first uses B3's cache-independent receipt reader. A current target returns
+without invoking the lazy cache opener or rewriting output, receipt or index files.
+Explicit retirement intents still require preflight even when surviving outputs are
+current. Dirty/absent targets use one B3 `lookup_restore`; misses retain that original
+write transaction, and hits return the existing install plan. Lock, recovery and
+ownership refusals remain hard errors rather than a reason to bypass install custody.
+
+`stored` uses B2's checked, durably pinned `lookup_groups`, exposing recorded content and
+private group tokens through a `StoredHit`. It never installs checkout files. Rooting
+delegates to B2; failed root callbacks retain claims. Missing/damaged/unavailable stores
+use B7a typed non-hit classifiers without offline verification, byte-copy fallback or
+payload rehashing. A miss without a transaction does not authorize unleased writes.
+
+The caller supplies an already prepared exact key and a matching checkout/project cache
+opener. These functions do not select, key, traverse, dispatch or stage ancestors: a
+satisfied final demand returns immediately. Tests use an A4-selected two-unit reference
+closure and a real cached final result with no intermediate result to prove this API
+does not materialize prerequisites. This does not prove cold key resolution, dynamic
+planner scheduling, worker staging or A9's end-to-end dispatch/output cutoff; those
+integration obligations remain separate. The complete ownership view and exact
+retirement authority still come from B3/D4 callers, never path-prefix inference.
