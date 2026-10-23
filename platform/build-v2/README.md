@@ -724,3 +724,36 @@ B4/B4b usage retention, the sole `roots::may_reclaim` adapter, same-store custod
 handling, the restore/GC race, CLI wiring and physical free-space proof remain separate. No shared
 store cleanup or production activation is added. All nine registered pure cases remain T0; the
 pending `t0.restore-gc-race` row is retained.
+
+## Unreal worker (C3)
+
+`unreal::UnrealContext` declares what one Unreal session loads: the engine root and BuildId, the
+editor compile (`Binaries`: a produced folder and its `tree_identity`), the project modules, the
+enabled engine plugins, the project plugins (the editor-only `AtelierBuildWorker` plugin is required)
+and the declared `-ini:`/`-ForceDPCVars=` settings. `identity()` drops every location, and
+`profile()` (`unreal-<sha256>`) is the scheduler's `Compatibility.profile`. The profile only groups
+sessions: semantic ini, CVars and module bytes still enter each unit's key.
+
+`ScratchProject::prepare(session, ctx)` builds `<session>/project/Atelier.uproject` with empty
+`Content`, `Config`, `Saved` and `Intermediate`, and a session `user/` folder. It APFS-clones only the
+editor binaries and each plugin's descriptor and `Binaries`, checks them against the declared
+identities, writes `scratch-receipt.json` and `Atelier/expected-context.json`, and makes the clones
+read-only. A module the editor wants to rebuild therefore fails closed. `verify()` rechecks the
+receipt after the session. Off macOS, `prepare` refuses with "requires macOS".
+
+`job_loop_command` runs `UnrealEditor-Cmd` on the scratch project with
+`-run=pythonscript -script=platform/studio/atelier/build_v2/unreal_worker.py`, fixed unattended
+flags, `-NullRHI`, `-UserDir=<session>/user` and the declared settings. The launcher appends the
+protocol descriptors. The worker writes `<session>/unreal-context.json` (what the editor loaded)
+before `hello`, and the controller reads it with `verify_context_report()` before the first `Run`.
+Each job then:
+- gets an empty `/Game` with its input packages copied in read-only;
+- must save exactly its declared packages, which move to `output/content/Game/`;
+- leaves its import tables in `evidence/imports.json` (`read_import_evidence`).
+
+After each job the worker resets Python state, `/Game`, the asset registry, loaded packages
+(checked with `find_object`) and settings. If any check fails it replies, then exits.
+
+T0 runs this end to end against `tests/fixtures/fake_unreal.py`, a stand-in editor with the same
+command line and plugin surface. Real-editor behaviour (descriptor inheritance, `-UserDir`, shader
+workers, registry forgetting and engine-wide writes) is T2 evidence. Unreal is not sandboxed.

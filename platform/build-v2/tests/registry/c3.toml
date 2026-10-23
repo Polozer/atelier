@@ -1,0 +1,51 @@
+schema_version = 1
+
+[[scenarios]]
+id = "c3.unreal.profile_ignores_locations"
+tests = ["atelier-build-v2::unreal/the_profile_ignores_locations_and_follows_every_identity_field"]
+
+[[scenarios]]
+id = "c3.unreal.context_validation"
+tests = ["atelier-build-v2::unreal/contexts_refuse_what_a_session_cannot_load_honestly"]
+
+[[scenarios]]
+id = "c3.unreal.tree_identity"
+tests = ["atelier-build-v2::unreal/a_tree_identity_names_paths_and_bytes_and_refuses_links"]
+
+[[scenarios]]
+id = "c3.unreal.command_line"
+tests = ["atelier-build-v2::unreal/the_command_line_runs_the_worker_script_on_the_scratch_project_with_declared_settings"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "c3.unreal.scratch_project_read_only_clones"
+tests = ["atelier-build-v2::unreal/a_scratch_project_clones_only_declared_binaries_read_only_and_checks_their_identity"]
+
+[[scenarios]]
+id = "c3.unreal.evidence_files"
+tests = ["atelier-build-v2::unreal/context_and_import_evidence_are_required_well_formed_and_exact"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "c3.unreal.session_serves_jobs_with_clean_game_folder"
+tests = ["atelier-build-v2::unreal/editor_session::one_editor_serves_jobs_in_order_with_a_clean_game_folder_between_them"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "c3.unreal.membership_failures_and_next_job"
+tests = ["atelier-build-v2::unreal/editor_session::undeclared_saves_files_dirty_packages_and_op_errors_fail_and_the_next_job_runs"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "c3.unreal.reset_failure_retires_editor"
+tests = ["atelier-build-v2::unreal/editor_session::a_package_left_loaded_or_a_changed_setting_retires_the_editor_after_its_reply"]
+platforms = ["darwin"]
+
+[[scenarios]]
+id = "c3.unreal.context_mismatch_and_rebuild_refused"
+tests = ["atelier-build-v2::unreal/editor_session::a_different_native_context_or_a_module_rebuild_never_says_hello"]
+platforms = ["darwin"]
+
+[[pending]]
+id = "t2.unreal-worker-purity"
+task = "C3"
