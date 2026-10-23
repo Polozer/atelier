@@ -1165,3 +1165,168 @@ fn unknown_private_cleanup_leaves_preserve_journal_and_block_readers() {
         }
     }
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn current_sources_pin_without_cache_and_clone_only_certified_unchanged_items() {
+    use atelier_build_v2::protocol::StagedInput;
+    use atelier_build_v2::staging::{ObjectSource, SourceErrorKind};
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture("first", "1");
+    publish(&workspace, &unit, b"current bytes", None, 0o644);
+    restore(&installer, &guard, &unit, &view("first", &graph));
+    fs::remove_dir_all(workspace.path("cache")).unwrap();
+    fs::write(workspace.path("cache"), b"unavailable").unwrap();
+    let reader = ReceiptReader::open(
+        &workspace.0,
+        InstallPolicy {
+            project: namespace("first"),
+            allowed_install_roots: vec!["games/first/Content".into()],
+        },
+    )
+    .unwrap();
+    let sources = reader.pin_current_sources(&guard, &unit).unwrap().unwrap();
+    let receipt = &sources.receipts()[0];
+    let input = PreparedInput {
+        wire: StagedInput {
+            name: "item".into(),
+            path: "inputs/item".into(),
+            identity: ContentIdentity::Digest {
+                digest: "a".repeat(64),
+            },
+        },
+        payload: InputPayload::Item {
+            logical_path: receipt.logical_path.clone(),
+            class: receipt.class.clone(),
+            files: receipt
+                .files
+                .iter()
+                .map(|file| StoredFile {
+                    path: file.output_path.clone(),
+                    digest: file.digest.clone(),
+                    size: file.size,
+                    mode: file.mode,
+                })
+                .collect(),
+        },
+    };
+    let objects = sources.objects_for(&[&input]).unwrap();
+    let digest = atelier_build_v2::store::ObjectDigest::from_hex(&receipt.files[0].digest).unwrap();
+    let clone = workspace.path("job-clone");
+    objects.clone_object(&digest, &clone).unwrap();
+    assert_eq!(fs::read(&clone).unwrap(), b"current bytes");
+    assert!(matches!(
+        installer.recover(&guard, &view("first", &graph)),
+        Err(InstallError::Lock(
+            atelier_build_v2::checkout_locks::LockError::Busy
+        ))
+    ));
+    let mut mismatched = input.clone();
+    if let InputPayload::Item { files, .. } = &mut mismatched.payload {
+        files[0].mode = 0o755;
+    }
+    assert!(sources.objects_for(&[&mismatched]).is_err());
+    fs::write(
+        workspace.path("games/first/Content/Shared.bin"),
+        b"changed live bytes",
+    )
+    .unwrap();
+    let refused = workspace.path("refused");
+    assert_eq!(
+        objects.clone_object(&digest, &refused).unwrap_err().kind,
+        SourceErrorKind::Changed
+    );
+    assert!(!refused.exists());
+    assert_eq!(fs::read(&clone).unwrap(), b"current bytes");
+    drop(objects);
+    drop(sources);
+    installer.recover(&guard, &view("first", &graph)).unwrap();
+    assert!(reader.pin_current_sources(&guard, &unit).unwrap().is_none());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn retirement_valid_at_prepare_refuses_new_owner_receipt_before_journal_or_mutation() {
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (before, old) = fixture("first", "1");
+    publish(&workspace, &old, b"old", Some(b"old-side"), 0o644);
+    restore(&installer, &guard, &old, &view("first", &before));
+    let CurrentStatus::Current(receipts) = installer.receipt_status(&guard, &old).unwrap() else {
+        panic!("missing receipt")
+    };
+    let receipt = &receipts[0];
+    let removal = RemovalIntent {
+        owner: receipt.owner.clone(),
+        expected_receipt_id: sha256(&canonical_bytes(receipt).unwrap()),
+        exact_paths: receipt
+            .files
+            .iter()
+            .map(|file| file.install_path.clone())
+            .collect(),
+    };
+    let (after, target) = fixture_named("first", "2", "/Game/Replacement");
+    publish(&workspace, &target, b"target", None, 0o644);
+    let plan = installer
+        .prepare_restore(
+            &guard,
+            &target,
+            identity(),
+            &view("first", &after),
+            vec![removal],
+        )
+        .unwrap()
+        .unwrap();
+    let (new_graph, newer) = fixture("first", "3");
+    publish(
+        &workspace,
+        &newer,
+        b"new owner bytes",
+        Some(b"new side"),
+        0o644,
+    );
+    restore(&installer, &guard, &newer, &view("first", &new_graph));
+    fs::write(
+        workspace.path("games/first/Content/neighbor"),
+        b"foreign neighbor",
+    )
+    .unwrap();
+    let index = fs::read(workspace.path("build/build-v2/install/index.json")).unwrap();
+    assert!(matches!(
+        plan.commit(&guard, |_| panic!("stale plan cannot root")),
+        Err(InstallError::Invalid(_))
+    ));
+    assert!(
+        !workspace
+            .path("build/build-v2/install/journal.json")
+            .exists()
+    );
+    assert_eq!(
+        fs::read(workspace.path("build/build-v2/install/index.json")).unwrap(),
+        index
+    );
+    for (name, bytes) in [
+        ("Shared.bin", b"new owner bytes".as_slice()),
+        ("Shared.side", b"new side".as_slice()),
+        ("neighbor", b"foreign neighbor".as_slice()),
+    ] {
+        assert_eq!(
+            fs::read(workspace.path("games/first/Content").join(name)).unwrap(),
+            bytes
+        );
+    }
+    assert!(
+        ResultStore::open(workspace.path("cache"))
+            .unwrap()
+            .leases()
+            .lock()
+            .unwrap()
+            .leases()
+            .unwrap()
+            .iter()
+            .any(|lease| !lease.rooted && lease.result_keys.contains(target.key()))
+    );
+}

@@ -22,7 +22,7 @@ use std::path::{Component, Path, PathBuf};
 
 /// Where staging gets stored object bytes. Implementations clone, never copy.
 pub trait ObjectSource {
-    /// Create `destination` (which must not exist) as a read-only clone of the object `digest`.
+    /// Create `destination` (which must not exist) as an independent clone of the object `digest`; staging applies its keyed read-only mode.
     fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError>;
 }
 

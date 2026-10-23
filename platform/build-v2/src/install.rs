@@ -1,16 +1,19 @@
 //! Exact-owned-set checkout installs. Store/root/worker lifecycle policy remains separate.
 //! Pre-install interruptions quarantine the pre-owned scope; later unknown mutations fail closed.
 //! The library remains unused pending final validation and separately reviewed caller integration.
-use crate::checkout_locks::{BuildGuard, CheckoutLocks, INSTALL_METADATA, LockError};
+use crate::checkout_locks::{
+    BuildGuard, CheckoutLocks, ContentReadGuard, INSTALL_METADATA, LockError,
+};
 use crate::graph::BuildGraph;
 pub use crate::install_fs::FileObservation;
 use crate::install_fs::{CreatedDirectory, RootFs};
-use crate::keys::{PreparedUnit, canonical_bytes};
+use crate::keys::{InputPayload, PreparedInput, PreparedUnit, canonical_bytes};
 use crate::leases::ProcessIdentity;
 use crate::paths::{Claims, claim, conflict, folded, logical_path, relative_path};
 use crate::results::{ResultEnvelope, ResultError, ResultStore, WriteTransaction};
 use crate::schema::{ContentSource, Destination, Input, Item, Provenance, StoredFile};
 use crate::source_hashes::sha256;
+use crate::staging::{ObjectSource, SourceError, SourceErrorKind};
 use crate::store::{ObjectDigest, ObjectStore, StoreError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -295,6 +298,174 @@ pub enum CurrentStatus {
     NotMaterialized,
 }
 
+/// Sealed checkout-byte availability. Custody ends after staging independent job clones.
+/// Public CurrentStatus receipt vectors cannot construct this capability.
+pub struct CurrentSources<'build> {
+    _build: &'build BuildGuard,
+    _read: ContentReadGuard,
+    receipts: Vec<ItemReceipt>,
+    files: BTreeMap<ObjectDigest, CurrentFile>,
+}
+struct CurrentFile {
+    file: fs::File,
+    observation: FileObservation,
+}
+impl CurrentSources<'_> {
+    pub fn receipts(&self) -> &[ItemReceipt] {
+        &self.receipts
+    }
+    pub fn contains(&self, digest: &ObjectDigest) -> bool {
+        self.files.contains_key(digest)
+    }
+    /// Bind exact consumer-visible item metadata before allowing any clone.
+    pub fn objects_for<'a>(
+        &'a self,
+        inputs: &[&PreparedInput],
+    ) -> Result<CurrentObjects<'a, '_>, InstallError> {
+        let mut allowed = BTreeSet::new();
+        for input in inputs {
+            let InputPayload::Item {
+                logical_path,
+                class,
+                files,
+            } = &input.payload
+            else {
+                return Err(invalid("current source requires a typed item input"));
+            };
+            let receipt = self
+                .receipts
+                .iter()
+                .find(|receipt| receipt.logical_path == *logical_path && receipt.class == *class)
+                .ok_or_else(|| invalid("current input item differs from certified receipt"))?;
+            if receipt.files.len() != files.len()
+                || files.iter().any(|file| {
+                    !receipt.files.iter().any(|saved| {
+                        saved.output_path == file.path
+                            && saved.digest == file.digest
+                            && saved.size == file.size
+                            && saved.mode == file.mode
+                    })
+                })
+            {
+                return Err(invalid(
+                    "current input content/mode differs from certified receipt",
+                ));
+            }
+            for file in files {
+                allowed.insert(ObjectDigest::from_hex(&file.digest)?);
+            }
+        }
+        Ok(CurrentObjects {
+            sources: self,
+            allowed,
+        })
+    }
+    /// Every descriptor is checked again by the staging adapter before and after cloning.
+    pub(crate) fn file(&self, digest: &ObjectDigest) -> Result<&fs::File, InstallError> {
+        let current = self
+            .files
+            .get(digest)
+            .ok_or_else(|| invalid("uncertified current digest"))?;
+        let metadata = current.file.metadata()?;
+        if !metadata.is_file() || FileObservation::from_metadata(&metadata) != current.observation {
+            return Err(invalid("current source changed under read custody"));
+        }
+        Ok(&current.file)
+    }
+}
+
+/// Borrowed only across C1b stage; it cannot outlive checkout read custody.
+pub struct CurrentObjects<'sources, 'build> {
+    sources: &'sources CurrentSources<'build>,
+    allowed: BTreeSet<ObjectDigest>,
+}
+impl ObjectSource for CurrentObjects<'_, '_> {
+    fn clone_object(&self, digest: &ObjectDigest, destination: &Path) -> Result<(), SourceError> {
+        let error = |kind, message: String| SourceError {
+            kind,
+            digest: digest.clone(),
+            message,
+        };
+        if !self.allowed.contains(digest) {
+            return Err(error(
+                SourceErrorKind::Unavailable,
+                "uncertified current digest".into(),
+            ));
+        }
+        let source = self
+            .sources
+            .file(digest)
+            .map_err(|e| error(SourceErrorKind::Changed, e.to_string()))?;
+        clone_current_fd(source, destination).map_err(|e| {
+            error(
+                if e.kind() == io::ErrorKind::Unsupported
+                    || matches!(e.raw_os_error(), Some(libc::ENOTSUP) | Some(libc::EXDEV))
+                {
+                    SourceErrorKind::CloneUnsupported
+                } else {
+                    SourceErrorKind::Io
+                },
+                e.to_string(),
+            )
+        })?;
+        if let Err(failure) = self.sources.file(digest) {
+            // Only our successful clone owns this leaf; never remove a pre-existing destination.
+            let _ = fs::remove_file(destination);
+            return Err(error(SourceErrorKind::Changed, failure.to_string()));
+        }
+        Ok(())
+    }
+}
+
+fn clone_current_fd(source: &fs::File, destination: &Path) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+        unsafe extern "C" {
+            fn fclonefileat(
+                source: libc::c_int,
+                directory: libc::c_int,
+                name: *const libc::c_char,
+                flags: u32,
+            ) -> libc::c_int;
+        }
+        let parent = destination.parent().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "clone destination has no parent",
+            )
+        })?;
+        let name = destination.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "clone destination has no name")
+        })?;
+        let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "clone destination contains NUL",
+            )
+        })?;
+        let directory = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(parent)?;
+        if unsafe { fclonefileat(source.as_raw_fd(), directory.as_raw_fd(), name.as_ptr(), 0) } != 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (source, destination);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "current sources require APFS clone support",
+        ))
+    }
+}
+
 /// Receipt/status access does not open or create the cache, including on cold start.
 #[derive(Clone)]
 pub struct ReceiptReader {
@@ -577,6 +748,51 @@ impl ReceiptReader {
         unit: &PreparedUnit,
     ) -> Result<CurrentStatus, InstallError> {
         self.guard(guard)?;
+        let _reader = self.locks.try_read_content()?;
+        self.current_locked(unit)
+    }
+
+    /// @cc [owner:fontanierh,label:correctness;safety] sealed-current-source-custody
+    /// Current sources MUST use the shared complete receipt/stat validator under read custody,
+    /// then pin anchored no-follow regular descriptors matching exact receipt observations.
+    /// Issuance MUST NOT open the cache, hash payloads or treat public receipt data as authority.
+    /// The read guard and build borrow MUST outlive staging; independent clones need no checkout lock.
+    pub fn pin_current_sources<'build>(
+        &self,
+        guard: &'build BuildGuard,
+        unit: &PreparedUnit,
+    ) -> Result<Option<CurrentSources<'build>>, InstallError> {
+        self.guard(guard)?;
+        let read = self.locks.try_read_content()?;
+        let CurrentStatus::Current(receipts) = self.current_locked(unit)? else {
+            return Ok(None);
+        };
+        let mut files = BTreeMap::new();
+        for receipt in &receipts {
+            for expected in &receipt.files {
+                let file = self.fs.file(&expected.install_path)?;
+                let observation = FileObservation::from_metadata(&file.metadata()?);
+                if observation != expected.observation
+                    || observation.size != expected.size
+                    || observation.mode != expected.mode
+                {
+                    return Err(invalid("current source changed before pinning"));
+                }
+                let digest = ObjectDigest::from_hex(&expected.digest)?;
+                files
+                    .entry(digest)
+                    .or_insert(CurrentFile { file, observation });
+            }
+        }
+        Ok(Some(CurrentSources {
+            _build: guard,
+            _read: read,
+            receipts,
+            files,
+        }))
+    }
+
+    fn current_locked(&self, unit: &PreparedUnit) -> Result<CurrentStatus, InstallError> {
         let items: Vec<_> = unit
             .ingredients()
             .logical_outputs
@@ -586,7 +802,6 @@ impl ReceiptReader {
         if items.is_empty() {
             return Ok(CurrentStatus::NotMaterialized);
         }
-        let _reader = self.locks.try_read_content()?;
         let index = self.index()?;
         let mut receipts = vec![];
         for item in items {
