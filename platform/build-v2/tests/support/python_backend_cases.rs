@@ -417,7 +417,13 @@ fn run_graph(
             State::Failed(_) | State::InputRefused(_) | State::Cancelled
         )
     }) {
-        eprintln!("static Python report: {report:?}; I/O: {:?}", backend.io());
+        eprintln!(
+            "static Python states: {:?}; fatal: {:?}; unsatisfied: {:?}; I/O: {:?}",
+            report.states,
+            report.fatal,
+            report.unsatisfied,
+            backend.io()
+        );
     }
     let mut items = BTreeMap::new();
     let mut fresh_bytes = BTreeMap::new();
