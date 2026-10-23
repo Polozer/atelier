@@ -22,6 +22,7 @@ mod paths;
 pub mod plans;
 pub mod protocol;
 pub mod results;
+pub mod scheduler;
 pub mod schema;
 pub mod source_hashes;
 pub mod staging;

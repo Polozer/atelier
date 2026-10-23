@@ -4,7 +4,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -126,56 +126,6 @@ impl SnapshotObservation {
     }
 }
 
-// Independent cursors over the pinned read-only file, without reopening a snapshot pathname.
-struct FrozenReader<'a> {
-    file: &'a File,
-    position: u64,
-    size: u64,
-    expected: &'a SnapshotObservation,
-}
-impl Read for FrozenReader<'_> {
-    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        if SnapshotObservation::new(&self.file.metadata()?) != *self.expected {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "pinned snapshot changed",
-            ));
-        }
-        #[cfg(unix)]
-        let count = {
-            use std::os::unix::fs::FileExt;
-            self.file.read_at(bytes, self.position)?
-        };
-        #[cfg(windows)]
-        let count = {
-            use std::os::windows::fs::FileExt;
-            self.file.seek_read(bytes, self.position)?
-        };
-        #[cfg(not(any(unix, windows)))]
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "pinned snapshot readers unsupported",
-        ));
-        #[cfg(any(unix, windows))]
-        {
-            self.position += count as u64;
-            Ok(count)
-        }
-    }
-}
-impl Seek for FrozenReader<'_> {
-    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-        let next = match position {
-            SeekFrom::Start(value) => i128::from(value),
-            SeekFrom::Current(delta) => i128::from(self.position) + i128::from(delta),
-            SeekFrom::End(delta) => i128::from(self.size) + i128::from(delta),
-        };
-        self.position = u64::try_from(next)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid snapshot seek"))?;
-        Ok(self.position)
-    }
-}
-
 fn open_snapshot(path: &Path) -> io::Result<File> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
@@ -255,7 +205,6 @@ pub struct PreparedObject {
     digest: ObjectDigest,
     size: u64,
     source_mode: u32,
-    frozen: Option<File>,
     observation: Option<SnapshotObservation>,
 }
 impl PreparedObject {
@@ -286,7 +235,6 @@ impl PreparedObject {
             digest: ObjectDigest("0".repeat(64)),
             size: 0,
             source_mode: 0,
-            frozen: None,
             observation: None,
         };
         #[cfg(unix)]
@@ -348,7 +296,6 @@ impl PreparedObject {
             return Err(StoreError::InvalidFile("snapshot changed while hashing"));
         }
         prepared.observation = Some(after_hash);
-        prepared.frozen = Some(file);
         prepared.check_frozen()?;
         Ok(prepared)
     }
@@ -363,18 +310,21 @@ impl PreparedObject {
             .observation
             .as_ref()
             .ok_or(StoreError::InvalidFile("snapshot is not certified"))?;
-        let file = self
-            .frozen
-            .as_ref()
-            .ok_or(StoreError::InvalidFile("snapshot is not pinned"))?;
-        if SnapshotObservation::new(&file.metadata()?) != *expected
-            || SnapshotObservation::new(&immutable(&self.staging)?) != *expected
-        {
+        if SnapshotObservation::new(&immutable(&self.staging)?) != *expected {
             return Err(StoreError::InvalidFile(
                 "frozen snapshot identity or observations changed",
             ));
         }
         Ok(())
+    }
+    fn open_certified(&self) -> Result<File, StoreError> {
+        self.check_frozen()?;
+        let file = open_snapshot(&self.staging)?;
+        if SnapshotObservation::new(&file.metadata()?) != *self.observation.as_ref().unwrap() {
+            return Err(StoreError::InvalidFile("opened snapshot identity changed"));
+        }
+        self.check_frozen()?;
+        Ok(file)
     }
     pub(crate) fn clone_to(&self, destination: &Path) -> Result<(), StoreError> {
         self.clone_checked(destination, || {})
@@ -384,13 +334,19 @@ impl PreparedObject {
         destination: &Path,
         after_clone: impl FnOnce(),
     ) -> Result<(), StoreError> {
-        self.check_frozen()?;
-        clone_pinned_fd(self.frozen.as_ref().unwrap(), destination).map_err(StoreError::Clone)?;
+        let source = self.open_certified()?;
+        clone_pinned_fd(&source, destination).map_err(StoreError::Clone)?;
         // The successful no-replace clone owns this leaf; a failed clone never owns an existing one.
         let cloned = fs::symlink_metadata(destination)?;
         let observed = SnapshotObservation::new(&cloned);
         after_clone();
         let checked = self.check_frozen().and_then(|_| {
+            if SnapshotObservation::new(&source.metadata()?) != *self.observation.as_ref().unwrap()
+            {
+                return Err(StoreError::InvalidFile(
+                    "pinned source changed during clone",
+                ));
+            }
             if !cloned.is_file()
                 || cloned.len() != self.size
                 || !cloned.permissions().readonly()
@@ -411,15 +367,9 @@ impl PreparedObject {
     pub(crate) fn observation_json(&self) -> serde_json::Value {
         serde_json::to_value(&self.observation).expect("snapshot observation serializes")
     }
-    /// Independent read cursor over the pinned bytes hashed by preparation, never a live pathname.
+    /// Independent cursor over the exact certified inode; no worker-output path is reopened.
     pub fn reader(&self) -> Result<impl Read + Seek + '_, StoreError> {
-        self.check_frozen()?;
-        Ok(FrozenReader {
-            file: self.frozen.as_ref().unwrap(),
-            position: 0,
-            size: self.size,
-            expected: self.observation.as_ref().unwrap(),
-        })
+        self.open_certified()
     }
     pub fn digest(&self) -> &ObjectDigest {
         &self.digest
@@ -588,7 +538,6 @@ impl ObjectStore {
         let file = open_snapshot(&object.staging)?;
         file.sync_all()?;
         object.observation = Some(SnapshotObservation::new(&file.metadata()?));
-        object.frozen = Some(file);
         Ok(object)
     }
 
@@ -690,6 +639,7 @@ mod native {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
+    use std::io::SeekFrom;
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     #[test]
