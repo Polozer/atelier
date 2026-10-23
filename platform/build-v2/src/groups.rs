@@ -1182,7 +1182,14 @@ mod tests {
             .into_iter()
             .map(|(id, token)| (("planner".into(), id), token))
             .collect();
-        let child = prepared(&declaration, &registry, &snapshot, &produced, "export").unwrap();
+        let child = prepared(
+            &declaration,
+            &registry,
+            &snapshot,
+            &produced,
+            "export.Village_Edges",
+        )
+        .unwrap();
         let objects = completion.objects_for(&[&child.inputs()[0]]).unwrap();
         let staged = crate::staging::stage(
             &child,
