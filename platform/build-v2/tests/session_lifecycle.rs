@@ -3,7 +3,7 @@
 use atelier_build_v2::failure_policy::{CleanupState, End, Expiry, Limits, MonoTime, Stop};
 use atelier_build_v2::guard_adapter::{AttemptEvent, CleanupReceipt, ExitInfo, LaunchEvent};
 use atelier_build_v2::leases::ProcessIdentity;
-use atelier_build_v2::protocol::JobOutputs;
+use atelier_build_v2::protocol::{FailureKind, JobOutputs, WorkerFailure};
 use atelier_build_v2::session_lifecycle::*;
 use atelier_build_v2::worker_lifecycle::{Custody, WorkerFault};
 use atelier_build_v2::worker_session::{Event as WorkerEvent, JobFinished};
@@ -12,6 +12,8 @@ use std::time::Duration;
 
 const JOB: u64 = 60_000;
 const CLEAN: u64 = 5_000;
+const QUIET: u64 = 1_000;
+const IDLE: u64 = 2_000;
 
 fn t(ms: u64) -> MonoTime {
     MonoTime::from_elapsed(Duration::from_millis(ms))
@@ -73,12 +75,50 @@ struct Sim {
 
 impl Sim {
     fn new() -> Self {
+        Self::with(SessionConfig {
+            cleanup: Duration::from_millis(CLEAN),
+            lifetime: Duration::from_millis(100 * JOB),
+            idle: Duration::from_millis(IDLE),
+            quiescence: None,
+        })
+    }
+
+    /// Sessions that may serve further units on quiescence evidence.
+    fn resident(lifetime: u64) -> Self {
+        Self::with(SessionConfig {
+            cleanup: Duration::from_millis(CLEAN),
+            lifetime: Duration::from_millis(lifetime),
+            idle: Duration::from_millis(IDLE),
+            quiescence: Some(Duration::from_millis(QUIET)),
+        })
+    }
+
+    fn with(config: SessionConfig) -> Self {
         Self {
-            lifecycle: SessionLifecycle::new(SessionConfig {
-                cleanup: Duration::from_millis(CLEAN),
-            }),
+            lifecycle: SessionLifecycle::new(config),
             log: vec![],
         }
+    }
+
+    fn quiet(&mut self, ms: u64, session: u32) -> Vec<SessionCommand> {
+        self.at(
+            ms,
+            SessionInput::Quiescent {
+                session,
+                sample_time: ms as f64 / 1000.0,
+            },
+        )
+    }
+
+    fn registered(&mut self, ms: u64, session: u32, unit: &str) -> Vec<SessionCommand> {
+        self.at(
+            ms,
+            SessionInput::Registered {
+                session,
+                unit: unit.into(),
+                ok: true,
+            },
+        )
     }
 
     fn at(&mut self, ms: u64, input: SessionInput) -> Vec<SessionCommand> {
@@ -215,7 +255,8 @@ fn units_run_in_order_one_session_at_a_time() {
         vec![UnitAttemptRecord {
             attempt: 1,
             session: 1,
-            custody: Custody::Released
+            custody: Custody::Released,
+            quiescent: None
         }]
     );
     assert_eq!(sim.lifecycle.unit("b").unwrap().attempts[0].session, 2);
@@ -750,4 +791,232 @@ fn a_unit_already_past_its_deadline_is_never_requeued() {
         End::Failed(Stop::OverallDeadline)
     );
     assert_eq!(sim.submits(), vec![1], "no session for an expired unit");
+}
+
+fn cancelled(job: &str) -> WorkerEvent {
+    WorkerEvent::Finished(JobFinished {
+        job_id: job.into(),
+        result: Err(WorkerFailure {
+            kind: FailureKind::Cancelled,
+            message: "cancelled".into(),
+        }),
+        cancel_requested: true,
+    })
+}
+
+fn register(session: u32, unit: &str, pid: u32) -> SessionCommand {
+    SessionCommand::Register {
+        session,
+        unit: unit.into(),
+        worker: worker(pid),
+    }
+}
+
+#[test]
+fn a_reused_session_runs_the_next_unit_only_after_quiescence_evidence() {
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(
+        sim.quiet(50, 1),
+        vec![],
+        "evidence before the terminal reply counts for nothing"
+    );
+    assert_eq!(
+        sim.worker(100, 1, completed("a")),
+        vec![],
+        "b waits: the worker stays up for it"
+    );
+    assert_eq!(
+        sim.at(150, SessionInput::Tick),
+        vec![],
+        "no Run before evidence"
+    );
+    assert_eq!(
+        sim.quiet(160, 1),
+        vec![
+            register(1, "b", 101),
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "a settles by quiescence and b joins the same session"
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(a.outcome.end, End::Completed);
+    assert_eq!(a.attempts[0].quiescent, Some(0.16));
+    assert_eq!(a.attempts[0].custody, Custody::Pending);
+    assert_eq!(
+        sim.registered(170, 1, "b"),
+        vec![SessionCommand::Run {
+            session: 1,
+            unit: "b".into()
+        }]
+    );
+    // The last unit, closed: the session ends as a one-unit session would.
+    assert_eq!(
+        sim.worker(300, 1, completed("b")),
+        vec![SessionCommand::Shutdown { session: 1 }]
+    );
+    sim.worker(310, 1, WorkerEvent::Stopped);
+    sim.launch(320, 1, exited(101));
+    assert_eq!(
+        sim.launch(330, 1, confirmed()),
+        vec![SessionCommand::Settled { unit: "b".into() }]
+    );
+    assert!(sim.lifecycle.done());
+    assert_eq!(sim.submits(), vec![1], "one admission for both units");
+    assert_eq!(sim.lifecycle.unit("b").unwrap().attempts[0].session, 1);
+}
+
+#[test]
+fn without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_unit() {
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    assert_eq!(sim.worker(100, 1, completed("a")), vec![]);
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(100 + QUIET)));
+    assert_eq!(
+        sim.at(100 + QUIET, SessionInput::Tick),
+        vec![SessionCommand::Stop { session: 1 }]
+    );
+    assert_eq!(
+        sim.quiet(1_200, 1),
+        vec![],
+        "too late: the session is stopping"
+    );
+    sim.launch(1_300, 1, exited(101));
+    assert_eq!(
+        sim.launch(1_400, 1, confirmed()),
+        vec![
+            SessionCommand::Submit { session: 2 },
+            SessionCommand::Settled { unit: "a".into() }
+        ]
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(a.attempts[0].custody, Custody::Released);
+    assert_eq!(a.attempts[0].quiescent, None);
+    sim.start(1_500, 2, 202, "b");
+}
+
+#[test]
+fn cancelling_a_running_unit_cancels_only_its_job_when_others_wait() {
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.start(10, 1, 101, "a");
+    assert_eq!(
+        sim.at(50, SessionInput::CancelUnit("a".into())),
+        vec![SessionCommand::Cancel {
+            session: 1,
+            unit: "a".into()
+        }]
+    );
+    assert_eq!(sim.worker(60, 1, cancelled("a")), vec![]);
+    assert_eq!(
+        sim.quiet(70, 1),
+        vec![
+            register(1, "b", 101),
+            SessionCommand::Settled { unit: "a".into() }
+        ]
+    );
+    let a = sim.lifecycle.unit("a").unwrap();
+    assert_eq!(a.outcome.end, End::Failed(Stop::Cancelled));
+    assert_eq!(a.outcome.cleanup, CleanupState::Finished);
+    // b's job limit counts from its own assignment at 70 ms, and also cancels only its job.
+    sim.registered(80, 1, "b");
+    assert_eq!(sim.at(70 + JOB - 1, SessionInput::Tick), vec![]);
+    assert_eq!(
+        sim.at(70 + JOB, SessionInput::Tick),
+        vec![SessionCommand::Cancel {
+            session: 1,
+            unit: "b".into()
+        }]
+    );
+    sim.worker(70 + JOB + 10, 1, cancelled("b"));
+    sim.quiet(70 + JOB + 20, 1);
+    assert_eq!(
+        sim.lifecycle.unit("b").unwrap().outcome.end,
+        End::Failed(Stop::JobLimit)
+    );
+    assert!(!sim.log.contains(&SessionCommand::Stop { session: 1 }));
+    assert_eq!(sim.submits(), vec![1]);
+}
+
+#[test]
+fn every_session_serves_one_unit_without_quiescence_evidence() {
+    let mut sim = Sim::new();
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.start(10, 1, 101, "a");
+    assert_eq!(
+        sim.worker(100, 1, completed("a")),
+        vec![SessionCommand::Shutdown { session: 1 }]
+    );
+    assert_eq!(
+        sim.quiet(110, 1),
+        vec![],
+        "evidence is not configured: ignored"
+    );
+    assert!(!sim.log.iter().any(|c| matches!(
+        c,
+        SessionCommand::Register { session: 1, unit, .. } if unit == "b"
+    )));
+}
+
+#[test]
+fn an_open_idle_session_waits_for_more_units_then_shuts_down() {
+    let mut sim = Sim::resident(100 * JOB);
+    sim.at(0, plan("a", None));
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    assert_eq!(
+        sim.quiet(110, 1),
+        vec![SessionCommand::Settled { unit: "a".into() }]
+    );
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(110 + IDLE)));
+    assert_eq!(
+        sim.at(110 + IDLE / 2, plan("b", None)),
+        vec![register(1, "b", 101)],
+        "a unit submitted while idle joins at once"
+    );
+    sim.registered(1_200, 1, "b");
+    sim.worker(1_300, 1, completed("b"));
+    assert_eq!(
+        sim.quiet(1_400, 1),
+        vec![SessionCommand::Settled { unit: "b".into() }]
+    );
+    assert_eq!(sim.at(1_400 + IDLE - 1, SessionInput::Tick), vec![]);
+    assert_eq!(
+        sim.at(1_400 + IDLE, SessionInput::Tick),
+        vec![SessionCommand::Shutdown { session: 1 }]
+    );
+}
+
+#[test]
+fn a_later_unit_that_does_not_fit_the_sessions_lifetime_gets_a_fresh_session() {
+    // Admitted at 10 ms with a lifetime of one job, one cleanup and 100 ms.
+    let mut sim = Sim::resident(JOB + CLEAN + 100);
+    sim.at(0, plan("a", None));
+    sim.at(0, plan("b", None));
+    sim.at(0, SessionInput::Close);
+    sim.start(10, 1, 101, "a");
+    sim.worker(100, 1, completed("a"));
+    assert_eq!(
+        sim.quiet(200, 1),
+        vec![
+            SessionCommand::Shutdown { session: 1 },
+            SessionCommand::Settled { unit: "a".into() }
+        ],
+        "b's limits no longer fit"
+    );
+    sim.worker(210, 1, WorkerEvent::Stopped);
+    sim.launch(220, 1, exited(101));
+    assert_eq!(
+        sim.launch(230, 1, confirmed()),
+        vec![SessionCommand::Submit { session: 2 }]
+    );
+    sim.start(300, 2, 202, "b");
 }

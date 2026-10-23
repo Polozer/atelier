@@ -17,7 +17,7 @@ use crate::session_lifecycle::{
     SessionCommand, SessionConfig, SessionInput, SessionLifecycle, UnitId, UnitPlan, UnitRecord,
 };
 use crate::worker_session::{Event as WorkerEvent, Session, SessionError};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -136,6 +136,9 @@ fn commands(commands: Vec<SessionCommand>) -> Vec<Command> {
             SessionCommand::Run { session, .. } => Some(Command::StartJob { attempt: session }),
             SessionCommand::Shutdown { session } => Some(Command::Shutdown { attempt: session }),
             SessionCommand::Stop { session } => Some(Command::Stop { attempt: session }),
+            // Never emitted for one unit: a single-unit lifecycle has no quiescence evidence, so
+            // a cancel always stops the attempt.
+            SessionCommand::Cancel { .. } => None,
             SessionCommand::Settled { .. } | SessionCommand::Refused { .. } => None,
         })
         .collect()
@@ -144,9 +147,7 @@ fn commands(commands: Vec<SessionCommand>) -> Vec<Command> {
 impl Lifecycle {
     /// A queued job: the first command is `Submit { attempt: 1 }`.
     pub fn new(submitted: MonoTime, limits: Limits) -> (Self, Vec<Command>) {
-        let mut inner = SessionLifecycle::new(SessionConfig {
-            cleanup: limits.cleanup,
-        });
+        let mut inner = SessionLifecycle::new(SessionConfig::single(limits.cleanup, limits.job));
         let unit = UnitPlan {
             id: JOB_UNIT.into(),
             limits,
@@ -259,26 +260,75 @@ pub struct JobSpec {
     pub custody: Vec<File>,
 }
 
-/// Everything [`run_session`] needs for one session of compatible units.
-pub struct SessionSpec {
+/// How a checkout lock is held: the scope part of a custody identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LockScope {
+    Exclusive,
+    Shared,
+}
+
+/// A custody lock by what it locks, never by descriptor number: the lock file's device and
+/// inode, and the scope it is held in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CustodyIdentity {
+    pub device: u64,
+    pub inode: u64,
+    pub scope: LockScope,
+}
+
+impl CustodyIdentity {
+    pub fn of(file: &File, scope: LockScope) -> io::Result<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = file.metadata()?;
+        Ok(Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            scope,
+        })
+    }
+}
+
+/// @cc [owner:fontanierh,label:safety] session-refuses-incompatible-units
+/// [`run_session`] MUST refuse, with a refused record and nothing queued or started, a unit whose
+/// key differs from the session's in any part (exact worker command, worker version, admission
+/// profile or custody set) or whose job id another unit of the session uses, and MUST refuse to
+/// start at all when its custody locks are not exactly its key's custody set by device and inode.
+/// Custody is identified by lock file and scope, never by descriptor number. See
+/// tests/guard_adapter.rs (`run_session_refuses_a_unit_with_another_key_or_a_used_job_id`,
+/// `run_session_refuses_custody_that_is_not_its_keys_custody_set`).
+///
+/// What units sharing a session must share exactly: the worker, its version, the admission
+/// profile and the custody set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionKey {
     pub worker_version: String,
     pub command: WorkerCommand,
-    pub purpose: String,
+    /// The admission profile: a job admission reserving this ceiling.
     pub memory_gib: u32,
+    pub custody: BTreeSet<CustodyIdentity>,
+}
+
+/// Everything [`run_session`] needs for one session of compatible units.
+pub struct SessionSpec {
+    pub key: SessionKey,
+    pub purpose: String,
+    /// `lifetime` is the guard's execution limit for each session: a backstop, separate from
+    /// unit job limits.
     pub config: SessionConfig,
-    /// The guard's execution limit for each session: a backstop, separate from unit job limits.
-    pub execution_limit: Duration,
     /// Each session reports into a fresh `attempt-N` folder here.
     pub report_root: PathBuf,
-    /// Checkout-lock duplicates; each session's custodian gets its own duplicate of each.
+    /// Checkout-lock duplicates; each session's custodian gets its own duplicate of each. Their
+    /// device and inode must be exactly the key's custody set.
     pub custody: Vec<File>,
 }
 
-/// One unit for [`run_session`]: its lifecycle plan and the job request it runs.
+/// One unit for [`run_session`]: its lifecycle plan, the job request it runs and the key it
+/// needs its session to have.
 #[derive(Clone, Debug)]
 pub struct SessionUnit {
     pub plan: UnitPlan,
     pub job: JobRequest,
+    pub key: SessionKey,
 }
 
 /// A settled session: every unit's record and every session's custody.
@@ -429,22 +479,20 @@ pub fn run_job<L: WorkerLauncher>(
         command: &spec.command,
         purpose: &spec.purpose,
         memory_gib: spec.memory_gib,
-        config: SessionConfig {
-            cleanup: spec.limits.cleanup,
-        },
-        execution_limit: spec.limits.job,
+        config: SessionConfig::single(spec.limits.cleanup, spec.limits.job),
         report_root: &spec.report_root,
         custody: &spec.custody,
+        key: None,
     };
     // The unit and the close reach the lifecycle before anything already in the inbox, so a
     // cancel sent before `run_job` cancels this job (C5b's queued cancel).
-    let unit = SessionUnit {
-        plan: UnitPlan {
+    let unit = (
+        UnitPlan {
             id: JOB_UNIT.into(),
             limits: spec.limits,
         },
-        job: spec.job.clone(),
-    };
+        spec.job.clone(),
+    );
     let (published, _records) = mpsc::channel();
     let report = drive(
         launcher,
@@ -487,15 +535,42 @@ pub fn run_session<L: WorkerLauncher>(
     register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
     published: Sender<UnitRecord>,
 ) -> Result<SessionReport, LifecycleError> {
+    // The custody files must be exactly the key's custody set, by device and inode.
+    let mut files: Vec<(u64, u64)> = vec![];
+    for file in &spec.custody {
+        let metadata = file.metadata().map_err(|error| {
+            LifecycleError::Invariant(format!("cannot identify a custody lock: {error}"))
+        })?;
+        use std::os::unix::fs::MetadataExt;
+        files.push((metadata.dev(), metadata.ino()));
+    }
+    let mut keyed: Vec<(u64, u64)> = spec
+        .key
+        .custody
+        .iter()
+        .map(|identity| (identity.device, identity.inode))
+        .collect();
+    files.sort_unstable();
+    keyed.sort_unstable();
+    if files != keyed {
+        return Err(LifecycleError::Invariant(
+            "the session's custody locks are not its key's custody set".into(),
+        ));
+    }
     let shared = Shared {
-        worker_version: &spec.worker_version,
-        command: &spec.command,
+        worker_version: &spec.key.worker_version,
+        command: &spec.key.command,
         purpose: &spec.purpose,
-        memory_gib: spec.memory_gib,
-        config: spec.config,
-        execution_limit: spec.execution_limit,
+        memory_gib: spec.key.memory_gib,
+        // Until the bridge reports tree samples (C5c slice 3) there is no quiescence evidence,
+        // so every session serves one unit (session-reuse-after-quiescence).
+        config: SessionConfig {
+            quiescence: None,
+            ..spec.config
+        },
         report_root: &spec.report_root,
         custody: &spec.custody,
+        key: Some(&spec.key),
     };
     drive(launcher, clock, &shared, inbox, register, published, None)
 }
@@ -508,9 +583,10 @@ struct Shared<'a> {
     purpose: &'a str,
     memory_gib: u32,
     config: SessionConfig,
-    execution_limit: Duration,
     report_root: &'a Path,
     custody: &'a [File],
+    /// A session's units must carry exactly this key; `None` for [`run_job`]'s one unit.
+    key: Option<&'a SessionKey>,
 }
 
 /// `only`: one unit submitted and closed before the inbox is read.
@@ -521,7 +597,7 @@ fn drive<L: WorkerLauncher>(
     inbox: JobInbox,
     register: &mut dyn FnMut(&UnitId, &ProcessIdentity) -> Result<(), String>,
     published: Sender<UnitRecord>,
-    only: Option<SessionUnit>,
+    only: Option<(UnitPlan, JobRequest)>,
 ) -> Result<SessionReport, LifecycleError> {
     let mut lifecycle = SessionLifecycle::new(spec.config);
     let mut jobs: BTreeMap<UnitId, JobRequest> = BTreeMap::new();
@@ -529,10 +605,10 @@ fn drive<L: WorkerLauncher>(
     let mut pending: Vec<SessionInput> = vec![];
     let mut commands: Vec<SessionCommand> = vec![];
     let mut refused: Vec<UnitRecord> = vec![];
-    if let Some(unit) = only {
+    if let Some((plan, job)) = only {
         let now = clock.now();
-        jobs.insert(unit.plan.id.clone(), unit.job);
-        commands.extend(lifecycle.on(now, SessionInput::Submit(unit.plan))?);
+        jobs.insert(plan.id.clone(), job);
+        commands.extend(lifecycle.on(now, SessionInput::Submit(plan))?);
         commands.extend(lifecycle.on(now, SessionInput::Close)?);
     }
     loop {
@@ -552,7 +628,7 @@ fn drive<L: WorkerLauncher>(
                         Ok(AdmissionRequest {
                             purpose: spec.purpose.into(),
                             memory_gib: spec.memory_gib,
-                            execution_limit: spec.execution_limit,
+                            execution_limit: spec.config.lifetime,
                             queue_limit,
                             report_dir: spec.report_root.join(format!("attempt-{session}")),
                             custody: spec
@@ -622,6 +698,18 @@ fn drive<L: WorkerLauncher>(
                         });
                     }
                 }
+                SessionCommand::Cancel { session, .. } => {
+                    let Some(entry) = live.get_mut(&session) else {
+                        continue;
+                    };
+                    let request = entry.session.cancel().map_err(fault_of);
+                    if let Err(fault) = request.and_then(|request| send(entry, request)) {
+                        pending.push(SessionInput::Worker {
+                            session,
+                            event: Err(fault),
+                        });
+                    }
+                }
                 SessionCommand::Shutdown { session } => {
                     let Some(entry) = live.get_mut(&session) else {
                         continue;
@@ -683,8 +771,24 @@ fn drive<L: WorkerLauncher>(
                     Some(Message::CancelUnit(unit)) => SessionInput::CancelUnit(unit),
                     Some(Message::Submit(unit)) => {
                         // Only an accepted unit's job is kept; the lifecycle refuses the rest.
-                        let SessionUnit { plan, job } = *unit;
+                        let SessionUnit { plan, job, key } = *unit;
                         let id = plan.id.clone();
+                        let mismatch = if spec.key.is_some_and(|want| *want != key) {
+                            Some(
+                                "refused: the unit's worker, worker version, admission profile \
+                                 or custody set differs from the session's",
+                            )
+                        } else if jobs.values().any(|other| other.job_id == job.job_id) {
+                            Some("refused: another unit of this session uses the same job id")
+                        } else {
+                            None
+                        };
+                        if let Some(reason) = mismatch {
+                            let record = UnitRecord::refused(id, reason.into());
+                            let _ = published.send(record.clone());
+                            refused.push(record);
+                            continue;
+                        }
                         let fresh = !jobs.contains_key(&id);
                         let out = lifecycle.on(clock.now(), SessionInput::Submit(plan))?;
                         let accepted = !out.iter().any(

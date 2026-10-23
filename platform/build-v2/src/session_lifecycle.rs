@@ -9,8 +9,11 @@
 //! later session only after the session it ran on is confirmed clean. Once any session is held,
 //! no further session starts in this lifecycle (see [`SessionLifecycle`]).
 //!
-//! In this version a session serves at most one unit: per-unit settlement evidence, which a reused
-//! worker needs, comes later. Nothing here releases capacity, signals a process or deletes a result.
+//! A session serves another unit only when [`SessionConfig::quiescence`] is set: after the
+//! previous unit's terminal reply, the next `Run` waits for quiescence evidence taken after it
+//! ([`SessionInput::Quiescent`]); without it in time the session stops and the unit settles only
+//! by the session's cleanup receipt. Nothing here releases capacity, signals a process or deletes
+//! a result.
 use crate::failure_policy::{
     CleanupState, Decision, End, Event as PolicyEvent, JobPolicy, Limits, MonoTime, Observation,
     Outcome, Phase, Stop,
@@ -31,10 +34,35 @@ pub struct UnitPlan {
     pub limits: Limits,
 }
 
+/// How long an open session keeps an idle, admitted worker before shutting it down by default.
+pub const DEFAULT_IDLE: Duration = Duration::from_secs(2);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SessionConfig {
     /// How long an ending session may take to deliver its cleanup receipt.
     pub cleanup: Duration,
+    /// The guard's execution limit for each session, from its admission. A later unit joins a
+    /// session only if its job and cleanup limits fit in what remains.
+    pub lifetime: Duration,
+    /// How long an open session with nothing queued keeps an idle, admitted worker.
+    pub idle: Duration,
+    /// `Some(bound)`: the driver delivers [`SessionInput::Quiescent`], so a session may serve
+    /// further units, each only after the previous one is proven quiescent; the evidence must
+    /// arrive within `bound` of the unit's terminal reply or cancel. Keep `bound` well under the
+    /// units' cleanup limits. `None`: every session serves exactly one unit.
+    pub quiescence: Option<Duration>,
+}
+
+impl SessionConfig {
+    /// One unit per session, with the default idle time.
+    pub fn single(cleanup: Duration, lifetime: Duration) -> Self {
+        Self {
+            cleanup,
+            lifetime,
+            idle: DEFAULT_IDLE,
+            quiescence: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -59,6 +87,13 @@ pub enum SessionInput {
         unit: UnitId,
         ok: bool,
     },
+    /// Quiescence evidence for `session`: a validated tree sample, taken after the session's
+    /// latest terminal reply, that shows only the session's pinned worker (and the shared
+    /// services the guard excludes). The driver validates the sample and its ordering.
+    Quiescent {
+        session: u32,
+        sample_time: f64,
+    },
     /// The session's admission owner could not be started; nothing is held.
     SubmitFailed {
         session: u32,
@@ -69,7 +104,8 @@ pub enum SessionInput {
 
 /// @cc [owner:fontanierh,label:correctness] session-commands-keep-published
 /// Session commands MUST be limited to queueing, stopping and talking to a session's own worker,
-/// lease registration, refusing a unit and handing settled unit records to the caller. No
+/// lease registration, cancelling a unit's job on its worker, refusing a unit and handing settled
+/// unit records to the caller. No
 /// command MAY delete, replace or unpublish a published result. See tests/session_lifecycle.rs
 /// (`session_commands_never_delete_or_republish`, `a_unit_after_close_or_twice_is_refused`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,6 +120,8 @@ pub enum SessionCommand {
     },
     /// Send `unit`'s job (`run`) on the session.
     Run { session: u32, unit: UnitId },
+    /// Ask the session's worker to cancel `unit`'s running job (`cancel`); the session stays up.
+    Cancel { session: u32, unit: UnitId },
     /// Ask an idle, healthy worker to exit (`shutdown`).
     Shutdown { session: u32 },
     /// Ask the guard to stop or withdraw the session. Never certifies cleanup.
@@ -99,7 +137,16 @@ pub enum SessionCommand {
 pub struct UnitAttemptRecord {
     pub attempt: u32,
     pub session: u32,
+    /// The session's custody, once its receipt (or settlement limit) decided it.
     pub custody: Custody,
+    /// The time of the quiescence evidence that settled this attempt while its session lived on.
+    pub quiescent: Option<f64>,
+}
+
+impl UnitAttemptRecord {
+    fn settled(&self) -> bool {
+        self.custody != Custody::Pending || self.quiescent.is_some()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -144,8 +191,12 @@ struct SessionSlot {
     settle_by: Option<MonoTime>,
     /// The unit assigned to this session, running or awaiting its settlement.
     active: Option<usize>,
-    /// A unit has been assigned (a session serves one unit in this version).
+    /// Some unit has been assigned to this session.
     used: bool,
+    /// When the session was admitted: the start of its lifetime.
+    admitted_at: Option<MonoTime>,
+    /// When an idle, open session with nothing queued shuts down.
+    idle_by: Option<MonoTime>,
     /// The queue limit this session was submitted with: the latest overall deadline among the
     /// units then waiting, or `None` to wait until admitted.
     queue_until: Option<MonoTime>,
@@ -168,6 +219,8 @@ impl SessionSlot {
             settle_by: None,
             active: None,
             used: false,
+            admitted_at: None,
+            idle_by: None,
             queue_until: None,
         }
     }
@@ -208,6 +261,9 @@ struct UnitSlot {
     registered: bool,
     job_sent: bool,
     terminal_seen: bool,
+    cancel_sent: bool,
+    /// While its session lives on: the latest time for this unit's quiescence evidence.
+    quiet_by: Option<MonoTime>,
     outcome: Option<Outcome>,
     outputs: Option<JobOutputs>,
     abort: Option<String>,
@@ -225,7 +281,7 @@ impl UnitSlot {
     }
 
     fn settled(&self) -> bool {
-        self.outcome.is_some() && self.attempts.iter().all(|a| a.custody != Custody::Pending)
+        self.outcome.is_some() && self.attempts.iter().all(UnitAttemptRecord::settled)
     }
 
     fn current(&self) -> Option<UnitRecord> {
@@ -341,6 +397,17 @@ impl SessionLifecycle {
             .filter(|s| s.record.custody == Custody::Pending)
             .filter_map(|s| s.settle_by)
             .chain(self.units.iter().filter_map(|u| u.policy.next_deadline()))
+            .chain(
+                self.live()
+                    .filter(|&s| !self.sessions[s].ending())
+                    .and_then(|s| self.sessions[s].active)
+                    .and_then(|index| self.units[index].quiet_by),
+            )
+            .chain(
+                self.live()
+                    .filter(|&s| !self.sessions[s].ending())
+                    .and_then(|s| self.sessions[s].idle_by),
+            )
             .min()
     }
 
@@ -414,6 +481,8 @@ impl SessionLifecycle {
                     registered: false,
                     job_sent: false,
                     terminal_seen: false,
+                    cancel_sent: false,
+                    quiet_by: None,
                     outcome: None,
                     outputs: None,
                     abort: None,
@@ -483,6 +552,10 @@ impl SessionLifecycle {
             SessionInput::Launch(AttemptEvent { attempt, event }) => {
                 self.launch(now, attempt, event, &mut out)?
             }
+            SessionInput::Quiescent {
+                session,
+                sample_time,
+            } => self.quiescent(now, session, sample_time, &mut out)?,
         }
         let pumped = self.pump(now, &mut out);
         self.ending_cap = None;
@@ -532,34 +605,7 @@ impl SessionLifecycle {
             )?;
         }
         if let Some(s) = self.live() {
-            let slot = &self.sessions[s];
-            if slot.record.admitted && !slot.ending() && slot.active.is_none() && !slot.used {
-                while let Some(index) = self.units.iter().position(UnitSlot::waiting) {
-                    self.assign(now, s, index, out)?;
-                    if self.sessions[s].active.is_some() {
-                        break;
-                    }
-                }
-            }
-            let slot = &mut self.sessions[s];
-            let wanted = !slot.used && self.units.iter().any(UnitSlot::waiting);
-            if slot.active.is_none() && !slot.ending() && !wanted {
-                // Nothing needs this session: withdraw a queued request, or end an idle worker.
-                if slot.record.admitted && slot.ready {
-                    slot.shutdown(out);
-                } else {
-                    slot.stop(out);
-                }
-                if slot.settle_by.is_none() {
-                    // Bounded by the units that gave up on it during this same input, never by
-                    // an earlier unit's deadline (session-unit-time-limits).
-                    let cap = if slot.used { None } else { self.ending_cap };
-                    slot.settle_by = [now.checked_add(self.config.cleanup), cap]
-                        .into_iter()
-                        .flatten()
-                        .min();
-                }
-            }
+            self.pump_live(now, s, out)?;
             return Ok(());
         }
         if !self.units.iter().any(UnitSlot::waiting) {
@@ -577,6 +623,198 @@ impl SessionLifecycle {
                 Ok(())
             }
         }
+    }
+
+    /// Whether a later unit may join session `s`: one per session unless quiescence evidence is
+    /// delivered, and then only if its job and cleanup limits fit the session's remaining
+    /// lifetime (an unused session takes any unit, as its lifetime starts with it).
+    fn may_take(&self, s: usize, index: usize, now: MonoTime) -> bool {
+        let slot = &self.sessions[s];
+        if !slot.used {
+            return true;
+        }
+        if self.config.quiescence.is_none() {
+            return false;
+        }
+        let limits = self.units[index].plan.limits;
+        let end = slot
+            .admitted_at
+            .and_then(|at| at.checked_add(self.config.lifetime));
+        let need = limits
+            .job
+            .checked_add(limits.cleanup)
+            .and_then(|span| now.checked_add(span));
+        matches!((need, end), (Some(need), Some(end)) if need <= end)
+    }
+
+    /// Whether session `s` stays up after its active unit ends: quiescence evidence is
+    /// delivered, the worker is healthy and idle-capable, and another unit is waiting or may
+    /// still be submitted.
+    fn reusable(&self, s: usize) -> bool {
+        let slot = &self.sessions[s];
+        self.config.quiescence.is_some()
+            && slot.ready
+            && !slot.exited
+            && !slot.ending()
+            && (!self.closed || self.units.iter().any(UnitSlot::waiting))
+    }
+
+    /// Start waiting for unit `index`'s quiescence evidence on its live session.
+    fn await_quiet(&mut self, now: MonoTime, index: usize) {
+        let bound = self.config.quiescence.unwrap_or_default();
+        self.units[index].quiet_by = now.checked_add(bound);
+    }
+
+    /// End live session `s`: shut an idle healthy worker down, otherwise stop the session. Its
+    /// settlement is bounded by the cleanup limit and `cap` (session-unit-time-limits).
+    fn end(
+        &mut self,
+        now: MonoTime,
+        s: usize,
+        cap: Option<MonoTime>,
+        out: &mut Vec<SessionCommand>,
+    ) {
+        let active_running = self.sessions[s]
+            .active
+            .is_some_and(|index| self.units[index].quiet_by.is_none());
+        let slot = &mut self.sessions[s];
+        if slot.record.admitted && slot.ready && !slot.exited && !active_running {
+            slot.shutdown(out);
+        } else {
+            slot.stop(out);
+        }
+        if slot.settle_by.is_none() {
+            slot.settle_by = [now.checked_add(self.config.cleanup), cap]
+                .into_iter()
+                .flatten()
+                .min();
+        }
+    }
+
+    /// Assign, keep or end the live session `s`.
+    fn pump_live(
+        &mut self,
+        now: MonoTime,
+        s: usize,
+        out: &mut Vec<SessionCommand>,
+    ) -> Result<(), LifecycleError> {
+        // No quiescence evidence in time: the session stops, and the unit settles only by its
+        // cleanup receipt (session-reuse-after-quiescence).
+        if let Some(index) = self.sessions[s].active {
+            if reached(self.units[index].quiet_by, now) && !self.sessions[s].ending() {
+                self.units[index].quiet_by = None;
+                let cap = self.units[index].overall_deadline;
+                self.sessions[s].stop(out);
+                let slot = &mut self.sessions[s];
+                if slot.settle_by.is_none() {
+                    slot.settle_by = [now.checked_add(self.config.cleanup), cap]
+                        .into_iter()
+                        .flatten()
+                        .min();
+                }
+            }
+        }
+        loop {
+            let slot = &self.sessions[s];
+            if !slot.record.admitted || slot.ending() || slot.active.is_some() {
+                break;
+            }
+            let Some(index) = self.units.iter().position(UnitSlot::waiting) else {
+                break;
+            };
+            if !self.may_take(s, index, now) {
+                break;
+            }
+            self.sessions[s].idle_by = None;
+            self.assign(now, s, index, out)?;
+        }
+        if self.sessions[s].ending() {
+            return Ok(());
+        }
+        let head = self.units.iter().position(UnitSlot::waiting);
+        match self.sessions[s].active {
+            Some(index) => {
+                // A unit runs, or awaits its quiescence evidence. Closed with nothing waiting,
+                // the session ends at once; the receipt then settles that unit.
+                if self.units[index].quiet_by.is_some() && self.closed && head.is_none() {
+                    let cap = self.units[index].overall_deadline;
+                    self.end(now, s, cap, out);
+                }
+            }
+            None => {
+                if head.is_some_and(|index| self.may_take(s, index, now)) {
+                    return Ok(()); // waiting for admission or hello
+                }
+                let slot = &mut self.sessions[s];
+                let idle = head.is_none()
+                    && !self.closed
+                    && slot.record.admitted
+                    && slot.ready
+                    && (self.config.quiescence.is_some() || !slot.used);
+                if idle {
+                    let idle_by = *slot
+                        .idle_by
+                        .get_or_insert(now.checked_add(self.config.idle).unwrap_or(now));
+                    if !reached(Some(idle_by), now) {
+                        return Ok(());
+                    }
+                }
+                // Nothing needs this session: withdraw a queued request, or end an idle worker.
+                // Bounded by the units that gave up on it during this same input, never by an
+                // earlier unit's deadline (session-unit-time-limits).
+                let cap = if slot.used { None } else { self.ending_cap };
+                self.end(now, s, cap, out);
+            }
+        }
+        Ok(())
+    }
+
+    /// @cc [owner:fontanierh,label:safety] session-reuse-after-quiescence
+    /// A session MUST send a later unit's `Run` only after the previous unit's terminal reply and
+    /// quiescence evidence for that session taken after it, and only when quiescence evidence
+    /// is configured; otherwise each session serves one unit. Without evidence within the bound
+    /// the session MUST stop, and the unit then settles only by the session's cleanup receipt. A
+    /// running unit's cancel or job limit MUST cancel only that job when the session stays up for
+    /// others, and MUST NOT release anything. See tests/session_lifecycle.rs
+    /// (`a_reused_session_runs_the_next_unit_only_after_quiescence_evidence`,
+    /// `without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_unit`,
+    /// `cancelling_a_running_unit_cancels_only_its_job_when_others_wait`,
+    /// `every_session_serves_one_unit_without_quiescence_evidence`).
+    ///
+    /// Quiescence evidence for `session`'s active unit, after its terminal reply: the unit's
+    /// attempt is settled, its cleanup finished, and the session may take the next unit.
+    fn quiescent(
+        &mut self,
+        now: MonoTime,
+        session: u32,
+        sample_time: f64,
+        out: &mut Vec<SessionCommand>,
+    ) -> Result<(), LifecycleError> {
+        let Some(s) = self.session_index(session) else {
+            return Ok(());
+        };
+        let slot = &self.sessions[s];
+        if self.live() != Some(s) || slot.exited || slot.ending() {
+            return Ok(());
+        }
+        let Some(index) = slot.active else {
+            return Ok(());
+        };
+        let unit = &mut self.units[index];
+        if unit.quiet_by.is_none() || !unit.terminal_seen || !sample_time.is_finite() {
+            return Ok(());
+        }
+        unit.quiet_by = None;
+        if let Some(last) = unit.attempts.last_mut() {
+            last.quiescent = Some(sample_time);
+        }
+        if matches!(unit.policy.phase(), Phase::CleaningUp { .. }) {
+            self.decide(now, index, PolicyEvent::CleanupFinished, out)?;
+        }
+        if self.sessions[s].active == Some(index) {
+            self.sessions[s].active = None;
+        }
+        Ok(())
     }
 
     /// Record that session `s` is held: the sticky gate (session-held-is-sticky).
@@ -628,10 +866,13 @@ impl SessionLifecycle {
                 unit.registered = false;
                 unit.job_sent = false;
                 unit.terminal_seen = false;
+                unit.cancel_sent = false;
+                unit.quiet_by = None;
                 unit.attempts.push(UnitAttemptRecord {
                     attempt,
                     session,
                     custody: Custody::Pending,
+                    quiescent: None,
                 });
                 let slot = &mut self.sessions[s];
                 slot.active = Some(index);
@@ -707,7 +948,28 @@ impl SessionLifecycle {
                         "cleanup for a unit with no session".into(),
                     ));
                 };
+                let reusable = self.live() == Some(s) && self.reusable(s);
                 let unit = &self.units[index];
+                if reusable && matches!(stop, Stop::WorkerReported(_)) && unit.terminal_seen {
+                    // The worker reaped the job's child and is idle: wait for quiescence.
+                    self.await_quiet(now, index);
+                    return Ok(());
+                }
+                if reusable
+                    && matches!(stop, Stop::Cancelled | Stop::JobLimit)
+                    && unit.job_sent
+                    && !unit.terminal_seen
+                    && !unit.cancel_sent
+                {
+                    // Cancel this unit's job only; the session stays up for the others.
+                    self.units[index].cancel_sent = true;
+                    self.await_quiet(now, index);
+                    out.push(SessionCommand::Cancel {
+                        session: self.sessions[s].record.attempt,
+                        unit: self.units[index].plan.id.clone(),
+                    });
+                    return Ok(());
+                }
                 let slot = &mut self.sessions[s];
                 let graceful = matches!(stop, Stop::WorkerReported(_))
                     && slot.ready
@@ -744,6 +1006,14 @@ impl SessionLifecycle {
                     self.ending_cap = [self.ending_cap, deadline].into_iter().flatten().min();
                     return Ok(());
                 };
+                let unit = &self.units[index];
+                if unit.attempts.last().is_some_and(|a| a.quiescent.is_some()) {
+                    return Ok(()); // settled by quiescence: the session lives on
+                }
+                if completed && unit.terminal_seen && self.live() == Some(s) && self.reusable(s) {
+                    self.await_quiet(now, index);
+                    return Ok(());
+                }
                 let ending = {
                     let slot = &self.sessions[s];
                     if completed && slot.ready && !slot.exited {
@@ -905,6 +1175,7 @@ impl SessionLifecycle {
                     return self.fault(now, s, out);
                 }
                 self.sessions[s].record.admitted = true;
+                self.sessions[s].admitted_at = Some(now);
                 Ok(())
             }
             LaunchEvent::ChildStarted { worker } => {
@@ -991,12 +1262,17 @@ impl SessionLifecycle {
                         {
                             unit.outputs = Some(outputs);
                         }
-                        Ok(())
                     }
                     Err(failure) => {
-                        self.decide(now, index, PolicyEvent::WorkerFailed(failure.kind), out)
+                        self.decide(now, index, PolicyEvent::WorkerFailed(failure.kind), out)?
                     }
                 }
+                let unit = &self.units[index];
+                if unit.cancel_sent && unit.quiet_by.is_some() {
+                    // The cancelled job's terminal reply: a fresh window for evidence after it.
+                    self.await_quiet(now, index);
+                }
+                Ok(())
             }
             Err(WorkerFault::Protocol(_)) => match active {
                 Some(index)

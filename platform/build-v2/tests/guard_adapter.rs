@@ -639,30 +639,38 @@ fn concurrent_handshakes_stay_within_bound() {
     }
 }
 
-fn session_spec(space: &Workspace, job_spec: &JobSpec) -> SessionSpec {
-    SessionSpec {
+fn key(job_spec: &JobSpec) -> SessionKey {
+    SessionKey {
         worker_version: job_spec.worker_version.clone(),
         command: job_spec.command.clone(),
-        purpose: job_spec.purpose.clone(),
         memory_gib: job_spec.memory_gib,
-        config: atelier_build_v2::session_lifecycle::SessionConfig {
-            cleanup: Duration::from_secs(3),
-        },
-        execution_limit: Duration::from_secs(30),
+        custody: Default::default(),
+    }
+}
+
+fn session_spec(space: &Workspace, job_spec: &JobSpec) -> SessionSpec {
+    SessionSpec {
+        key: key(job_spec),
+        purpose: job_spec.purpose.clone(),
+        config: atelier_build_v2::session_lifecycle::SessionConfig::single(
+            Duration::from_secs(3),
+            Duration::from_secs(30),
+        ),
         report_root: space.0.clone(),
         custody: vec![],
     }
 }
 
-fn unit(id: &str, limits: Limits) -> SessionUnit {
+fn unit_with(id: &str, job_id: &str, limits: Limits, key: SessionKey) -> SessionUnit {
     let mut request = job();
-    request.job_id = id.into();
+    request.job_id = job_id.into();
     SessionUnit {
         plan: atelier_build_v2::session_lifecycle::UnitPlan {
             id: id.into(),
             limits,
         },
         job: request,
+        key,
     }
 }
 
@@ -672,11 +680,11 @@ fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
     let job_spec = spec(&space, "normal", 3_000);
     let session = session_spec(&space, &job_spec);
     let (handle, inbox) = session_channel();
-    handle.submit(unit("a", job_spec.limits));
-    handle.submit(unit("a", job_spec.limits)); // a duplicate id is refused, never dropped
-    handle.submit(unit("b", job_spec.limits));
+    handle.submit(unit_with("a", "a", job_spec.limits, key(&job_spec)));
+    handle.submit(unit_with("a", "a", job_spec.limits, key(&job_spec))); // a duplicate id is refused, never dropped
+    handle.submit(unit_with("b", "b", job_spec.limits, key(&job_spec)));
     handle.close();
-    handle.submit(unit("c", job_spec.limits)); // after close: refused
+    handle.submit(unit_with("c", "c", job_spec.limits, key(&job_spec))); // after close: refused
     // Nobody reads the records until the session is over: publication never blocks it.
     let (published, records) = mpsc::channel();
     let mut registered = vec![];
@@ -724,7 +732,7 @@ fn run_session_hands_each_settled_unit_off_without_waiting_for_its_receiver() {
     let space = Workspace::new();
     let session = session_spec(&space, &job_spec);
     let (handle, inbox) = session_channel();
-    handle.submit(unit("a", job_spec.limits));
+    handle.submit(unit_with("a", "a", job_spec.limits, key(&job_spec)));
     handle.close();
     let (published, records) = mpsc::channel();
     drop(records);
@@ -762,4 +770,89 @@ fn a_cancel_sent_before_run_job_cancels_the_queued_job() {
     // is held, which is still settled and never relaunched.
     assert_ne!(report.attempts[0].custody, Custody::Pending);
     assert_eq!(report.attempts[0].worker, None);
+}
+
+#[test]
+fn run_session_refuses_a_unit_with_another_key_or_a_used_job_id() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let session = session_spec(&space, &job_spec);
+    let (handle, inbox) = session_channel();
+    let mut other = key(&job_spec);
+    other.memory_gib += 1;
+    handle.submit(unit_with("a", "a", job_spec.limits, key(&job_spec)));
+    handle.submit(unit_with("x", "x", job_spec.limits, other));
+    handle.submit(unit_with("y", "a", job_spec.limits, key(&job_spec)));
+    handle.close();
+    let (published, records) = mpsc::channel();
+    let report = run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        published,
+    )
+    .unwrap();
+    let records: Vec<_> = records.try_iter().collect();
+    assert_eq!(
+        records
+            .iter()
+            .map(|r| (r.unit.as_str(), r.refused))
+            .collect::<Vec<_>>(),
+        vec![("x", true), ("y", true), ("a", false)]
+    );
+    assert!(records[0].abort.as_deref().unwrap().contains("differs"));
+    assert!(records[1].abort.as_deref().unwrap().contains("job id"));
+    assert_eq!(report.units.len(), 1, "nothing was queued for x or y");
+    assert_eq!(report.units[0].outcome.end, End::Completed);
+}
+
+#[test]
+fn run_session_refuses_custody_that_is_not_its_keys_custody_set() {
+    let space = Workspace::new();
+    let job_spec = spec(&space, "normal", 3_000);
+    let lock = locked(&space.path("checkout.lock"));
+    let identity = CustodyIdentity::of(&lock, LockScope::Exclusive).unwrap();
+    let (descriptor_only, keyed_only) = {
+        let mut a = session_spec(&space, &job_spec);
+        a.custody = vec![lock.try_clone().unwrap()];
+        let mut b = session_spec(&space, &job_spec);
+        b.key.custody.insert(identity);
+        (a, b)
+    };
+    for session in [descriptor_only, keyed_only] {
+        let (handle, inbox) = session_channel();
+        handle.close();
+        let (published, _records) = mpsc::channel();
+        assert!(matches!(
+            run_session(
+                &mut launcher("normal"),
+                &SystemClock::new(),
+                &session,
+                inbox,
+                &mut |_, _| Ok(()),
+                published,
+            ),
+            Err(LifecycleError::Invariant(_))
+        ));
+    }
+    assert!(!space.path("attempt-1").exists(), "no session was started");
+    // The matching set is accepted.
+    let mut session = session_spec(&space, &job_spec);
+    session.custody = vec![lock.try_clone().unwrap()];
+    session.key.custody.insert(identity);
+    let (handle, inbox) = session_channel();
+    handle.close();
+    let (published, _records) = mpsc::channel();
+    let report = run_session(
+        &mut launcher("normal"),
+        &SystemClock::new(),
+        &session,
+        inbox,
+        &mut |_, _| Ok(()),
+        published,
+    )
+    .unwrap();
+    assert!(report.units.is_empty() && report.sessions.is_empty());
 }
