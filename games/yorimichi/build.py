@@ -166,11 +166,7 @@ def craterpark_v2_steps(out):
              outputs=[geometry / 'geometry.npz', geometry / 'geometry-report.json'],
              about='Crater Park v2: layout -> conforming surfaces, solids, rails, render tiles and collision (numpy)',
              cutoff=True, heavy=True),
-        Step('world.craterpark', [Blender(v2 / 'export.py', threads=2)],
-             inputs=[*(f for f in local_imports(v2 / 'export.py') if f.is_relative_to(WORLD)), *common, *craterpark_v4.input_paths()],
-             needs=['world.craterpark_geometry'],
-             outputs=[out / 'craterpark' / 'build.json', out / 'craterpark' / 'park.json', out / 'craterpark' / 'fbx' / 'SM_CP_ImportSeed.fbx'],
-             about='Crater Park v2 export: FBX, build.json and park.json in the r4 contract', heavy=True),
+        *_load_helper_module('yorimichi_craterpark_atomic', GAME/'craterpark_atomic_build.py').steps(SimpleNamespace(out=out)),
         *([Step('world.craterpark_layout', [Python(WORLD / 'craterpark_layout.py')],
                 inputs=[WORLD / 'craterpark_layout.py', *CRATERPARK, *craterpark_v4.input_paths()],
                 needs=['world.craterpark_geometry'], outputs=[out / 'craterpark' / 'layout-identity.json'],
@@ -787,52 +783,49 @@ def adventure_steps(out):
     ]
 
 
-def hippodrome_steps(out):
+def hippodrome_steps(ctx):
     """The Hidamari Hippodrome (docs/HIPPODROME.md): the racecourse north of the city, built without Blender."""
+    out=ctx.out
     region = REGIONS / 'hippodrome'
     return [
-        Step('world.hippodrome', [Python(region / 'build.py')],
-             inputs=[region, ASSETS / 'hippodrome' / 'props', REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari_stable' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK, REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py',
-                     *NORTH_LAYOUT],
-             needs=['world.layout', 'world.treehouse_trees'], outputs=[out / 'hippodrome' / 'region' / 'hippodrome.json'],
-             about='hippodrome course meshes (platform, skirt, track, rails, lane), its Tripo structures and venue data'),
+        *_load_helper_module('yorimichi_hippodrome_atomic',region/'atomic.py').steps(
+            ctx,query_inputs=northern_query_inputs(out),query_needs=['world.layout','world.treehouse_trees.data']),
         digest_step(out, 'world.hippodrome', 'meshes', 'what unreal.hippodrome reads of the course', out / 'hippodrome', ['region']),
         Step('unreal.hippodrome', [UnrealScript(SCRIPTS / 'import_hippodrome.py', 'HIPPODROME IMPORT COMPLETE', null_rhi=True)],
-             inputs=[SCRIPTS / 'import_hippodrome.py'], needs=['world.hippodrome.meshes', 'unreal.world'], heavy=True,
+             inputs=[SCRIPTS / 'import_hippodrome.py'], needs=['unreal.world'], reads=['hippodrome.region'], heavy=True,
+             products=[Product('hippodrome.native',(GAME/'unreal/Content/Hippodrome',out/'hippodrome/import-report.json'))],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Hippodrome',)),
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'hippodrome' / 'hippodrome.json'],
              about='/Game/Hippodrome: the course meshes with collision, and the data AHippodrome places them from'),
-        *hidamari_stable_steps(out),
+        *hidamari_stable_steps(ctx),
     ]
 
 
-def hidamari_stable_steps(out):
-    """Henry's racing stable east of the hippodrome (world/regions/hidamari_stable/README.md): the Blender model, its
-    control renders and the Unreal import. All three steps are explicit, so plain builds skip them."""
+def hidamari_stable_steps(ctx):
+    """Explicit disabled Stable: independent semantic/LOD exports and complete native ownership."""
+    out = ctx.out
     region = REGIONS / 'hidamari_stable'
     root = out / 'hidamari-stable'
-    kit = [REGIONS / 'village' / 'build.py', REGIONS / 'village' / 'layout.py', REGIONS / 'hidamari' / 'arcade.py',
-           REGIONS / 'hidamari' / 'kit' / 'kawara.py', REGIONS / 'hidamari' / 'kit' / '_lettering.py',
-           REGIONS / 'hidamari' / 'fonts' / 'NotoSansJP.ttf']
+    catalogue = _load_helper_module('stable_central_catalogue', region / 'catalogue.py')
     return [
-        Step('world.hidamari_stable', [Blender(region / 'build.py', threads=3)],
-             inputs=[region / 'build.py', region / 'layout.py', *kit, REGIONS / 'hippodrome' / 'layout.py',
-                     REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
-                     REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', *NORTH_LAYOUT, YORI],
-             needs=['world.layout', 'world.treehouse_trees'], heavy=True, explicit=True,
-             outputs=[root / 'hidamari-stable.blend', root / 'placements.json', root / 'manifest.json',
-                      *(root / 'glb' / f'SM_HS_{m}_LOD{k}.glb' for m in ('Stable', 'StallDoor', 'RoomDoor') for k in (0, 1, 2)),
-                      *(root / 'glb' / f'SM_HS_{m}.glb' for m in ('Ground', 'Road', 'RoadSign')), root / 'glb' / 'SM_HS_Stable_Collision.glb'],
-             about='Hidamari stable: barn (10 stalls, tack room, office), gate, yard, paddock; LOD0-2, collision, placements'),
-        Step('world.hidamari_stable_review', [Blender(region / 'render.py', threads=3)],
-             inputs=[region / 'render.py', region / 'layout.py', REGIONS / 'hippodrome' / 'layout.py'],
-             needs=['world.hidamari_stable', 'world.hippodrome'], heavy=True, explicit=True,
+        *_load_helper_module('stable_central_atomic', GAME / 'stable_atomic_build.py').steps(ctx),
+        Step('world.hidamari_stable_review', [Blender(region / 'render.py', threads=3, factory_startup=True)],
+             inputs=[*local_imports(region / 'render.py', (WORLD, REGIONS, paths.STUDIO)), *northern_query_inputs(out)],
+             needs=['world.hippodrome', 'world.layout', 'world.treehouse_trees.data', 'world.craterpark_geometry'],
+             reads=['stable.runtime', *('hidamari_stable.geometry.' + key for key in catalogue.SOURCES)],
+             heavy=True, explicit=True,
              outputs=[root / 'review' / f'{v}.png' for v in ('road', 'gate', 'front', 'three_quarter', 'aerial', 'aisle', 'plan', 'lod1', 'lod2')],
-             about='Hidamari stable control renders: road from the street, front, three-quarter, aerial, interior aisle'),
-        Step('unreal.hidamari_stable', [UnrealScript(SCRIPTS / 'import_hidamari_stable.py', 'HIDAMARI STABLE IMPORT COMPLETE', null_rhi=True)],
-             inputs=[SCRIPTS / 'import_hidamari_stable.py'], needs=['world.hidamari_stable', 'unreal.world'],
+             about='explicit control renders from complete atomic source packets, without a combined export'),
+        Step('unreal.hidamari_stable', [UnrealScript(SCRIPTS / 'import_hidamari_stable.py', 'HIDAMARI STABLE IMPORT COMPLETE', null_rhi=True, modules=IMPORT_CODE)],
+             inputs=[*local_imports(SCRIPTS / 'import_hidamari_stable.py', (SCRIPTS, WORLD, REGIONS)),
+                     GAME / 'stable_atomic_products.py'],
+             needs=['unreal.world', *unreal_modules.needs(IMPORT_CODE)],
+             reads=['stable.meshes', 'stable.runtime', 'hidamari_stable.atomic'],
              after=['unreal.compile'], heavy=True, explicit=True,
-             outputs=[GAME / 'unreal' / 'Content' / 'Data' / 'hidamari_stable' / 'stable.json', root / 'import-report.json'],
-             about='/Game/HidamariStable: the stable (3 LODs, box collision), door leaves, pad, road and sign, AHidamariStable data'),
+             products=[Product('stable.native', (GAME / 'unreal/Content/HidamariStable',
+                 GAME / 'unreal/Content/Data/hidamari_stable/stable.json', root / 'import-report.json'))],
+             candidate_scope=CandidateScope(directories=(GAME / 'unreal/Content/HidamariStable',)),
+             about='complete separate Stable assets, coordinated LODs, original boxes and combined old-parent retirement'),
     ]
 
 
@@ -849,6 +842,17 @@ def belmonte_train_corridor(out):
             ASSETS / 'vehicles' / 'belmonte-train' / 'line.json']
 
 
+def northern_query_inputs(out):
+    """Complete read closure of the original final terrain query, before mesh exports."""
+    return [out/'world.json',out/'heightmap.npy',out/'farhills.npy',out/'megapark/trail.json',
+            *([out/'craterpark/v2/geometry.npz'] if craterpark_v4.selected() else []),
+            *CRATERPARK,*craterpark_v4.input_paths(),*belmonte_train_corridor(out),
+            ASSETS/'belmonte/source.json',
+            *(ASSETS/'belmonte'/entry['path'] for entry in _read_json(ASSETS/'belmonte/source.json')['meshes']
+              if entry['name'].startswith('SM_BM_BT_Terrain_')),
+            ASSETS/'megapark/map.json',ASSETS/'megapark/geometry',ASSETS/'megapark/collision']
+
+
 def brinecove_source_step(out):
     """A small cutoff owns the exact library entries the region verifier consumes."""
     output = out / 'digests' / 'brinecove-source-library.json'
@@ -862,19 +866,23 @@ def brinecove_source_step(out):
 
 def brinecove_model_steps(out):
     """One deterministic source product per plant model; no terrain or placement inputs."""
+    from atelier.build_batch_source import support
     region = REGIONS / 'brinecove'
     script = region / 'export_foliage_model.py'
-    code = build_inputs.local_imports(script, (REGIONS,))
+    code = build_inputs.local_imports(script, (WORLD, REGIONS))
     definitions = brinecove_library.definitions()
     if not definitions:
         raise ValueError('Brinecove requires its committed plant model definitions')
     return [Step('world.brinecove.model.' + definition.stem,
-                 [Blender(script, (str(definition), str(out / 'models/brinecove/plants' / definition.stem)),
+                 [Blender(script, (str(definition), str(out / 'models/brinecove/plants' / definition.stem),
+                                   str(out / 'brinecove/query-data/plants' / (definition.stem+'.npz'))),
                           threads=3, factory_startup=True, env=(('PYTHONHASHSEED', '0'),))],
-                 inputs=[*code, definition],
+                 inputs=[*code, *support().values(), definition],
                  products=[Product('brinecove.model.' + definition.stem,
-                                   (out / 'models/brinecove/plants' / definition.stem,))],
-                 toolchain=True, batch=Batch('Brinecove plant models'), heavy=True,
+                                   (out / 'models/brinecove/plants' / definition.stem,)),
+                           Product('brinecove.query.plant.'+definition.stem,
+                                   (out / 'brinecove/query-data/plants' / (definition.stem+'.npz'),))],
+                 toolchain=True, cache=True, batch=Batch('Brinecove plant models'), heavy=True,
                  about='independent Brinecove plant model ' + definition.stem)
             for definition in definitions]
 
@@ -909,15 +917,8 @@ def brinecove_steps(out):
     region = REGIONS / 'brinecove'
     library = out / 'digests' / 'brinecove-source-library.json'
     return [
-        Step('world.brinecove', [Blender(region / 'build.py', ('--source-library', str(library),
-                                    '--foliage-library', str(out / 'models/brinecove/plants')), threads=3)],
-             inputs=[*build_inputs.local_imports(region / 'build.py', (WORLD, REGIONS)),
-                     region / 'foliage_catalog.json', ASSETS / 'brinecove', library],
-             needs=['world.brinecove.sources'],
-             reads=['terrain.FarHills.final', *('brinecove.model.' + path.stem
-                     for path in brinecove_library.definitions())], heavy=True,
-             outputs=[out / 'brinecove' / 'runtime.json', out / 'brinecove' / 'build-report.json'],
-             about='Brinecove: pirate port ground joined to the far hills, town, waterfall, ships and flora'),
+        _load_helper_module('yorimichi_brinecove_assembly', GAME / 'brinecove_atomic_build.py').assembly_step(
+            out, plant_products=['brinecove.model.' + path.stem for path in brinecove_library.definitions()]),
         Step('world.brinecove.meshes',
              [Python(GAME / 'region_products.py', (out / 'brinecove', out / 'products/brinecove',
                                                    '--ground-prefix', 'SM_BC_Ground_', '--plant-prefix', 'SM_BC_Plant_',
@@ -970,18 +971,7 @@ def belmonte_steps(out):
     """
     region = REGIONS / 'belmonte'
     return [
-        Step('world.belmonte', [Python(region / 'build.py')],
-             inputs=[*(p for p in region.iterdir() if p.name not in ('gondola.py', '__pycache__')),
-                     *(paths.STUDIO / 'atelier' / name for name in ('model_files.py', 'gltf.py', 'gltf_partition.py', 'mesh_partition.py')),
-                     WORLD / 'surface_textures.py', ASSETS / 'belmonte', ASSETS / 'environment/textures/tuscan-ground.jpg',
-                     ASSETS / 'environment/textures/tuscan-ground.provenance.json', REGIONS / 'hippodrome' / 'build.py',
-                     REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py',
-                     REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari_stable' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK, YORI, *NORTH_LAYOUT, *belmonte_train_corridor(out)],
-             needs=['world.layout', 'world.treehouse_trees'], heavy=True,
-             outputs=[out / 'belmonte' / 'runtime.json', out / 'belmonte' / 'build-report.json',
-                      out / 'belmonte' / 'natural' / 'SM_BM_NorthApron.glb', out / 'belmonte' / 'natural' / 'SM_BM_NorthCountry.glb',
-                      out / 'belmonte/ground/membership.json'],
-             about='Belmonte environment: committed models, northern terrain join and island flora'),
+        _load_helper_module('yorimichi_belmonte_scene', GAME / 'belmonte_scene_build.py').assembly_step(out),
         Step('world.belmonte.meshes',
              [Python(GAME / 'region_products.py', (str(out / 'belmonte'), str(out / 'products/belmonte'),
                                                    '--mesh-library', '--texture-inventory', str(out / 'digests/belmonte-textures.json')))],
@@ -1076,35 +1066,31 @@ def world_steps(ctx):
     return [*texture_steps(ctx),
         # ------------------------------------------------------------ world
         # The tree house's tall canopy trees come first: its layout sizes them from trees.json.
-        Step('world.treehouse_trees', [Blender(TREEHOUSE / 'trees.py', threads=4)], inputs=[TREEHOUSE / 'trees.py', WORLD / 'asset_mesh.py'],
-             needs=['world.textures'], outputs=[out / 'treehouse' / 'trees' / 'trees.json'],
-             about='tree house canopy trees (four autumn crowns) and their recoloured leaf atlases', heavy=True),
+        *_load_helper_module('yorimichi_treehouse_atomic',GAME/'treehouse_atomic_build.py').canopy_steps(ctx),
         Step('world.layout', [Python(WORLD / 'gen_world.py')],
              inputs=[WORLD / 'gen_world.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', REGIONS / 'houses' / 'layout.py', WORLD / 'torii_clearance.py', YORI,
-                     REGIONS / 'village' / 'layout.py', REGIONS / 'mega' / 'layout.py', REGIONS / 'southwest',
+                     REGIONS / 'village' / 'layout.py', REGIONS / 'mega' / 'layout.py',
+                     *local_imports(REGIONS/'southwest/layout.py', (WORLD,REGIONS)),
                      REGIONS / 'skatepark' / 'pier_site.py',
                      REGIONS / 'forest_lake' / 'layout.py', REGIONS / 'zeppelin' / 'layout.py', TREEHOUSE / 'layout.py',
                      TREEHOUSE / 'screen.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py',
                      REGIONS / 'megapark' / 'trail.py', REGIONS / 'megapark' / 'gate.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari_stable' / 'layout.py', REGIONS / 'hidamari' / 'forest_backdrop.py', WORLD / 'farhills_grid.py',
                      *belmonte_train_corridor(out)],
-             needs=['world.treehouse_trees', *crater_geometry], cutoff=True,
+             needs=['world.treehouse_trees.data', *crater_geometry], reads=['treehouse.canopy_dimensions'], cutoff=True,
              outputs=[out / 'world.json', out / 'heightmap.npy', out / 'heightmap.bin', out / 'farhills.npy', out / 'treehouse' / 'layout.json',
                       out / 'megapark' / 'trail.json'],
              about='terrain heightfield, road, scatter and every region layout -> world.json (dependents see these files)'),
         Step('world.forest_textures', [Python(TOOLS / 'forest_textures.py')],
              # Only the twig atlases it reads: a new rock or ground painting leaves the forest current.
-             inputs=[TOOLS / 'forest_textures.py', *sorted((ASSETS / 'environment/textures').glob('leaf-*'))],
-             outputs=[out / 'forest/textures/textures.json'], about='Sunburst Mediterranean twig atlases with coverage masks'),
-        Step('world.forest', [Blender(WORLD / 'build_forest.py')],
-             inputs=[WORLD / 'build_forest.py', WORLD / 'forest_impostors.py', WORLD / 'forest_trees.py', REGIONS / 'forest/specs.py', WORLD / 'asset_mesh.py',
-                     WORLD / 'far_crown.py'],
-             needs=['world.textures', 'world.forest_textures'], heavy=True,
-             outputs=[out / 'forest/trees.json'], about='Tuscan branching crowns and authored HISM detail levels'),
-        Step('world.props', [Blender(WORLD / 'build_assets.py')], inputs=local_imports(WORLD / 'build_assets.py'), needs=['world.textures'],
-             outputs=[out / 'assets' / 'Torii.fbx'], about='rocks, torii, lanterns, poles, birds and sky dome', heavy=True),
+             inputs=[*build_inputs.local_imports(TOOLS / 'forest_textures.py', (TOOLS, WORLD, REGIONS, paths.STUDIO)),
+                     *sorted((ASSETS / 'environment/textures').glob('leaf-*'))],
+             products=[Product('forest.textures',(out/'forest/textures',))],cache=True,
+             about='Sunburst Mediterranean twig atlases with coverage masks'),
+        *_load_helper_module('yorimichi_forest_atomic',GAME/'forest_atomic_build.py').steps(ctx),
+        *_load_helper_module('yorimichi_props_atomic',GAME/'props_atomic_build.py').steps(ctx),
         *foliage_build.world_steps(ctx),
-        Step('world.farhills', [Blender(WORLD / 'farhills_surface.py', threads=3)],
+        Step('world.farhills', [Blender(WORLD / 'farhills_surface.py', threads=3, factory_startup=True)],
              inputs=[WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
                      WORLD / 'shorelines.py', YORI, *belmonte_train_corridor(out), REGIONS / 'brinecove' / 'region.py',
                      REGIONS / 'hidamari' / 'layout.py', REGIONS / 'hidamari_stable' / 'layout.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
@@ -1117,44 +1103,28 @@ def world_steps(ctx):
              products=[Product('terrain.FarHills.natural', (out / 'terrain/FarHills/natural.npz',)),
                        Product('terrain.FarHills.final', (out / 'terrain/FarHills/final.npz',)),
                        Product('terrain.FarHills.provenance', (out / 'terrain/FarHills/manifest.json',))],
-             heavy=True, about='authoritative FarHills natural and final ordered geometry before city scenery'),
-        Step('world.hidamari', [Blender(REGIONS / 'hidamari' / 'build.py')],
-             inputs=[*(p for p in (REGIONS / 'hidamari').iterdir() if p.name not in ('ferry_terminal.py', 'ferry_cut.py', 'ferry_source.py', 'gondola.py', '__pycache__')), *CRATERPARK, REGIONS / 'village' / 'build.py', REGIONS / 'zeppelin' / 'layout.py',
-                     REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'forest.py', REGIONS / 'megapark' / 'trail.py',
-                     REGIONS / 'megapark' / 'gate.py', REGIONS / 'forest/ecotone.py', REGIONS / 'forest/specs.py', ASSETS / 'hidamari' / 'props',
-                     *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT, WORLD / 'farhills_grid.py', WORLD / 'north_mountain_surface.py',
-                     WORLD / 'terrain_product.py', WORLD / 'city_terrain_surface.py', *belmonte_train_corridor(out)],
-             needs=['world.layout', 'world.treehouse_trees', *crater_geometry], reads=['terrain.FarHills.final'],
-             outputs=[out / 'hidamari' / 'city.json', out / 'hidamari' / 'manifest.json',
-                                             out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
-                                             out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json'],
-             products=[Product('terrain.HD_NorthMountains.natural', (out / 'terrain/HD_NorthMountains/natural.npz',)),
-                       Product('terrain.HD_NorthMountains.final', (out / 'terrain/HD_NorthMountains/final.npz',)),
-                       Product('terrain.HD_NorthMountains.provenance', (out / 'terrain/HD_NorthMountains/manifest.json',)),
-                       Product('terrain.HD_Terrain.natural', (out / 'terrain/HD_Terrain/natural.npz',)),
-                       Product('terrain.HD_Terrain.final', (out / 'terrain/HD_Terrain/final.npz',)),
-                       Product('terrain.HD_Terrain.provenance', (out / 'terrain/HD_Terrain/manifest.json',))],
-             about='the city: layout (city.json), building kit, harbor, plaza, arcade, mountains', heavy=True),
-        digest_step(out, 'world.hidamari', 'city', 'the Hidamari meshes unreal.world reads (all but the volcano)', north=False),
-        digest_step(out, 'world.hidamari', 'north', "the volcano's meshes unreal.north reads (HD_North*)", north=True),
+             cache=True, heavy=True, about='authoritative FarHills natural and final ordered geometry before city scenery'),
+        *_load_helper_module('yorimichi_hidamari_atomic', GAME / 'hidamari_build.py').layout_steps(
+            ctx, terrain_inputs=[*CRATERPARK, *craterpark_v4.input_paths(), *belmonte_train_corridor(out)],
+            terrain_needs=crater_geometry),
+        *_load_helper_module('yorimichi_hidamari_atomic', GAME / 'hidamari_build.py').mesh_steps(
+            ctx, terrain_inputs=[*CRATERPARK, *craterpark_v4.input_paths(), *belmonte_train_corridor(out)],
+            terrain_needs=crater_geometry),
+        *_load_helper_module('yorimichi_hidamari_atomic', GAME / 'hidamari_build.py').metadata_steps(
+            ctx, terrain_inputs=[*CRATERPARK, *craterpark_v4.input_paths(), *belmonte_train_corridor(out)],
+            terrain_needs=crater_geometry),
+        *_load_helper_module('yorimichi_belmonte_models', GAME / 'belmonte_atomic_build.py').model_steps(ctx),
+        *_load_helper_module('yorimichi_belmonte_models', GAME / 'belmonte_atomic_build.py').ground_steps(ctx),
+        *_load_helper_module('yorimichi_belmonte_north', GAME / 'belmonte_north_build.py').query_steps(ctx),
+        *_load_helper_module('yorimichi_belmonte_north', GAME / 'belmonte_north_build.py').steps(ctx),
+        *_load_helper_module('yorimichi_belmonte_scene', GAME / 'belmonte_scene_build.py').steps(ctx),
         *belmonte_steps(out)[:3],
         brinecove_source_step(out),
         *brinecove_model_steps(out),
+        *_load_helper_module('yorimichi_brinecove_atomic', GAME / 'brinecove_atomic_build.py').steps(ctx),
         *brinecove_steps(out)[:2],
-        # Zeppelin samples layout products and shared terrain code, not Hidamari's exported city/assets.
-        # Keep the old build order; track tree metadata read by the imported treehouse layout directly.
-        Step('world.zeppelin', [Blender(REGIONS / 'zeppelin' / 'build.py', threads=2)],
-             # The Hidamari path follows HD_Terrain as built (layout height, railway earthworks, apron pad).
-            inputs=[REGIONS / 'zeppelin', REGIONS / 'village' / 'build.py', REGIONS / 'hidamari' / 'mountains.py', *CRATERPARK,
-                     REGIONS / 'hidamari' / 'layout.py', *belmonte_train_corridor(out),
-                     REGIONS / 'belmonte' / 'layout.py', REGIONS / 'belmonte' / 'source.py', REGIONS / 'belmonte' / 'terrain.py',
-                     ASSETS / 'belmonte' / 'source.json',
-                     *(ASSETS / 'belmonte' / entry['path'] for entry in _read_json(ASSETS / 'belmonte/source.json')['meshes']
-                       if entry['name'].startswith('SM_BM_BT_Terrain_')),
-                     REGIONS / 'megapark' / 'gate.py', ASSETS / 'megapark' / 'map.json',
-                     ASSETS / 'megapark' / 'geometry', ASSETS / 'megapark' / 'collision'],
-             needs=['world.layout', 'world.treehouse_trees'], after=['world.hidamari'],
-             outputs=[out / 'zeppelin' / 'manifest.json'], about='airship and its four stations', heavy=True),
+        *_load_helper_module('yorimichi_zeppelin_atomic',REGIONS/'zeppelin/atomic.py').steps(
+            ctx,query_inputs=northern_query_inputs(out),query_needs=['world.layout','world.treehouse_trees.data']),
         digest_step(out, 'world.zeppelin', 'meshes', 'the zeppelin meshes unreal.world reads', out / 'zeppelin', ['manifest.json', 'assets']),
         Step('world.hidamari_textures', [Python(TOOLS / 'hidamari_textures.py', ('finish',))],
              inputs=[TOOLS / 'hidamari_textures.py', TOOLS / 'treehouse_textures.py', ASSETS / 'hidamari' / 'textures'],
@@ -1172,60 +1142,25 @@ def world_steps(ctx):
              inputs=[TOOLS / 'treehouse_textures.py', ASSETS / 'treehouse' / 'textures'],
              outputs=[out / 'treehouse' / 'textures' / 'textures.json'], pool_roots=[out / 'treehouse' / 'textures'],
              about='tree house textures: seamless detail maps and pictures from the Sunburst paintings'),
-        Step('world.treehouse_props', [Blender(TREEHOUSE / 'props.py', threads=4)],
-             inputs=[TREEHOUSE / 'props.py', TOOLS / 'treehouse_props.py', ASSETS / 'treehouse' / 'props'],
-             outputs=[out / 'treehouse' / 'props' / 'props.json'], about='the 13 Tripo props fitted to their sizes', heavy=True),
-        Step('world.treehouse', [Blender(TREEHOUSE / 'build.py', threads=4)],
-             inputs=[TREEHOUSE / 'build.py', TREEHOUSE / 'tmesh.py', TREEHOUSE / 'dressing.py', GAME / 'treehouse_pieces.py',
-                     WORLD / 'mesh_pieces.py', paths.STUDIO / 'atelier/mesh_cells.py',
-                     paths.STUDIO / 'atelier/mesh_partition.py', REGIONS / 'village' / 'build.py', *TREEHOUSE_LAYOUT, *VILLAGE_LAYOUT],
-             needs=['world.layout', 'world.treehouse_trees'],
-             outputs=[out / 'treehouse' / 'manifest.json', out / 'treehouse' / 'runtime.json', out / 'treehouse/pieces.json'],
-             products=[Product('treehouse.meshes', (out / 'treehouse/assets', out / 'treehouse/manifest.json', out / 'treehouse/pieces.json')),
-                       Product('treehouse.runtime', (out / 'treehouse/runtime.json',))],
-             verify=lambda: treehouse_pieces.sources_present(out),
-             about='the tree house: ten places, bridges, rooms and their dressing, lights, sunbeams', heavy=True),
-        Step('world.terrain', [Blender(WORLD / 'build_terrain.py')],
-             inputs=[WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'terrain_product.py',
-                     WORLD / 'shorelines.py', WORLD / 'coastal_surface.py', YORI, *belmonte_train_corridor(out),
-                     REGIONS / 'brinecove' / 'region.py'],
-             needs=['world.layout', 'world.hidamari', 'world.textures'],
-             outputs=[out / 'terrain.fbx', out / 'assets' / 'Sea.fbx'],
-             reads=['terrain.FarHills.final'],
-             about='terrain, road, wires, far hills, sea', heavy=True),
-        digest_step(out, 'world.terrain', 'meshes', 'the terrain and sea meshes the imports read', out, ['terrain.fbx', 'assets/Sea.fbx']),
-        Step('world.village', [Blender(REGIONS / 'village' / 'build.py')], inputs=[REGIONS / 'village', YORI], needs=['world.layout'],
-             outputs=[out / 'village' / 'manifest.json'], about='Momiji Hamlet', heavy=True),
-        village_import_step(out),
-        Step('world.houses', [Blender(REGIONS / 'houses' / 'build.py')],
-             inputs=[REGIONS / 'houses', REGIONS / 'village' / 'build.py', WORLD / 'torii_clearance.py', *VILLAGE_LAYOUT],
-             needs=['world.layout', 'world.textures'], outputs=[out / 'houses' / 'manifest.json'],
-             about='the five houses on the main road: three house models and their lots (terrace, hedge, gate, ishigaki)', heavy=True),
-        Step('world.southwest', [Blender(REGIONS / 'southwest' / 'build.py', ('--models', SOUTHWEST_MODELS, '--export', '--no-render'))],
-             inputs=[REGIONS / 'southwest', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT], needs=['world.layout'],
-             outputs=[out / 'southwest' / 'fbx' / 'SW_Temple.fbx'], about='fishing village, cove, island temple', heavy=True),
-        Step('world.mega', [Blender(REGIONS / 'mega' / 'build.py')], inputs=[REGIONS / 'mega', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT],
-             needs=['world.layout'], outputs=[out / 'mega' / 'manifest.json'], about='the mini-mega ramp and its trail', heavy=True),
+        *_load_helper_module('yorimichi_treehouse_atomic',GAME/'treehouse_atomic_build.py').prop_steps(ctx),
+        *_load_helper_module('yorimichi_treehouse_atomic',GAME/'treehouse_atomic_build.py').surface_steps(ctx),
+        *_load_helper_module('yorimichi_island_atomic', GAME/'terrain_atomic_build.py').steps(ctx),
+        *_load_helper_module('yorimichi_village_atomic',GAME/'village_atomic_build.py').steps(ctx),
+        *_load_helper_module('yorimichi_houses_atomic', GAME / 'houses_build.py').steps(ctx),
+        *_load_helper_module('yorimichi_southwest_atomic', GAME/'southwest_atomic_build.py').steps(ctx),
+        _load_helper_module('yorimichi_southwest_atomic', GAME/'southwest_atomic_build.py').assembly_step(ctx),
+        *_load_helper_module('yorimichi_mega_atomic', GAME / 'mega_build.py').steps(ctx),
         Step('world.swordcamp_atlas', [Python(REGIONS / 'swordcamp' / 'make_atlas.py')],
              inputs=[REGIONS / 'swordcamp' / 'make_atlas.py', ASSETS / 'swordcamp', ASSETS / 'treehouse' / 'textures', YORI],
-             outputs=[out / 'swordcamp' / 'swordcamp_atlas.jpg'],
+             products=[Product('swordcamp.atlas', (out / 'swordcamp' / 'swordcamp_atlas.jpg',))],
              about='2048x2048 Sunburst UV texture atlas for the Kasa Ronin and roadside mini-camp'),
-        Step('world.swordcamp', [Blender(REGIONS / 'swordcamp' / 'build.py', threads=3)],
-             inputs=[REGIONS / 'swordcamp' / 'build.py', YORI],
-             needs=['world.swordcamp_atlas'],
-             outputs=[out / 'swordcamp' / 'manifest.json',
-                      *(out / 'swordcamp' / 'fbx' / f'{n}.fbx' for n in SWORDCAMP_MESHES)],
-             about='Kasa Ronin equipment and roadside mini-camp procedural meshes', heavy=True),
+        *_load_helper_module('yorimichi_swordcamp_atomic', GAME / 'swordcamp_build.py').steps(ctx),
         Step('world.megapark_restyle', [Python(TOOLS / 'megapark_textures.py', ('finish',))],
              inputs=[TOOLS / 'megapark_textures.py', ASSETS / 'megapark' / 'restyle', ASSETS / 'megapark' / 'map.json',
                      REGIONS / 'megapark' / 'sign.py', REGIONS / 'hidamari' / 'fonts' / 'NotoSansJP.ttf'],
              outputs=[out / 'megapark' / 'textures' / 'textures.json', out / 'megapark' / 'lettering' / 'NotoSansJP-Black.ttf'],
              about='Mega Park restyle: island-style rock, earth, paint and signs, lightmap levels, the 寄り道 font'),
-        Step('world.megapark', [Blender(REGIONS / 'megapark' / 'build.py', threads=4)],
-             inputs=[REGIONS / 'megapark' / 'build.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'plants.py',
-                     REGIONS / 'megapark' / 'sign.py', REGIONS / 'megapark' / 'cars.py', ASSETS / 'megapark', YORI], needs=['world.megapark_restyle'],
-             outputs=[out / 'megapark' / 'build.json', out / 'megapark' / 'park.json', out / 'megapark' / 'fbx' / 'SM_MP_ImportSeed.fbx'],
-             about='original Super Ultra Mega Park geometry, riding collision and grind curves -> FBX', heavy=True),
+        *_load_helper_module('yorimichi_megapark_atomic', GAME/'megapark_atomic_build.py').steps(ctx),
         Step('world.craterpark_restyle', [Python(TOOLS / 'craterpark_textures.py', ('finish',))],
              inputs=[TOOLS / 'craterpark_textures.py', ASSETS / 'craterpark' / 'restyle', ASSETS / 'craterpark' / 'textures',
                      ASSETS / 'craterpark' / 'materials.json', ASSETS / 'craterpark' / 'shrine',
@@ -1241,29 +1176,15 @@ def world_steps(ctx):
              inputs=[REGIONS / 'craterpark' / 'cloud.py', REGIONS / 'craterpark' / 'cloud_build.py', YORI],
              outputs=[out / 'craterpark' / 'cloud.json'],
              about="Crater Park's lenticular cap cloud: its nested lens shells and their look (numpy)"),
-        Step('world.lake', [Blender(REGIONS / 'forest_lake' / 'build.py')], inputs=[REGIONS / 'forest_lake', REGIONS / 'village' / 'build.py', *VILLAGE_LAYOUT],
-             needs=['world.layout'], outputs=[out / 'forest_lake' / 'manifest.json'], about='the woodland lake and cabin', heavy=True),
+        *_load_helper_module('yorimichi_lake_atomic',GAME/'lake_atomic_build.py').steps(ctx),
         Step('world.skatepark_textures', [Python(TOOLS / 'pier_texture_finish.py')],
              inputs=[*local_imports(TOOLS / 'pier_texture_finish.py', (TOOLS,)),
                      ASSETS / 'skatepark' / 'textures', ASSETS / 'megapark' / 'restyle' / 'stone_cut.jpg'],
              products=[Product('skatepark.textures', (out / 'skatepark/textures',))], cache=True,
              about='Sunburst pier material maps (offline; no paid calls)'),
-        Step('world.skatepark', [Blender(REGIONS / 'skatepark' / 'build.py', threads=3)],
-             inputs=[*sorted((REGIONS / 'skatepark').glob('*.py')), REGIONS / 'skatepark/park.json', ASSETS / 'skatepark' / 'modules.json',
-                     ASSETS / 'skatepark' / 'modules', WORLD / 'mesh_pieces.py',
-                     paths.STUDIO / 'atelier/mesh_cells.py', paths.STUDIO / 'atelier/mesh_partition.py', *VILLAGE_LAYOUT],
-             needs=['world.layout'], reads=['skatepark.textures'],
-             products=[Product('skatepark.meshes', (out / 'skatepark/assets', out / 'skatepark/board',
-                                                  out / 'skatepark/build-report.json')),
-                       Product('skatepark.runtime', (out / 'skatepark/runtime-park.json',)),
-                       Product('skatepark.queries', (out / 'skatepark/collision.json',))],
-             heavy=True, about='bounded skate pier meshes, complete logical riding queries and board'),
-        Step('world.sailboat', [Blender(ASSETS / 'vehicles' / 'sailboat' / 'build.py', threads=4)],
-             inputs=[ASSETS / 'vehicles' / 'sailboat', REGIONS / 'village' / 'build.py'],
-             outputs=[out / 'sailboat' / 'manifest.json'], about='the dinghy', heavy=True),
-        Step('world.bike', [Blender(ASSETS / 'vehicles' / 'bike' / 'build.py')],
-             inputs=[ASSETS / 'vehicles' / 'bike' / 'build.py', YORI],
-             outputs=[out / 'bike' / 'manifest.json'], about="Cairo's bike: frame, steering, wheels, crank, pedals, kickstand, rack board", heavy=True),
+        *_load_helper_module('yorimichi_skate_atomic',GAME/'skatepark_atomic_build.py').steps(ctx),
+        *_load_helper_module('sailboat_atomic_recipe', GAME / 'vehicle_atomic_build.py').steps(ctx, 'sailboat'),
+        *_load_helper_module('bike_atomic_recipe', GAME / 'vehicle_atomic_build.py').steps(ctx, 'bike'),
         # Verifies every library GLB, measures each breed's contacts and samples the reference breed's clips. A cutoff:
         # its dependents (the riders, unreal.horses) list what else they read, so a palette edit reruns only the import.
         Step('world.horses', [Blender(HORSES / 'build.py', threads=3)],
@@ -1271,16 +1192,8 @@ def world_steps(ctx):
                      paths.STUDIO / 'atelier' / 'gltf.py', *(HORSES / slug for slug in HORSE_LIBRARY['breeds'])],
              outputs=[out / 'horses' / 'manifest.json', *(out / 'horses' / 'turns' / f'{slug}.glb' for slug in HORSE_LIBRARY['breeds'])], cutoff=True,
              about="the horses' rider contacts and 60 Hz clip trajectories", heavy=True),
-        Step('world.kei', [Blender(ASSETS / 'vehicles' / 'kei' / 'build.py')],
-             inputs=[ASSETS / 'vehicles' / 'kei', REGIONS / 'village' / 'build.py'],
-             outputs=[out / 'kei' / 'manifest.json'], about='the four kei cars in the Mega Park car park', heavy=True),
-        Step('world.kart', [Blender(ASSETS / 'vehicles' / 'kart' / 'build.py', threads=3)],
-             inputs=[ASSETS / 'vehicles' / 'kart' / 'build.py', ASSETS / 'vehicles' / 'kart' / 'cockpit.py',
-                     ASSETS / 'vehicles' / 'kart' / 'cockpit.json', REGIONS / 'village' / 'build.py', REGIONS / 'village' / 'layout.py', YORI],
-             outputs=[out / 'kart' / 'manifest.json', out / 'kart' / 'cockpit.json',
-                      *(out / 'kart' / 'assets' / f'{name}.fbx' for name in
-                        ('SM_Kart_Body', 'SM_Kart_Seat', 'SM_Kart_Wheel', 'SM_Kart_SteeringWheel'))],
-             about='the go-kart, its seat, its wheels and its steering wheel', heavy=True),
+        *_load_helper_module('kei_atomic_recipe', GAME / 'vehicle_atomic_build.py').steps(ctx, 'kei'),
+        *_load_helper_module('kart_atomic_recipe', GAME / 'vehicle_atomic_build.py').steps(ctx, 'kart'),
         Step('world.belmonte_train', [Blender(WORLD / 'train' / 'build.py', threads=3)],
              inputs=[*build_inputs.local_imports(WORLD / 'train' / 'build.py', (WORLD,)),
                      ASSETS / 'vehicles' / 'belmonte-train' / 'planning',
@@ -1395,9 +1308,12 @@ def world_steps(ctx):
              about='the track meshes and runtime data unreal.belmonte_track reads'),
         Step('world.map', [Python(WORLD / 'map' / 'build_map.py')],
              inputs=[WORLD / 'map', WORLD / 'north_mountain_surface.py', WORLD / 'city_terrain_surface.py',
+                     WORLD / 'gen_world.py', WORLD / 'train/route.py', REGIONS / 'skatepark/park.json',
+                     REGIONS / 'brinecove/ground.py',
                      REGIONS / 'hidamari' / 'build.py', REGIONS / 'hidamari_stable' / 'layout.py', WORLD / 'build_terrain.py', WORLD / 'farhills_surface.py', WORLD / 'farhills_grid.py', WORLD / 'terrain_product.py',
                      *CRATERPARK, REGIONS / 'southwest', REGIONS / 'mega' / 'ramp.py', REGIONS / 'megapark' / 'placement.py', REGIONS / 'megapark' / 'gate.py',
-                     *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout', 'terrain')],
+                     *[REGIONS / 'belmonte' / (name + '.py') for name in ('plan', 'planting', 'source', 'layout', 'terrain', 'query_arrays')],
+                     REGIONS / 'brinecove/ground_sampling.py', REGIONS / 'brinecove/boundary.py',
                      *local_imports(REGIONS / 'brinecove/plan.py'),
                      *belmonte_train_corridor(out),
                      ASSETS / 'belmonte' / 'source.json',
@@ -1407,19 +1323,16 @@ def world_steps(ctx):
                                                     'SM_BM_BVV_Farm_', 'SM_BM_BC_Water_', 'SM_BM_BC_Pave', 'SM_BM_BC_Ponte')))],
              needs=['world.layout', 'world.hidamari', 'world.skatepark', 'world.zeppelin', 'world.belmonte',
                     *crater_geometry],
-             reads=['brinecove.map', 'belmonte.ground'],
+             reads=['brinecove.map', 'belmonte.ground', 'belmonte.query.SM_BM_NorthCountry', 'belmonte.query.SM_BM_NorthApron'],
              outputs=[out / 'map' / 'map.json', out / 'map' / 'map.png',
                       *(out / 'map' / 'atlas' / f'{key}.png' for key in ('world', 'momiji_coast', 'momiji_woods', 'hidamari', 'temple_island',
                                                                      'northern_foothills', 'volcanic_highlands', 'haras_valley',
                                                                      'brinecove'))],
              heavy=True, about='map zones and label-free regional atlas'),
-        *city_tile_steps(out),
-        digest_step(out, 'world.city_tiles', 'meshes', 'the city tiles unreal.desktop reads', out / 'city_surface_tiles', ['v1_128m']),
-        city_input_step(out, 'trees'),
-        Step('world.city_trees', [Blender(WORLD / 'city_tree_lods.py', ('--tag', 'v4'), threads=3)],
-             inputs=[WORLD / 'city_tree_lods.py', REGIONS / 'hidamari' / 'arcade.py', REGIONS / 'hidamari' / 'plaza.py'],
-             needs=['world.hidamari.trees'], outputs=[out / 'city_tree_lods' / 'v4' / 'manifest.json'], about='desktop profile: city tree LODs', heavy=True),
-        digest_step(out, 'world.city_trees', 'meshes', 'the city tree LODs unreal.desktop reads', out / 'city_tree_lods', ['v4']),
+        *_load_helper_module('yorimichi_hidamari_atomic', GAME / 'hidamari_build.py').assembly_steps(ctx),
+        digest_step(out, 'world.city_tiles', 'meshes', 'the independent city pieces unreal.desktop reads', out / 'city_surface_tiles', ['v1_128m']),
+        *_load_helper_module('yorimichi_city_tree_atomic', GAME / 'hidamari_tree_build.py').steps(ctx),
+        digest_step(out, 'world.city_trees', 'meshes', 'the independent tree LODs Unreal reads', out / 'city_tree_lods', ['v4']),
     ]
 
 
@@ -1569,6 +1482,9 @@ def sound_native_products(out):
 def unreal_steps(ctx):
     """Native checks, editor compilation and ordered content imports."""
     out = ctx.out
+    island_policy=_load_helper_module('yorimichi_island_native_policy',GAME/'island_native_policy.py')
+    island_materials=tuple(GAME/'unreal/Content'/(path.removeprefix('/Game/')+'.uasset')
+        for path in island_policy.MATERIAL_PACKAGES)
     return [
         # ------------------------------------------------------------ Unreal
         # Imports run `after` the compile (the editor must load the module) but do not rerun when C++ changes, except
@@ -1599,9 +1515,41 @@ def unreal_steps(ctx):
              about='the Yorimichi game binary, app bundle and redistributed files; the cook does not build'),
         *unreal_modules.steps(ctx, IMPORT_CODE + SAVED_TYPES + CONTACT_TYPES + ('Yorimichi',)),
         *foliage_build.unreal_steps(ctx, IMPORT_CODE, engine_version(ctx)),
-        Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'level saved', memory_gib=14)],
+        Step('unreal.island', [UnrealScript(SCRIPTS/'import_island_world.py', 'ISLAND ATOMIC IMPORT COMPLETE',
+                                          memory_gib=14, null_rhi=True, modules=IMPORT_CODE)],
+             inputs=[SCRIPTS/'import_island_world.py', GAME/'island_atomic_products.py',
+                     ASSETS/'environment/textures/volcanic-rock.jpg',
+                     *local_imports(SCRIPTS/'import_island_world.py',(SCRIPTS,WORLD,REGIONS,GAME)),
+                     out/'world.json'],
+             needs=['world.layout',*unreal_modules.needs(IMPORT_CODE)], after=['unreal.compile'],
+             reads=['materials.shared','island.atomic','island.receiving','island.source_inventory',
+                    'terrain.island.runtime','hidamari.north_masks'],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Experiments/IslandTerrain/v1_atomic',)),
+             products=[Product('island.native_meshes',(GAME/'unreal/Content/Experiments/IslandTerrain/v1_atomic',)),
+                Product('island.native_materials',island_materials,
+                    optional_paths=tuple(path.with_suffix(suffix) for path in island_materials for suffix in island_policy.SIDECARS)),
+                Product('island.native_map',(GAME/'unreal/Content/Japan/Maps/Slice.umap',),
+                    optional_paths=tuple(GAME/'unreal/Content/Japan/Maps'/('Slice'+suffix)
+                        for suffix in ('.uexp','.ubulk','.uptnl','.m.ubulk','.upayload'))),
+                Product('island.native_report',(out/'terrain/island-import-report.json',))],
+             heavy=True, about='receive separate island meshes, save Slice and retire old parents as one complete owner'),
+        Step('unreal.village',[UnrealScript(SCRIPTS/'import_village.py','VILLAGE IMPORT COMPLETE',modules=IMPORT_CODE)],
+             inputs=[*build_inputs.local_imports(SCRIPTS/'import_village.py',(SCRIPTS,WORLD,REGIONS)),
+                     GAME/'village_atomic_products.py'],
+             after=['unreal.compile','unreal.materials'],needs=[*unreal_modules.needs(IMPORT_CODE)],
+             reads=['village.atomic','village.meshes','village.runtime','materials.shared'],
+             products=[Product('village.native_meshes',(GAME/'unreal/Content/Experiments/VillageAtomic/v1_atomic',)),
+                       Product('village.native_materials',tuple(GAME/'unreal/Content/Japan/Materials'/(name+'.uasset')
+                           for name in ('M_Village','M_VillageResident')),optional_paths=tuple(
+                           GAME/'unreal/Content/Japan/Materials'/(name+suffix) for name in ('M_Village','M_VillageResident')
+                           for suffix in ('.uexp','.ubulk','.uptnl','.m.ubulk','.upayload'))),
+                       Product('village.native_report',(out/'village/import-report.json',))],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Experiments/VillageAtomic/v1_atomic',)),
+             heavy=True,about='receive complete independent Village pieces/materials before world consumers; combined old-parent retirement'),
+        Step('unreal.world', [UnrealScript(SCRIPTS / 'setup_project.py', 'WORLD ASSETS IMPORT COMPLETE', memory_gib=14)],
              # The city's arcade and harbor materials read the region's committed paintings.
              inputs=[WORLD / 'asset_catalog.py', WORLD / 'coast_water.py', REGIONS / 'hidamari' / 'textures',
+                     REGIONS/'hidamari/logical_catalogue.py', GAME/'unreal/Source/Yorimichi/CitySurfaceParents.h',
                      REGIONS / 'hidamari/ferry_source.py',
                      ASSETS / 'environment/textures/volcanic-rock.jpg', SCRIPTS / 'coast_rock_look.py',
                      *[SCRIPTS / n for n in ('setup_project.py', 'material_assets.py', 'mesh_import.py',
@@ -1609,31 +1557,43 @@ def unreal_steps(ctx):
                                           'import_hidamari.py', 'import_southwest.py', 'arcade_material.py', 'plaza_material.py',
                                           'harbor_material.py', 'sea_look.py', 'import_sailboat.py', 'sailboat_material.py',
                                           'import_zeppelin.py', 'forest_ground.py', 'ground_grain.py', 'atmosphere.py', 'city_material.py', 'mesh_materials.py')]],
-             after=['unreal.compile', 'unreal.materials'],
-             references=['materials.shared', *['foliage.' + name + '.native' for name in foliage_build.catalog.FOLIAGE]],
-             needs=['world.hidamari_ferry_cut', 'world.textures', 'world.layout', 'world.props', 'world.hidamari.city', 'world.hidamari_textures', 'world.hidamari_props.import',
-                    'world.zeppelin.meshes', 'world.terrain.meshes', 'world.village.import', 'world.sailboat', 'characters.wanderer'],
-             heavy=True, about='legacy world assets and level; preserves independent materials and foliage'),
+             after=['unreal.compile', 'unreal.materials','unreal.village'],
+             references=['materials.shared','village.native_materials', *['foliage.' + name + '.native' for name in foliage_build.catalog.FOLIAGE]],
+             reads=['props.library'],
+             needs=['unreal.island','world.hidamari_ferry_cut', 'world.textures', 'world.layout', 'world.props', 'world.hidamari.city', 'world.hidamari_textures', 'world.hidamari_props.import',
+                    'world.zeppelin.meshes', 'world.terrain.meshes', 'world.sailboat', 'characters.wanderer'],
+             heavy=True, about='legacy world assets; island owns the map, materials and foliage remain independent'),
         # The volcano: its meshes, M_NorthMountains with the rock and snow mask textures, M_NorthGate. The world import
         # purges /Game/Japan and makes the textures and MPC these materials use, so this reruns after it.
         Step('unreal.north', [UnrealScript(SCRIPTS / 'import_hidamari.py', 'HIDAMARI IMPORT COMPLETE', env=(('HIDAMARI_ASSETS', 'HD_North*'),))],
-             inputs=[WORLD / 'coast_water.py', SCRIPTS / 'forest_ground.py', ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
+             inputs=[WORLD / 'coast_water.py',REGIONS/'hidamari/logical_catalogue.py', GAME/'unreal/Source/Yorimichi/CitySurfaceParents.h', SCRIPTS / 'forest_ground.py', ASSETS / 'environment/textures/volcanic-rock.jpg', out / 'hidamari' / 'north_snow.png', out / 'hidamari' / 'north_snow.json',
                      out / 'hidamari' / 'north_crater.png', out / 'hidamari' / 'north_crater.json',
                      out / 'craterpark' / 'textures' / 'crater_floor.png', TOOLS / 'craterpark_textures.py',
                      *[SCRIPTS / n for n in ('import_hidamari.py', 'mountain_material.py', 'import_village.py', 'atmosphere.py', 'ground_grain.py', 'sea_look.py')]],
              needs=['unreal.world', 'world.hidamari.north', 'world.craterpark_restyle'], heavy=True,
              about='/Game/Japan: the volcano (HD_North*), M_NorthMountains and its rock, snow and crater floor textures'),
         # The regions below place their own meshes with the world's materials, so they rerun when it is reimported.
-        # The terrain, the sea and their materials are unreal.world's alone.
+        # Island pieces and their shared materials belong to unreal.island.
         Step('unreal.southwest', [UnrealScript(SCRIPTS / 'import_southwest.py', 'SOUTHWEST IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_southwest.py', SCRIPTS / 'sea_look.py', SCRIPTS / 'forest_ground.py',
-                     SCRIPTS / 'ground_grain.py', SCRIPTS / 'material_assets.py'], needs=['unreal.world', 'world.southwest'], heavy=True,
-             about='south-west props'),
+                     SCRIPTS / 'ground_grain.py', SCRIPTS / 'material_assets.py',GAME/'southwest_atomic_products.py'],
+             needs=['unreal.world'], reads=['southwest.atomic','southwest.meshes'],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Japan/Southwest/Pieces',)),
+             products=[Product('southwest.native_meshes',(GAME/'unreal/Content/Japan/Southwest/Pieces',)),
+                       Product('southwest.native_report',(out/'southwest/import-report.json',))],heavy=True,
+             about='independent south-west pieces; island terrain and sea stay with their own native owner'),
         Step('unreal.mega', [UnrealScript(SCRIPTS / 'import_mega.py', 'MEGA IMPORT COMPLETE')],
-             inputs=[SCRIPTS / 'import_mega.py'], needs=['unreal.world', 'world.mega'], heavy=True, about='the mini-mega ramp'),
+             inputs=[SCRIPTS / 'import_mega.py'], needs=['unreal.world'], reads=['mega.meshes'],
+             outputs=[out / 'mega/import-report.json',
+                      *(GAME / 'unreal/Content/Japan/Assets' / (name + '.uasset')
+                        for name in ('Mega_Ramp', 'Mega_Trim', 'Mega_Trail'))],
+             products=[foliage_build.native_product('mega.native', GAME / 'unreal/Content',
+                       ['/Game/Japan/Assets/' + name for name in ('Mega_Ramp', 'Mega_Trim', 'Mega_Trail')],
+                       extra=(out / 'mega/import-report.json',))],
+             heavy=True, about='the independently exported mini-mega meshes; world owns their shared material'),
         Step('unreal.swordcamp', [UnrealScript(SCRIPTS / 'import_swordcamp.py', 'SWORDCAMP IMPORT COMPLETE', null_rhi=True)],
              inputs=[SCRIPTS / 'import_swordcamp.py', SCRIPTS / 'mesh_import.py', SCRIPTS / 'atmosphere.py', SCRIPTS / 'sea_look.py'],
-             after=['unreal.compile'], needs=['world.swordcamp'],
+             after=['unreal.compile'], reads=['swordcamp.meshes', 'swordcamp.atlas'],
              outputs=[out / 'swordcamp' / 'import-report.json',
                       GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Textures' / 'T_SwordCampAtlas.uasset',
                       GAME / 'unreal' / 'Content' / 'SwordCamp' / 'Materials' / 'M_SwordCamp.uasset',
@@ -1647,19 +1607,31 @@ def unreal_steps(ctx):
         Step('unreal.megapark', [UnrealScript(SCRIPTS / 'import_megapark.py', 'MEGAPARK IMPORT COMPLETE', null_rhi=True,
                                             args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',),
                                             modules=IMPORT_CODE + SAVED_TYPES)],
-             inputs=[SCRIPTS / 'import_megapark.py'],
+             inputs=[SCRIPTS / 'import_megapark.py',SCRIPTS/'park_atomic_native.py'],
              needs=['world.megapark', 'world.megapark_restyle', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES)],
-             outputs=[GAME / 'unreal' / 'Content' / 'MegaPark' / 'Maps' / 'SuperUltraMegaPark.umap'],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/MegaPark/Meshes',)),
+             products=[Product('megapark.native_library',(GAME/'unreal/Content/MegaPark',)),
+                       Product('megapark.native_report',(out/'megapark/import-report.json',out/'megapark/imported-geometry'))],
              heavy=True, about='editable standalone Super Ultra Mega Park level (/Game/MegaPark)'),
         Step('unreal.craterpark', [UnrealScript(SCRIPTS / 'import_craterpark.py', 'CRATERPARK IMPORT COMPLETE', null_rhi=True,
                                               args=('-ForceDPCVars=r.GenerateMeshDistanceFields=0,r.MeshCardRepresentation=0',),
                                               modules=IMPORT_CODE + SAVED_TYPES)],
-             inputs=[SCRIPTS / 'import_craterpark.py', SCRIPTS / 'import_megapark.py'],
+             inputs=[SCRIPTS / 'import_craterpark.py', SCRIPTS / 'import_megapark.py',SCRIPTS/'park_atomic_native.py'],
              needs=['world.craterpark', 'world.craterpark_restyle', *unreal_modules.needs(IMPORT_CODE + SAVED_TYPES)],
-             outputs=[out / 'craterpark' / 'import-report.json'],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/CraterPark/Meshes',)),
+             products=[Product('craterpark.native_library',tuple(GAME/'unreal/Content/CraterPark'/key
+                            for key in ('Meshes','Materials','Textures'))),
+                       Product('craterpark.native_report',(out/'craterpark/import-report.json',out/'craterpark/imported-geometry'))],
              heavy=True, about='Crater Park meshes, textures and materials (/Game/CraterPark)'),
         Step('unreal.houses', [UnrealScript(SCRIPTS / 'import_houses.py', 'HOUSES IMPORT COMPLETE')],
-             inputs=[SCRIPTS / 'import_houses.py'], needs=['unreal.world', 'world.houses'], heavy=True,
+             inputs=[SCRIPTS / 'import_houses.py'], needs=['unreal.world'], reads=['houses.meshes'], heavy=True,
+             outputs=[out / 'houses/import-report.json',
+                      *(GAME / 'unreal/Content/Japan/Assets' / (name + '.uasset') for name in
+                        ('House_A', 'House_B', 'House_C', *(f'HouseLot_{i}' for i in range(1, 6))))],
+             products=[foliage_build.native_product('houses.native', GAME / 'unreal/Content',
+                       ['/Game/Japan/Assets/' + name for name in
+                        ('House_A', 'House_B', 'House_C', *(f'HouseLot_{i}' for i in range(1, 6)))],
+                       extra=(out / 'houses/import-report.json',))],
              about='the houses on the main road and their lots'),
         Step('unreal.kei', [UnrealScript(SCRIPTS / 'import_kei.py', 'KEI IMPORT COMPLETE')],
              inputs=[SCRIPTS / 'import_kei.py'], needs=['unreal.world', 'world.kei'], heavy=True,
@@ -1680,23 +1652,42 @@ def unreal_steps(ctx):
                         GAME / 'unreal/Content/Data/kart/prepared-models.json',
                         *(GAME / f'unreal/Content/Data/kart/grips/{name}.json' for name in kart_source_identity.playable_ids())],
              about='the go-kart body, wheels and steering wheel (/Game/Japan/Kart)'),
-        Step('unreal.bike', [UnrealScript(SCRIPTS / 'import_bike.py', 'BIKE IMPORT COMPLETE')],
-             inputs=[SCRIPTS / 'import_bike.py', SCRIPTS / 'bike_material.py'], needs=['unreal.world', 'world.bike'], heavy=True,
-             about="Cairo's bike parts and M_Bike (/Game/Japan/Assets)"),
+        Step('unreal.bike', [UnrealScript(SCRIPTS / 'import_bike.py', 'BIKE IMPORT COMPLETE', modules=('Yorimichi', *IMPORT_CODE))],
+             inputs=[*local_imports(SCRIPTS / 'import_bike.py', (SCRIPTS, WORLD, REGIONS)), GAME / 'bike_atomic_products.py'],
+             needs=['unreal.world', *unreal_modules.needs(('Yorimichi', *IMPORT_CODE))], reads=['vehicle_bike.library'], heavy=True,
+             products=[Product('bike.native_meshes', tuple(GAME / 'unreal/Content/Japan/Assets' / (key + '.uasset')
+                           for key in ('BK_Frame','BK_WheelFront','BK_WheelRear','BK_Crank','BK_Pedal','BK_Kickstand','BK_RackBoard',
+                                       'BK_Steer_BasketFoot','BK_Steer_BasketRim','BK_Steer_BasketShell','BK_Steer_Core')),
+                           optional_paths=tuple(GAME / 'unreal/Content/Japan/Assets' / (key + suffix)
+                           for key in ('BK_Frame','BK_WheelFront','BK_WheelRear','BK_Crank','BK_Pedal','BK_Kickstand','BK_RackBoard',
+                                       'BK_Steer_BasketFoot','BK_Steer_BasketRim','BK_Steer_BasketShell','BK_Steer_Core')
+                           for suffix in ('.uexp','.ubulk','.uptnl','.m.ubulk','.upayload'))),
+                       Product('bike.native_material', (GAME / 'unreal/Content/Japan/Materials/M_Bike.uasset',),
+                           optional_paths=tuple(GAME / 'unreal/Content/Japan/Materials' / ('M_Bike' + suffix)
+                           for suffix in ('.uexp','.ubulk','.uptnl','.m.ubulk','.upayload'))),
+                       Product('bike.native_report', (out / 'bike/import-report.json',))],
+             about="Cairo's eleven separate bike meshes and cooked complete steering bounds"),
         Step('unreal.horses', [UnrealScript(SCRIPTS / 'import_horses.py', 'HORSES IMPORT COMPLETE')],
              inputs=horse_import_inputs(), after=['unreal.compile'], needs=['world.horses'],
              outputs=[out / 'horses' / 'unreal_import.json', GAME / 'unreal' / 'Content' / 'Data' / 'horses' / 'roster.json'],
              verify=lambda: horses_imported_present(out),
              heavy=True, about='the horse breeds, coats, tack sets and materials (/Game/Horses) and their roster'),
         Step('unreal.lake', [UnrealScript(SCRIPTS / 'import_forest_lake.py', 'LAKE IMPORT COMPLETE')],
-             inputs=[SCRIPTS / 'import_forest_lake.py', SCRIPTS / 'forest_lake_material.py'], needs=['unreal.world', 'world.lake'],
+             inputs=[SCRIPTS / 'import_forest_lake.py', SCRIPTS / 'forest_lake_material.py',SCRIPTS/'lake_native.py'],
+             needs=['unreal.world'],reads=['lake.library'],
+             products=[Product('lake.native_meshes',(GAME/'unreal/Content/Japan/Lake/Pieces',)),
+                       Product('lake.native_material',(GAME/'unreal/Content/Japan/Materials/M_ForestLakeWater.uasset',),
+                         optional_paths=tuple(GAME/'unreal/Content/Japan/Materials'/('M_ForestLakeWater'+suffix)
+                            for suffix in ('.uexp','.ubulk','.uptnl','.m.ubulk','.upayload'))),
+                       Product('lake.native_report',(out/'forest_lake/import-report.json',))],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Japan/Lake/Pieces',)),
              heavy=True, about='the woodland lake and cabin'),
         Step('unreal.forest', [UnrealScript(SCRIPTS / 'import_forest.py', 'FOREST IMPORT COMPLETE', null_rhi=True,
                                            modules=IMPORT_CODE)],
              inputs=[SCRIPTS / 'import_forest.py', SCRIPTS / 'forest_impostor_material.py', SCRIPTS / 'import_foliage_lods.py', SCRIPTS / 'foliage_material.py', SCRIPTS / 'import_village.py', SCRIPTS / 'atmosphere.py',
                      SCRIPTS / 'foliage_slots.py'],
-             needs=['unreal.world', 'world.forest', *unreal_modules.needs(IMPORT_CODE)], heavy=True,
-             outputs=[out / 'forest/import-report.json'],
+             needs=['unreal.world', *unreal_modules.needs(IMPORT_CODE)],reads=['forest.library','forest.textures'],heavy=True,
+             products=_load_helper_module('yorimichi_forest_products',GAME/'forest_atomic_build.py').native_products(ctx),
              # The legacy owner assembles source LOD packages outside Assets.
              # These are staging hints only; each requested mesh still needs native proof.
              candidate_scope=CandidateScope(directories=(GAME / 'unreal/Content/Japan/Assets',
@@ -1766,34 +1757,25 @@ def unreal_steps(ctx):
              needs=['unreal.world', *[f'unreal.{key(c)}' for c in definition.movers() if 'see_through' in c.toml]], heavy=True,
              about='camera see-through on playable character materials'),
         # Runtime metadata is a separate overlay: changing it must not clear/reimport /Game/Japan.
-        Step('unreal.city_tree_cpu_access', [UnrealScript(SCRIPTS / 'city_tree_cpu_access.py', 'CITY TREE CPU ACCESS COMPLETE')],
-             inputs=[SCRIPTS / 'city_tree_cpu_access.py'], needs=['unreal.world'], heavy=True,
-             outputs=[out / 'city_tree_lods' / 'production-cpu-access.json'],
-             verify=lambda: city_tree_cpu_access_present(ctx),
-             about='retain cooked CPU buffers for the three production trees used by runtime LOD validation'),
-        Step('unreal.city_tree_lods', [
-                UnrealScript(SCRIPTS / 'import_city_tree_lods.py', 'CITY TREE LODS IMPORT COMPLETE',
-                             env=(('CITY_TREE_LODS_TAG', 'v4'),))],
-             inputs=[SCRIPTS / 'import_city_tree_lods.py', SCRIPTS / 'experiment_mesh_import.py'],
-             needs=['unreal.city_tree_cpu_access', 'world.city_trees.meshes'], heavy=True,
-             products=[Product('city.native_tree_lods', (GAME / 'unreal/Content/Experiments/CityTrees/v4',)),
-                       Product('city.native_tree_report', (out / 'city_tree_lods/v4/import-report.json',))],
-             candidate_scope=CandidateScope(directories=(GAME / 'unreal/Content/Experiments/CityTrees/v4',)),
-             about='independent existing city tree LOD owner'),
-        Step('unreal.desktop', [
-                UnrealScript(SCRIPTS / 'import_city_surface_tiles.py', 'CITY SURFACE TILE IMPORT COMPLETE', memory_gib=14,
-                             env=(('CITY_SURFACE_TILES_TAG', 'v1_128m'),), modules=IMPORT_CODE+('Yorimichi',))],
-             inputs=[SCRIPTS / 'import_city_surface_tiles.py', GAME / 'city_tile_products.py',
-                     paths.STUDIO / 'atelier/conventions.py'],
-             needs=['unreal.world', 'world.city_tiles.meshes', *unreal_modules.needs(IMPORT_CODE+('Yorimichi',))],
-             # Preserve the old targeted desktop entrypoint, without deriving
-             # piece identity from unrelated tree LOD bytes.
-             after=['unreal.city_tree_lods'], heavy=True,
-             verify=lambda: city_products.parents_retired(GAME / 'unreal/Content'),
-             products=[Product('city.native_pieces', (GAME / 'unreal/Content/Experiments/CitySurfaces/v1_128m',)),
-                       Product('city.native_piece_report', (out / 'city_surface_tiles/v1_128m/import-report.json',))],
-             candidate_scope=CandidateScope(directories=(GAME / 'unreal/Content/Experiments/CitySurfaces/v1_128m',)),
-             about='production city pieces with complete collision; superseded parents retired'),
+        Step('unreal.desktop', [UnrealScript(SCRIPTS/'import_city_atomic.py', 'CITY SURFACE TILE IMPORT COMPLETE',
+                    memory_gib=14,modules=IMPORT_CODE+('Yorimichi',))],
+             inputs=[*build_inputs.local_imports(SCRIPTS/'import_city_atomic.py',(SCRIPTS,GAME,WORLD,REGIONS)),
+                     GAME/'unreal/Source/Yorimichi/CitySurfaceParents.h'],
+             needs=['unreal.world','unreal.north','world.city_tiles.meshes',*unreal_modules.needs(IMPORT_CODE+('Yorimichi',))],
+             heavy=True,
+             verify=lambda: _load_helper_module('complete_atomic_city_products',GAME/'city_atomic_products.py').parents_retired(GAME/'unreal/Content'),
+             products=[Product('city.native_pieces',(GAME/'unreal/Content/Experiments/CitySurfaces/v1_128m',)),
+                       Product('city.native_piece_report',(out/'city_surface_tiles/v1_128m/import-report.json',))],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Experiments/CitySurfaces/v1_128m',)),
+             about='receive every independent bounded city piece; retire complete original parent roster'),
+        Step('unreal.city_tree_lods',[UnrealScript(SCRIPTS/'import_city_tree_atomic.py','CITY ATOMIC TREE LODS IMPORT COMPLETE')],
+             inputs=[*build_inputs.local_imports(SCRIPTS/'import_city_tree_atomic.py',(SCRIPTS,GAME,WORLD,REGIONS)),
+                     GAME/'unreal/Source/Yorimichi/CitySurfaceParents.h'],
+             needs=['unreal.desktop','world.city_trees.meshes'],heavy=True,
+             products=[Product('city.native_tree_lods',(GAME/'unreal/Content/Experiments/CityTrees/v4',)),
+                       Product('city.native_tree_report',(out/'city_tree_lods/v4/import-report.json',))],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Experiments/CityTrees/v4',)),
+             about='attach bounded per-piece authored tree outline LODs; never recreate monolithic parents'),
         # The Ride skating clips: the simulation rig and every simulation clip as Unreal assets (/Game/SkateRide), the manifest
         # the Ride runtime reads, and the measurement of the compressed poses against the simulation data. Both scripts
         # run in batches that resume where a failed run stopped (unreal/Scripts/skate_ride/README.md).
@@ -1837,7 +1819,7 @@ def staging_steps(ctx):
              needs=['world.ferry_service', 'world.gondola_service', 'world.layout', 'world.hidamari', 'world.map', 'world.city_tiles', 'world.treehouse', 'world.megapark', 'world.craterpark', 'world.crater_cloud', 'world.bike',
                     *[f'characters.{key(c)}_{kind}' for c in definition.movers() for kind, wanted in
                       (('bike', c.playable), ('grips', (GRIPS / c.id).is_dir())) if wanted]],
-             reads=['brinecove.runtime', 'belmonte.runtime', 'skatepark.runtime'],
+             reads=['brinecove.runtime', 'belmonte.runtime', 'skatepark.runtime','terrain.island.runtime','southwest.meshes','lake.library','village.runtime','village.meshes'],
              outputs=[GAME / 'unreal' / 'Content' / 'Data' / rel for rel in staged(out)], about='runtime files into unreal/Content/Data'),
         racing_assets_step(out),
     ]
@@ -1864,13 +1846,7 @@ def gondola_steps(ctx):
     kit = ASSETS / 'vehicles/gondola'
     parameters = _load_helper_module('gondola_parameters', kit / 'params.py')
     folder = ctx.out / 'gondola'
-    files = [folder / name for name in parameters.product_files()]
-    result = [Step('world.gondola_kit', [Blender(kit / 'build.py', threads=3, factory_startup=True,
-                    env=(('GONDOLA_PIECES', 'cabin,towers,valley,rim,crater'),
-                         ('GONDOLA_PARAMS', ''), ('GONDOLA_SOFT_FAIL', '')))],
-                 inputs=sorted(set(local_imports(kit / 'build.py') + [kit / name for name in parameters.BUILD_SOURCES] + [WORLD/'walk_raster.py'])),
-                 products=[Product('gondola.kit', tuple(files))], heavy=True, cache=True,
-                 about='ropeway cabin, all tower heights and stations: closure, contact, level-floor and walk gates')]
+    result = _load_helper_module('gondola_central_atomic', GAME / 'gondola_atomic_build.py').kit_steps(ctx)
 
     query = WORLD / 'gondola/inputs.py'
     queries = _load_helper_module('gondola_world_inputs', query)
@@ -1946,46 +1922,51 @@ def ferry_steps(ctx):
     shared = [WORLD / 'solid_mesh.py', YORI]
     harbor_source = REGIONS / 'hidamari/ferry_source.py'
     layouts = [REGIONS / name / 'ferry_terminal.py' for name in ('hidamari', 'brinecove')]
-    site_code = [terminal / 'site.py', terminal / 'world_probe.py', kit / 'build.py', region / 'route.py', *layouts, *shared]
+    city_roster = _load_helper_module('ferry_city_query_roster',REGIONS/'hidamari/logical_catalogue.py')
+    prototype_names = _load_helper_module('ferry_coastal_query_roster',REGIONS/'brinecove/foliage_names.py')
+    site_code = sorted({terminal/'site.py', terminal/'world_probe.py',kit/'build.py',region/'route.py',*layouts,*shared,
+        *build_inputs.local_imports(terminal/'world_probe.py',(WORLD,REGIONS)),city_roster.ROSTER,
+        REGIONS/'brinecove/foliage_catalog.json',*prototype_names.definitions()})
+    service_code = build_inputs.local_imports(region/'service.py',(WORLD,REGIONS))
     ship_names = ['FY_' + name for name in ('Hull', 'Superstructure', 'Funnel', 'Lifeboats', 'Rails', 'Masts', 'Fittings', 'BoardingGate', 'Collision')]
     terminal_names = ['FT_HD_' + name for name in ('Jetty', 'Stage', 'Brow', 'WaitingHouse', 'Timetable', 'Collision')]
     terminal_names += ['FT_BC_' + name for name in ('Landing', 'Brow', 'Pavilion', 'TicketHut', 'Fenders', 'Props', 'Collision')]
     return [
-        Step('world.ferry_ship', [Blender(kit / 'build.py', threads=3), Python(kit / 'walk.py')],
-             inputs=[kit / 'build.py', kit / 'walk.py', WORLD/'walk_raster.py', *shared],
-             outputs=[out / 'ferry/manifest.json', out / 'ferry/deck_layout.json', out / 'ferry/review/walk_report.json',
-                      out / 'ferry/assets/FY_ImportSeed.fbx',
-                      *(out / 'ferry/assets' / f'{name}.fbx' for name in ship_names)], heavy=True,
-             about='approved passenger ferry: closed meshes, seated fittings, collision and deck walk audits'),
+        *_load_helper_module('yorimichi_ferry_ship_atomic',GAME/'ferry_ship_atomic_build.py').steps(ctx),
         Step('world.ferry_probes', [Blender(terminal / 'world_probe.py', (str(out),), threads=3)],
              inputs=site_code,
-             needs=['world.hidamari.city', 'world.terrain.meshes', 'world.southwest', 'world.layout'],
-             reads=['brinecove.clearance'],
+             needs=['world.layout'],
+             reads=['hidamari.city_data','terrain.FarHills.final','brinecove.query_data',
+                    *('southwest.query.'+key for _,key in _load_helper_module(
+                        'yorimichi_southwest_atomic',GAME/'southwest_atomic_build.py').MODELS if key.startswith('SW_')),
+                    *('hidamari.query.'+key+('.raw' if key=='HD_Harbor' else '') for key in city_roster.ASSETS)],
              outputs=[out / 'ferry/terminals' / f'world_{name}.npz' for name in ('hidamari', 'brinecove', 'crossing')],
              heavy=True, about='final exported harbour and open-water geometry for the ferry sweeps'),
         Step('world.ferry_site', [Python(terminal / 'site.py')], inputs=site_code,
              needs=['world.ferry_probes'], outputs=[out / 'ferry/terminals/site.json'], heavy=True,
              about='the full hull and underwater envelope swept through both harbours and sea crossings'),
-        Step('world.ferry_terminals', [Blender(terminal / 'build.py', threads=3)],
-             inputs=[terminal / 'build.py', terminal / 'walkcheck.py', *site_code],
-             needs=['world.ferry_ship', 'world.ferry_site'],
-             outputs=[out / 'ferry/terminals/manifest.json', out / 'ferry/terminals/walk.json',
-                      *(out / 'ferry/terminals/assets' / f'{name}.fbx' for name in terminal_names)],
-             heavy=True, about='region-owned ferry terminals: grounded, carried, walkable, with moving brow collision'),
-        Step('world.hidamari_ferry_cut', [Blender(REGIONS / 'hidamari/ferry_cut.py', threads=3)],
-             inputs=[REGIONS / 'hidamari/ferry_cut.py', *site_code],
-             needs=['world.ferry_site'],
-             outputs=[out / 'hidamari/ferry/HD_Harbor.fbx', out / 'hidamari/ferry/cut.json'],
-             heavy=True, about='Hidamari opens its quay rail and posts at the audited jetty root'),
+        *_load_helper_module('yorimichi_ferry_terminal_atomic',GAME/'ferry_terminal_atomic_build.py').steps(ctx,site_inputs=site_code),
+        Step('world.hidamari_ferry_cut',[Call('verify final Harbor source cut',lambda ctx,log:
+            export_digest.record(out/'digests/world.hidamari_ferry_cut.json',
+                _load_helper_module('current_atomic_harbor_proof',harbor_source).validated_atomic_harbor(out,paths.REPO),log))],
+             inputs=[harbor_source,region/'site_inputs.py',WORLD/'region_plan_files.py',*site_code],
+             reads=['hidamari.harbor_cut','hidamari.query.HD_Harbor','hidamari.source.HD_Harbor','hidamari.geometry.HD_Harbor'],
+             needs=['world.ferry_site'],outputs=[out/'digests/world.hidamari_ferry_cut.json'],cutoff=True,
+             about='validate the final source-data opening; no whole Harbor re-export'),
         Step('world.ferry_service', [Python(region / 'service.py')],
-             inputs=[region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', kit / 'walk.py', WORLD/'walk_raster.py', *site_code],
+             inputs=[*service_code, terminal / 'walkcheck.py', kit / 'walk.py', WORLD/'walk_raster.py', *site_code],
              needs=['world.ferry_terminals', 'world.hidamari_ferry_cut'],
              outputs=[out / 'ferry/service/service.json'],
              about='one passenger ferry, a shared-clock two-way timetable, audited boarding walks and sounds'),
         Step('unreal.ferry', [UnrealScript(SCRIPTS / 'import_ferry.py', 'FERRY IMPORT COMPLETE', null_rhi=True)],
-             inputs=[SCRIPTS / 'import_ferry.py', SCRIPTS / 'mesh_import.py',
-                     region / 'service.py', region / 'timetable.py', harbor_source, terminal / 'walkcheck.py', kit / 'walk.py', WORLD/'walk_raster.py', *site_code],
+             inputs=[*build_inputs.local_imports(SCRIPTS/'import_ferry.py',(SCRIPTS,WORLD,REGIONS,GAME)),
+                     GAME/'ferry_terminal_atomic_products.py',GAME/'ferry_terminal_atomic_build.py',
+                     *service_code, terminal / 'walkcheck.py', kit / 'walk.py', WORLD/'walk_raster.py', *site_code],
              needs=['world.ferry_service', 'unreal.world'], after=['unreal.compile'],
+             reads=['ferry.ship','ferry_ship.collision_data','ferry.terminals','ferry_terminals.walk',
+                    'ferry_terminals.query_proof','ferry_terminals.audit'],
+             products=[Product('ferry.native',(GAME/'unreal/Content/Ferry',out/'ferry/import-report.json'))],
+             candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Ferry',)),
              outputs=[out / 'ferry/import-report.json',
                       *(GAME / 'unreal/Content/Ferry/Ship' / f'{name}.uasset' for name in ship_names),
                       *(GAME / 'unreal/Content/Ferry/Terminals' / f'{name}.uasset' for name in terminal_names)],
@@ -2000,7 +1981,7 @@ def steps(ctx):
     result = (world_steps(ctx) + character_steps(ctx) + sound_effect_steps(ctx)
               + [step for step in ferry if not step.name.startswith('unreal.')]
               + [step for step in gondola if not step.name.startswith('unreal.')]
-              + unreal_steps(ctx) + staging_steps(ctx) + adventure_steps(ctx.out) + hippodrome_steps(ctx.out) + belmonte_steps(ctx.out)[3:]
+              + unreal_steps(ctx) + staging_steps(ctx) + adventure_steps(ctx.out) + hippodrome_steps(ctx) + belmonte_steps(ctx.out)[3:]
               + brinecove_steps(ctx.out)[2:] + [step for step in ferry if step.name.startswith('unreal.')]
               + [step for step in gondola if step.name.startswith('unreal.')])
     result += fit_steps(ctx.out, result)
@@ -2022,6 +2003,8 @@ def steps(ctx):
                                     if path not in step.inputs]
             if isinstance(command, (Python, Blender)) and WORLD in Path(command.script).parents:
                 step.inputs += [f for f in local_imports(command.script, (WORLD, REGIONS), scanner) if f not in step.inputs]
+        if TREEHOUSE/'layout.py' in step.inputs and any(isinstance(command,(Python,Blender)) for command in step.commands):
+            if 'treehouse.canopy_dimensions' not in step.reads:step.reads.append('treehouse.canopy_dimensions')
         # Native geometry reuse hashes its complete native-only source closure.
         for command in step.commands:
             if not isinstance(command, UnrealScript):

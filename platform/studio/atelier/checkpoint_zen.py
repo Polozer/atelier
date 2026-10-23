@@ -110,5 +110,3 @@ def export(ctx):
     if not snapshots or any(s.get('type') != 'file' or s.get('targetplatform') != 'Mac' for s in snapshots):
         raise CheckpointError('Zen export did not produce a complete file snapshot')
     atomic_json(receipt, dict(cook_metadata=key))
-
-

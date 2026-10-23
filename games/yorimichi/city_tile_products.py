@@ -13,9 +13,10 @@ DESTINATION = '/Game/Experiments/CitySurfaces/v1_128m'
 TRIANGLE_LIMIT = 32768
 
 
-def require_sources(sources):
-    if not isinstance(sources, dict) or set(sources) != set(SOURCES):
-        raise ValueError('City tile import requires all six production surfaces')
+def require_sources(sources, expected=SOURCES):
+    if not isinstance(sources, dict) or set(sources) != set(expected):
+        raise ValueError('City tile import requires all six production surfaces' if expected == SOURCES
+                         else 'City tile import requires the complete production source roster')
 
 
 def native_bounds(tile):
@@ -28,7 +29,7 @@ def native_bounds(tile):
     return ((a[0], b[1], a[2]), (b[0], a[1], b[2]))
 
 
-def production_groups(manifest):
+def production_groups(manifest, *, parents=SOURCES, version=2, material_bindings=None, whole_small=False):
     """@cc [owner:fontanierh,label:correctness;performance] city-pieces-replace-native-parents
     Production pieces MUST cover every declared parent triangle exactly once and
     retain its placement frame and source material table. Authored collision hulls
@@ -36,12 +37,12 @@ def production_groups(manifest):
     Missing, partial or unbounded membership MUST refuse before loading a parent or
     publishing replacement data. This table MUST contain no parent mesh reference.
     """
-    if (not isinstance(manifest, dict) or manifest.get('version') != 2
+    if (not isinstance(manifest, dict) or manifest.get('version') != version
             or manifest.get('complete') is not True or manifest.get('tag') != 'v1_128m'
             or manifest.get('triangle_limit') != TRIANGLE_LIMIT):
         raise ValueError('Missing complete production city pieces')
     sources = manifest.get('sources')
-    require_sources(sources)
+    require_sources(sources, expected=parents)
     groups, seen = {}, set()
     for source, row in sources.items():
         if not isinstance(row, dict):
@@ -62,13 +63,14 @@ def production_groups(manifest):
                 or not isinstance(row.get('tiles'), list) or not row['tiles']):
             raise ValueError('Invalid production city source metadata')
         native_bounds(row['source_bounds'])
-        piece_material_paths(source, slots)
+        (material_bindings or piece_material_paths)(source, slots)
         pieces = []
         for tile in row['tiles']:
             if not isinstance(tile, dict):
                 raise ValueError('Invalid city piece record')
             name, triangles, collision = tile.get('name'), tile.get('triangles'), tile.get('collision_hulls')
-            if (not tile_name(source, name) or name in seen or type(triangles) is not int
+            bounded_whole = whole_small and name == source and len(row['tiles']) == 1 and count <= TRIANGLE_LIMIT
+            if ((not tile_name(source, name) and not bounded_whole) or name in seen or type(triangles) is not int
                     or not 1 <= triangles <= TRIANGLE_LIMIT or type(collision) is not int
                     or collision not in (0, hulls)):
                 raise ValueError('Invalid bounded production city piece')
@@ -105,6 +107,31 @@ def piece_material_paths(source, slots):
     return material_paths(slots)
 
 
+def _bijection(left, right, equivalent):
+    """Match complete unordered multisets, including ambiguous nearby values."""
+    if len(left) != len(right): return False
+    edges = [[j for j, candidate in enumerate(right) if equivalent(value, candidate)] for value in left]
+    owners = {}
+    for first in range(len(left)):
+        pending = [first]; previous = {}; visited = set(); found = None
+        for current in pending:
+            for target in edges[current]:
+                if target in visited: continue
+                visited.add(target); previous[target] = current
+                if target not in owners:
+                    found = target; break
+                pending.append(owners[target])
+            if found is not None: break
+        if found is None: return False
+        # Reverse the augmenting path without recursion or dropping multiplicity.
+        while found is not None:
+            current = previous[found]
+            former = next((target for target, owner in owners.items() if owner == current), None)
+            owners[found] = current
+            found = former
+    return True
+
+
 def collision_matches(mesh, row, tile, *, read_vertices=None):
     """Read actual imported UCX vertices, including each native shape transform.
 
@@ -129,19 +156,14 @@ def collision_matches(mesh, row, tile, *, read_vertices=None):
     expected = row['source_collision_vertices'] if tile['collision_hulls'] else []
     if len(hulls) != len(expected):
         return False
-    actual = [sorted(hull) for hull in hulls]
     # Import may reorder hulls and vertices. Convex geometry is identified by
     # its complete vertex set, rather than just its count or bounding box.
-    remaining = list(actual)
-    for points in expected:
-        match = next((i for i, candidate in enumerate(remaining)
-                      if len(points) == len(candidate) and all(
-                          abs(a-b) <= max(.001, 2.**(math.frexp(max(abs(a), abs(b)))[1]-23))
-                          for left, right in zip(sorted(points), candidate) for a, b in zip(left, right))), None)
-        if match is None:
-            return False
-        remaining.pop(match)
-    return not remaining
+    # Lexicographic sorting is invalid under the existing rounding allowance:
+    # nearly equal X values may swap two vertices whose Y/Z differ greatly.
+    def point_matches(left, right):
+        return all(abs(a-b) <= max(.001, 2.**(math.frexp(max(abs(a), abs(b)))[1]-23))
+                   for a, b in zip(left, right))
+    return _bijection(expected, hulls, lambda left, right: _bijection(left, right, point_matches))
 
 
 def protected_files(root):
@@ -164,15 +186,15 @@ def tile_name(source, name):
     return isinstance(name, str) and re.fullmatch(re.escape(source) + '_cell_' + CELL + '_' + CELL + r'(?:_Piece[0-3]{1,16})?', name) is not None
 
 
-def owned_tiles(asset_paths, destination):
+def owned_tiles(asset_paths, destination, *, parents=SOURCES, whole_small=False):
     """Enumerate only generated tile names inside the owner's exact tag root."""
-    report = {source: [] for source in SOURCES}
+    report = {source: [] for source in parents}
     for asset in asset_paths:
         if not isinstance(asset, str) or not asset.startswith(destination + '/'):
             continue
         name = asset[len(destination) + 1:].split('.')[0]
         for source, tiles in report.items():
-            if tile_name(source, name):
+            if tile_name(source, name) or (whole_small and name == source):
                 if asset != destination + '/' + name + '.' + name:
                     raise ValueError('Invalid generated city tile object path')
                 tiles.append({'name': name, 'asset': asset})
@@ -180,7 +202,7 @@ def owned_tiles(asset_paths, destination):
     return report
 
 
-def obsolete_assets(previous, current, destination):
+def obsolete_assets(previous, current, destination, *, parents=SOURCES, whole_small=False):
     """@cc [owner:fontanierh,label:correctness] retire-only-superseded-city-pieces
     Only previously inventoried owned tiles inside this exact destination MAY
     retire, after every current tile has imported and validated. Source packages,
@@ -195,13 +217,13 @@ def obsolete_assets(previous, current, destination):
             raise ValueError('Invalid city tile ownership report')
         found = set()
         for source, tiles in report.items():
-            if source not in SOURCES or not isinstance(tiles, list):
+            if source not in parents or not isinstance(tiles, list):
                 raise ValueError('Invalid city tile source membership')
             for tile in tiles:
                 if not isinstance(tile, dict):
                     raise ValueError('Invalid city tile record')
                 name = tile.get('name')
-                if not tile_name(source, name):
+                if not tile_name(source, name) and not (whole_small and name == source):
                     raise ValueError('Invalid city tile package name')
                 asset = destination + '/' + name + '.' + name
                 if tile.get('asset') != asset or asset in found:
