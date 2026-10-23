@@ -37,7 +37,10 @@ def produce(args,value,*,make_lod=None):
         if make_lod is None:raise ValueError('Selected conifer constructor is required')
         obj,level=make_lod(obj,info,parent,value['lod'],value['settings'])
     collisions=[capture_collision(hull) for hull in captured['hulls']]
-    result=plan(obj,args.output,collisions=collisions,partition='whole',options=OPTIONS)
+    import bpy
+    from atelier.blender.fbx import world_color
+    result=plan(obj,args.output,collisions=collisions,partition='whole',
+        options=dict(OPTIONS,scene_world_color=world_color(bpy.context.scene)))
     if [row['name'] for row in result['pieces']]!=[name]:raise ValueError('Logical prop export changed native membership')
     atomic_json(root/'record.json',dict(schema=1,name=name,parent=parent,lod=value['lod'],level=level,
         info=info,hulls=collisions))
