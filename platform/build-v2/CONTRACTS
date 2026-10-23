@@ -79,6 +79,13 @@ only after named object checks and durable pins under the GC mutex, without plan
 tree walks or rehashing. See tests/results.rs and
 groups::tests::leased_group_publication_restores_tokens_and_compares_whole_manifest.
 
+@cc [owner:fontanierh,label:correctness] lock-busy-is-transient-under-concurrent-spawn
+An ambient CLOEXEC fork copy of a checkout lock descriptor keeps that lock held until the child
+execs, so a just-released lock can report Busy. Busy alone MUST NOT be treated as proof that another
+owner holds the checkout. A caller that retries MUST bound its own retry and deadline; the library
+does not impose one. Explicit custody lasts until its last handle closes, independently of any fork
+copy. See tests/checkout_locks_spawn.rs::lock_busy_is_transient_during_spawn.
+
 @cc [owner:fontanierh,label:correctness;safety] build-v2-checkout-install
 Checkout installs MUST hold build and exclusive content custody, retain certified source custody
 (named cache-object pins for cached restores or durable sealed snapshots for local completions),
