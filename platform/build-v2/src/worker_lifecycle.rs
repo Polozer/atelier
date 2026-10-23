@@ -154,6 +154,8 @@ impl Attempt {
 pub struct Lifecycle {
     policy: JobPolicy,
     limits: Limits,
+    /// Absolute end of the optional overall deadline; `None` if absent or never reached.
+    overall_deadline: Option<MonoTime>,
     attempts: Vec<Attempt>,
     outcome: Option<Outcome>,
     outputs: Option<JobOutputs>,
@@ -170,6 +172,7 @@ impl Lifecycle {
         let lifecycle = Self {
             policy: JobPolicy::new(submitted, limits),
             limits,
+            overall_deadline: limits.overall.and_then(|span| submitted.checked_add(span)),
             attempts: vec![Attempt::new(1)],
             outcome: None,
             outputs: None,
@@ -350,6 +353,7 @@ impl Lifecycle {
             }
             Decision::Finish(outcome) => {
                 let cleanup = self.limits.cleanup;
+                let deadline = self.overall_deadline;
                 let unconfirmed = matches!(outcome.cleanup, CleanupState::Unconfirmed(_));
                 let completed = outcome.end == End::Completed;
                 self.outcome = Some(outcome);
@@ -363,8 +367,15 @@ impl Lifecycle {
                         } else if !completed {
                             Self::stop(slot, out);
                         }
-                        slot.settle_by
-                            .get_or_insert(now.checked_add(cleanup).unwrap_or(now));
+                        if slot.settle_by.is_none() {
+                            // Wait for the cleanup limit, but never past the overall deadline,
+                            // which covers cleanup too (failure-policy-time-limits). An
+                            // overflowing sum is never reached. Unsettled custody is then held.
+                            slot.settle_by = [now.checked_add(cleanup), deadline]
+                                .into_iter()
+                                .flatten()
+                                .min();
+                        }
                     }
                     if unconfirmed && slot.record.custody == Custody::Pending {
                         slot.record.custody = Custody::Held(

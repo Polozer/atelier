@@ -620,6 +620,39 @@ fn queue_wait_does_not_spend_the_job_limit_and_launch_failures_hold_nothing() {
 }
 
 #[test]
+fn settlement_never_outlasts_the_overall_deadline() {
+    // Paid review: a 10 s overall deadline, completion at 9 s and a 5 s cleanup limit must not
+    // leave custody pending until 14 s; past the deadline an unsettled attempt is held.
+    let (mut sim, _) = Sim::new(Some(10_000));
+    sim.start(0, 1, 101);
+    assert_eq!(
+        sim.worker(9_000, 1, finished(Ok(outputs()))),
+        vec![Command::Shutdown { attempt: 1 }]
+    );
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(10_000)));
+    sim.at(9_999, Input::Tick);
+    assert!(
+        sim.lifecycle.report().is_none(),
+        "still within the deadline"
+    );
+    sim.at(10_000, Input::Tick);
+    let report = sim.report();
+    assert_eq!(report.outcome.end, End::Completed);
+    assert_eq!(
+        report.outputs,
+        Some(outputs()),
+        "the completed work is kept"
+    );
+    assert!(matches!(report.attempts[0].custody, Custody::Held(_)));
+
+    // Without an overall deadline the cleanup limit alone bounds settlement, as before.
+    let (mut sim, _) = Sim::new(None);
+    sim.start(0, 1, 101);
+    sim.worker(9_000, 1, finished(Ok(outputs())));
+    assert_eq!(sim.lifecycle.next_deadline(), Some(t(9_000 + CLEAN)));
+}
+
+#[test]
 fn completed_work_is_kept_and_later_facts_never_stop_or_retry_it() {
     let (mut sim, _) = Sim::new(Some(10 * JOB));
     sim.start(0, 1, 101);

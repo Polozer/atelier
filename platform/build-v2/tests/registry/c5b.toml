@@ -43,3 +43,7 @@ tests = ["atelier-build-v2::worker_lifecycle/queue_wait_does_not_spend_the_job_l
 [[scenarios]]
 id = "c5b.lifecycle.completed_work_is_kept_and_later_facts_never_stop_or_retry_it"
 tests = ["atelier-build-v2::worker_lifecycle/completed_work_is_kept_and_later_facts_never_stop_or_retry_it"]
+
+[[scenarios]]
+id = "c5b.lifecycle.settlement_never_outlasts_the_overall_deadline"
+tests = ["atelier-build-v2::worker_lifecycle/settlement_never_outlasts_the_overall_deadline"]
