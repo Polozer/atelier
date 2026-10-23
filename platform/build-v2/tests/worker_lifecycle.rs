@@ -458,9 +458,17 @@ fn uncertain_cleanup_is_held_and_never_released_or_relaunched() {
     assert_eq!(report.outcome.end, End::Completed);
     assert_eq!(report.outputs, Some(outputs()));
     assert!(matches!(report.attempts[0].custody, Custody::Held(_)));
-    // Only a positive receipt can still release it later.
+    // A positive receipt after the limit never releases it: it is kept as evidence in the held
+    // record (session-held-is-sticky).
     sim.launch(9_000, 1, confirmed());
-    assert_eq!(sim.lifecycle.attempts()[0].custody, Custody::Released);
+    assert_eq!(
+        sim.lifecycle.attempts()[0].custody,
+        Custody::Held(
+            "no confirmed cleanup receipt within the cleanup limit; \
+             a confirmed cleanup receipt arrived late, at 9000 ms"
+                .into()
+        )
+    );
 }
 
 #[test]
