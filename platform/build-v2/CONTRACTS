@@ -166,7 +166,8 @@ reconstruct the scenario, and the same seed MUST rebuild the same scenario. See 
 
 @cc [owner:fontanierh,label:correctness] build-v2-selected-source-retention
 Selected recorded item sources MUST validate only requested fixed items and persist their digest
-claims under the shared GC mutex before exposing a borrowed provider. Providers MUST use their
+claims under the shared GC mutex before exposing a borrowed provider. In-memory claims MUST NOT
+advance if persistence fails, including the existing strict full-hit path. Providers MUST use their
 transaction's own object store and refuse unclaimed digests, with clone-only restoration and no
 payload hashing. Metadata-only retention MUST root the exact sealed record before claim release
 without asserting byte availability. Opt-in installed cached sources MUST retain live claims until
