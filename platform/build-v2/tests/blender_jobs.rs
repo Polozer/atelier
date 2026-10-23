@@ -190,7 +190,13 @@ fn failed_or_incomplete_blender_jobs_publish_nothing_and_the_next_job_publishes(
             Some(kind) => assert_eq!(failed(&outcome), kind, "case {index}"),
             None => assert_ne!(completed_paths(&outcome), ["model.glb", "probe.json"]),
         }
-        // Refused for membership before anything is frozen, on every platform.
+        // Path membership is refused before anything is frozen, on every platform. A missing
+        // file is found while freezing, so elsewhere the APFS-only clone refuses first.
+        let reason = if cfg!(target_os = "macos") || !reason.starts_with("missing") {
+            reason
+        } else {
+            "requires macOS"
+        };
         let refusal = publish(&space, &fixture, outcome).unwrap_err();
         assert!(refusal.contains(reason), "case {index}: {refusal}");
         assert!(!published(&space, &fixture), "case {index} published");
