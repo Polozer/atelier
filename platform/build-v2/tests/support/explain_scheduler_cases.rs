@@ -194,6 +194,7 @@ fn summary_not_cached_feeds_downstream_and_late_failure_keeps_partial_success() 
     jobs.fail.insert("c".into());
     let mut demands = checkout_b();
     demands.insert("a".into(), BTreeSet::from([Demand::Stored]));
+    demands.insert("c".into(), BTreeSet::from([Demand::Stored]));
     let recorder = Recorder::default();
     let report = observed(
         &f,
@@ -223,14 +224,11 @@ fn summary_keeps_published_result_when_settlement_fails_and_marks_unknown_attemp
     fake.fail_settle.insert("a".into());
     fake.fail_publish.insert("c".into());
     let recorder = Recorder::default();
-    let report = observed(
-        &f,
-        &["a", "c"],
-        &BTreeMap::new(),
-        &mut fake,
-        &mut jobs,
-        &recorder,
-    );
+    let demands = BTreeMap::from([
+        ("a".into(), BTreeSet::from([Demand::Stored])),
+        ("c".into(), BTreeSet::from([Demand::Stored])),
+    ]);
+    let report = observed(&f, &["a", "c"], &demands, &mut fake, &mut jobs, &recorder);
     let summary = recorder
         .summarize(&report, &BTreeMap::new(), Some(&BTreeMap::new()))
         .unwrap();
@@ -251,14 +249,7 @@ fn summary_refuses_mismatched_evidence_and_retains_unresolved_lifecycle() {
     let mut jobs = Jobs::new(trace);
     jobs.omit = true;
     let recorder = Recorder::default();
-    let mut report = observed(
-        &f,
-        &["a", "b"],
-        &checkout_b(),
-        &mut fake,
-        &mut jobs,
-        &recorder,
-    );
+    let mut report = observed(&f, &["b"], &checkout_b(), &mut fake, &mut jobs, &recorder);
     let summary = recorder.summarize(&report, &BTreeMap::new(), None).unwrap();
     assert!(summary.lifecycle_unresolved);
     assert_eq!(summary.counts.worker_completed + summary.counts.cached, 0);
