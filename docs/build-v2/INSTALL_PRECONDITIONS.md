@@ -11,20 +11,29 @@ writer guard does not clear that journal barrier. The existing BSD `flock` locks
 their open file description, not POSIX `fcntl` per-process record locks; guards never issue
 `LOCK_UN`, and closing an unrelated descriptor does not release a live guard.
 
-The portable regression exercises the real local-completion, install, lease and recovery APIs with
-valid optional outputs all absent. No payload snapshot or APFS clone is fabricated. It establishes a
-prior receipt index, holds a real shared reader, proves the exact pre-journal `Busy` error and then
-releases that reader and injects the exact `JournalCreated` failure. It checks the hook, durable
-journal, reader refusal, unchanged index and lease, retained completion evidence and recovery.
+The portable regression uses a valid required-file cache fixture: known bytes under their SHA-256
+name and a matching read-only result record, following the existing result-store test setup. The
+real strict B2 lookup issues the private install plan and lease. No publication, payload snapshot or
+APFS clone is fabricated. With the prior empty index state and a foreign neighbor preserved, it holds
+a real shared reader, proves the exact pre-journal `Busy` error and then releases that reader and
+injects the exact `JournalCreated` failure, before cloning starts. It checks the hook, durable journal,
+reader refusal, unchanged index and lease, preserved object/record/neighbor bytes and real recovery.
+
+The first fixture proposal with all optional files absent was invalid: A2 requires at least one
+required file per item. Hosted validation rejected it before install logic. That failed run is not
+custody evidence, and neither the validator nor the production code is relaxed to accommodate it.
 
 The APFS `CloneCreated` test now requires its fault hook, exact injected I/O error and journal to
 exist before asserting reader exclusion. An arbitrary earlier error cannot stand in for this cut.
-The original whole-binary-only report did not capture the error or whether the hook ran. A
-precondition refusal explains the source-level sequence but remains an unproven diagnosis of that
-historical run. There is no new evidence of product custody loss and no product locking change.
+The original whole-binary-only report did not capture the error or whether the hook ran. Its cause
+remains unclassified; missing historical evidence cannot be recovered by a later test. A precondition
+refusal explains the source-level sequence but is not a proven diagnosis of that run. There is no
+new evidence of product custody loss and no product locking change.
 
 Linux proves the precondition and metadata-journal boundaries. The actual post-clone cut is still
 macOS/APFS coverage deferred to MAC1; it is not reproduced by a local Mac run or relabelled portable
-coverage. Install activation remains held until the recorded failure is classified with the exact
-error/hook/journal evidence and the required native cut has been validated. No retry loop, sleep or
-whole-suite serialization is added.
+coverage. This diagnostic PR can complete with portable proof; installer functional/cut acceptance
+and activation remain pending the revised actual APFS cut at MAC1. That future test will establish
+the intended cut behavior and capture the exact error, hook and journal for any new failure; it
+cannot retroactively classify the old run. No earlier local Mac gate, retry loop, sleep or whole-suite
+serialization is added.

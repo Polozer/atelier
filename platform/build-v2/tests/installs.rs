@@ -122,10 +122,6 @@ fn fixture_mixed(
             }],
         });
     }
-    prepare_fixture(project, declaration)
-}
-
-fn prepare_fixture(project: &str, declaration: Declaration) -> (BuildGraph, PreparedUnit) {
     let registry = BTreeMap::from([(
         ("blob".into(), "1".into()),
         OpDefinition {
@@ -1812,78 +1808,70 @@ fn interrupted_local_install_retains_completion_and_uses_existing_quarantine_rec
 #[test]
 fn busy_before_install_start_is_distinct_from_a_journaled_failure_and_recovery() {
     use atelier_build_v2::checkout_locks::LockError;
+    use std::os::unix::fs::PermissionsExt;
 
     let workspace = Workspace::new();
-    let reader = ReceiptReader::open(
-        &workspace.0,
-        InstallPolicy {
-            project: namespace("first"),
-            allowed_install_roots: vec![
-                "games/first/Content".into(),
-                "games/first/Binaries".into(),
-            ],
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture("first", "required-file");
+    // A genuine required-file cache fixture, as in tests/results.rs. The real strict lookup
+    // must issue authority; no token is constructed and no APFS clone is simulated.
+    let source = b"independent readonly cached fixture";
+    let digest = sha256(source);
+    let object_path = workspace.path("cache/objects/sha256").join(&digest);
+    fs::write(&object_path, source).unwrap();
+    fs::set_permissions(&object_path, fs::Permissions::from_mode(0o444)).unwrap();
+    let envelope = ResultEnvelope {
+        version: ENVELOPE_VERSION,
+        result: ResultRecord {
+            schema_version: RESULT_SCHEMA_VERSION,
+            unit: "export".into(),
+            key: unit.key().into(),
+            ingredients: unit.ingredients().clone(),
+            outputs: vec![StoredItem {
+                item: unit.ingredients().logical_outputs[0].clone(),
+                files: vec![StoredFile {
+                    path: "output/main.bin".into(),
+                    digest: digest.clone(),
+                    size: source.len() as u64,
+                    mode: 0o644,
+                }],
+                external_locator: None,
+            }],
+            output_groups: vec![],
+            provenance: identity().provenance,
         },
-    )
-    .unwrap();
-    let guard = reader.locks().try_build_exclusive().unwrap();
-    let optional = |version: &str| {
-        let (graph, _) = fixture("first", version);
-        let mut declaration = graph.declaration().clone();
-        for item in &mut declaration.units[0].outputs {
-            for file in &mut item.files {
-                file.required = false;
-            }
-        }
-        prepare_fixture("first", declaration)
+        upstream_result_keys: BTreeSet::new(),
     };
-    let freeze = |unit: &PreparedUnit| {
-        reader
-            .begin_completion(&guard, unit, identity())
-            .unwrap()
-            .freeze(
-                vec![],
-                |outputs| {
-                    assert!(outputs.is_empty());
-                    Ok(())
-                },
-                |_, _, _| panic!("no groups in this fixture"),
-            )
-            .unwrap()
-    };
-
-    // Optional absent files are valid existing semantics: no APFS snapshot/clone is fabricated.
-    let (old_graph, old_unit) = optional("metadata-old");
-    let mut old_plan = reader
-        .prepare_local(
-            &guard,
-            freeze(&old_unit),
-            &view("first", &old_graph),
-            vec![],
-        )
-        .unwrap();
-    assert!(matches!(
-        old_plan
-            .commit(&guard, |_| panic!("local completion is not cached"))
-            .unwrap(),
-        InstallOutcome::InstalledLocally {
-            retention_error: None
-        }
-    ));
+    let record_path = workspace
+        .path("cache/results")
+        .join(format!("{}.json", unit.key()));
+    let record_bytes = canonical_bytes(&envelope).unwrap();
+    fs::write(&record_path, &record_bytes).unwrap();
+    fs::set_permissions(&record_path, fs::Permissions::from_mode(0o444)).unwrap();
+    let neighbor = workspace.path("games/first/Content/neighbor.bin");
+    fs::create_dir_all(neighbor.parent().unwrap()).unwrap();
+    fs::write(&neighbor, b"unrelated checkout bytes").unwrap();
     let index_path = workspace.path("build/build-v2/install/index.json");
-    let index_before = fs::read(&index_path).unwrap();
-    let (graph, unit) = optional("metadata-new");
-    let completion = freeze(&unit);
-    let lease = completion.lease().clone();
+    let index_before = fs::read(&index_path).ok();
+    let RestoreLookup::Hit(mut plan) = installer
+        .lookup_restore(&guard, &unit, identity(), &view("first", &graph), vec![])
+        .unwrap()
+    else {
+        panic!("valid readonly fixture must pass the real strict cache lookup")
+    };
+    let store = ResultStore::open(workspace.path("cache")).unwrap();
+    let leases = store.leases().lock().unwrap().leases().unwrap();
+    assert_eq!(leases.len(), 1);
+    let lease = &leases[0];
+    assert!(lease.result_keys.contains(unit.key()) && lease.object_digests.contains(&digest));
     let lease_path = workspace
-        .path("build/build-v2/install/completions/leases")
+        .path("cache/leases")
         .join(format!("{}.json", lease.id));
     let lease_before = fs::read(&lease_path).unwrap();
-    let mut plan = reader
-        .prepare_local(&guard, completion, &view("first", &graph), vec![])
-        .unwrap();
     let journal_path = workspace.path("build/build-v2/install/journal.json");
 
-    let held_reader = reader.locks().try_read_content().unwrap();
+    let held_reader = installer.locks().try_read_content().unwrap();
     let mut hook_reached = false;
     let result = plan.commit_with(
         &guard,
@@ -1902,8 +1890,8 @@ fn busy_before_install_start_is_distinct_from_a_journaled_failure_and_recovery()
         "Busy must precede every transaction fault hook"
     );
     assert!(!journal_path.exists(), "no journal was started on Busy");
-    reader.locks().try_read_content().unwrap();
-    assert_eq!(fs::read(&index_path).unwrap(), index_before);
+    installer.locks().try_read_content().unwrap();
+    assert_eq!(fs::read(&index_path).ok(), index_before);
     assert_eq!(fs::read(&lease_path).unwrap(), lease_before);
     drop(held_reader);
 
@@ -1915,9 +1903,8 @@ fn busy_before_install_start_is_distinct_from_a_journaled_failure_and_recovery()
             if event == InstallEvent::JournalCreated {
                 journal_cut_reached = true;
                 assert!(journal_path.is_file());
-                // The writer is held during the callback as well as the durable barrier existing.
                 assert!(matches!(
-                    reader.locks().try_read_content(),
+                    installer.locks().try_read_content(),
                     Err(LockError::Busy)
                 ));
                 Err(std::io::Error::other(FAULT))
@@ -1938,24 +1925,20 @@ fn busy_before_install_start_is_distinct_from_a_journaled_failure_and_recovery()
     );
     let journal_before = fs::read(&journal_path).unwrap();
     assert!(matches!(
-        reader.locks().try_read_content(),
+        installer.locks().try_read_content(),
         Err(LockError::RecoveryRequired)
     ));
     assert_eq!(fs::read(&journal_path).unwrap(), journal_before);
-    assert_eq!(fs::read(&index_path).unwrap(), index_before);
+    assert_eq!(fs::read(&index_path).ok(), index_before);
     assert_eq!(fs::read(&lease_path).unwrap(), lease_before);
-    reader.recover(&guard, &view("first", &graph)).unwrap();
+    installer.recover(&guard, &view("first", &graph)).unwrap();
     assert!(!journal_path.exists());
-    reader.locks().try_read_content().unwrap();
-    assert_eq!(fs::read(&index_path).unwrap(), index_before);
+    installer.locks().try_read_content().unwrap();
+    assert_eq!(fs::read(&index_path).ok(), index_before);
     assert_eq!(fs::read(&lease_path).unwrap(), lease_before);
-    assert!(
-        workspace
-            .path("build/build-v2/install/completions")
-            .join(&lease.staging)
-            .join("completion.json")
-            .is_file()
-    );
+    assert_eq!(fs::read(&object_path).unwrap(), source);
+    assert_eq!(fs::read(&record_path).unwrap(), record_bytes);
+    assert_eq!(fs::read(&neighbor).unwrap(), b"unrelated checkout bytes");
     assert!(!workspace.path("games/first/Content/Shared.bin").exists());
 }
 
