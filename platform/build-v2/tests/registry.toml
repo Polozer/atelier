@@ -428,3 +428,7 @@ tests = ["atelier-build-v2::worker_session/python_worker_round_trip_over_dedicat
 [[scenarios]]
 id = "c1a.worker_session.python_worker_faults_break_the_session_over_dedicated_pipes"
 tests = ["atelier-build-v2::worker_session/python_worker_faults_break_the_session_over_dedicated_pipes"]
+
+[[scenarios]]
+id = "c1a.worker_session.cancel_before_started_still_requires_started_then_one_terminal"
+tests = ["atelier-build-v2::worker_session/cancel_before_started_still_requires_started_then_one_terminal"]

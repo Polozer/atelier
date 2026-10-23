@@ -248,6 +248,10 @@ response breaks the session (`Protocol`); an end of stream or failed write outsi
 request; only `failed` of kind `cancelled` confirms it, and a job that finished first still reports
 `completed`. `Channel` drives a session over any framed reader/writer pair.
 
+Worker rule: a worker MUST send `started` for every `run` before its single terminal response,
+including a job it rejects at once and a `cancel` that arrives before it started. A `cancel` that
+arrives after the job's terminal response gets no reply.
+
 The session passes job requests through unchanged and only refuses empty IDs or worker-facing names
 that are absolute, contain `.`/`..`/empty components, backslashes or NUL. Staging and the full path
 policy (C1b, A3), execution (C2), deadlines, retries and crash classification (C5) and admission (C7)
