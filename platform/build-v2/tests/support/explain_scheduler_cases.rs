@@ -52,6 +52,12 @@ fn summary_first_noop_and_mixed_frontiers_match_existing_operation_trace() {
     assert_eq!(summary.counts.cached, 3);
     assert_eq!(summary.counts.installed_units, 1);
     assert_eq!(summary.counts.launched_attempts, None); // fake execution is not real launch proof
+    assert!(
+        summary
+            .units
+            .iter()
+            .all(|unit| unit.ingredient_changes.is_none())
+    );
     assert_eq!(
         trace
             .borrow()
@@ -251,7 +257,7 @@ fn summary_refuses_mismatched_evidence_and_retains_unresolved_lifecycle() {
     let recorder = Recorder::default();
     let mut report = observed(&f, &["b"], &checkout_b(), &mut fake, &mut jobs, &recorder);
     let summary = recorder.summarize(&report, &BTreeMap::new(), None).unwrap();
-    assert!(summary.lifecycle_unresolved);
+    assert!(summary.executor_fatal);
     assert_eq!(summary.counts.worker_completed + summary.counts.cached, 0);
     assert_eq!(summary.counts.blocked, 1);
     assert!(
@@ -265,4 +271,49 @@ fn summary_refuses_mismatched_evidence_and_retains_unresolved_lifecycle() {
     );
     report.keys.insert("a".into(), "foreign".into());
     assert!(recorder.summarize(&report, &BTreeMap::new(), None).is_err());
+}
+
+#[test]
+fn summary_rejected_hit_does_not_count_successful_reuse() {
+    let f = fixture(false);
+    let trace = Trace::default();
+    let mut fake = Fake::new(trace.clone());
+    let mut jobs = Jobs::new(trace);
+    let demands = BTreeMap::from([("a".into(), BTreeSet::from([Demand::Stored]))]);
+    observed(
+        &f,
+        &["a"],
+        &demands,
+        &mut fake,
+        &mut jobs,
+        &Recorder::default(),
+    );
+    fake.bad_key = true;
+    let recorder = Recorder::default();
+    let report = observed(&f, &["a"], &demands, &mut fake, &mut jobs, &recorder);
+    let summary = recorder.summarize(&report, &BTreeMap::new(), None).unwrap();
+    assert_eq!(summary.counts.failed, 1);
+    assert_eq!(summary.counts.stored_hits + summary.counts.restored, 0);
+    assert_eq!(summary.counts.submitted + summary.counts.cached, 0);
+    assert_eq!(summary.units[0].lookup, Some(LookupReason::StoredHit));
+    assert_eq!(summary.units[0].outcome, Outcome::Failed);
+}
+
+#[test]
+fn summary_wrong_publication_key_is_unknown_even_if_record_was_written() {
+    let f = fixture(false);
+    let trace = Trace::default();
+    let mut fake = Fake::new(trace.clone());
+    let mut jobs = Jobs::new(trace);
+    fake.bad_publish_key = true;
+    let demands = BTreeMap::from([("a".into(), BTreeSet::from([Demand::Stored]))]);
+    let recorder = Recorder::default();
+    let report = observed(&f, &["a"], &demands, &mut fake, &mut jobs, &recorder);
+    let summary = recorder.summarize(&report, &BTreeMap::new(), None).unwrap();
+    assert_eq!(summary.counts.failed, 1);
+    assert_eq!(summary.counts.worker_completed, 1);
+    assert_eq!(summary.counts.cached + summary.counts.not_cached, 0);
+    assert_eq!(summary.counts.publication_unknown, 1);
+    assert!(report.publications.is_empty());
+    assert!(fake.cache.contains_key(&report.keys["a"])); // publication error is not proof of no write
 }

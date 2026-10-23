@@ -53,3 +53,13 @@ tests = ["atelier-build-v2::scheduler/explain_cases::summary_keeps_published_res
 id = "a7.summary_refuses_mismatched_evidence_and_retains_unresolved_lifecycle"
 tier = "t0"
 tests = ["atelier-build-v2::scheduler/explain_cases::summary_refuses_mismatched_evidence_and_retains_unresolved_lifecycle"]
+
+[[scenarios]]
+id = "a7.summary_rejected_hit_does_not_count_successful_reuse"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_rejected_hit_does_not_count_successful_reuse"]
+
+[[scenarios]]
+id = "a7.summary_wrong_publication_key_is_unknown_even_if_record_was_written"
+tier = "t0"
+tests = ["atelier-build-v2::scheduler/explain_cases::summary_wrong_publication_key_is_unknown_even_if_record_was_written"]

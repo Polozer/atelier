@@ -221,6 +221,7 @@ pub struct UnitExplanation {
     pub installed_units: usize,
     pub receipt_writes: usize,
     /// False after a settlement error: counts retain confirmed effects, not a claim of no writes.
+    /// This covers scheduler settlement only, not external finish/root/release calls.
     pub effects_complete: bool,
     pub unsatisfied_stored: bool,
     pub unsatisfied_checkout: bool,
@@ -250,8 +251,8 @@ pub struct SummaryCounts {
 pub struct BuildSummary {
     pub units: Vec<UnitExplanation>,
     pub counts: SummaryCounts,
-    /// Lifecycle uncertainty is distinct from ordinary per-unit failure. Error text is not copied.
-    pub lifecycle_unresolved: bool,
+    /// The executor reported a fatal boundary, not necessarily a launched child. Error text is not copied.
+    pub executor_fatal: bool,
     pub effects_complete: bool,
 }
 
@@ -286,6 +287,9 @@ impl Recorder {
     /// @cc [owner:fontanierh,label:correctness] explain-counts-are-observed-effects
     /// Summary MUST distinguish identity-only resolution, hit, actual restore, submission, actual
     /// launch evidence, completion and publication. Publication success MUST survive later failure.
+    /// Successful publication counts MUST require returned checked metadata to match the prepared
+    /// key; mismatches MUST remain attempted/unknown. See summary_wrong_publication_key_is_unknown_even_if_record_was_written
+    /// in tests/support/explain_scheduler_cases.rs.
     /// Missing records/blobs MUST NOT be called evicted. A report MUST NOT copy free-form errors,
     /// params or environment values. No extra lookup, materialization, tree walk or hash is allowed.
     /// See tests/explain.rs and A7 assertions in python_backend::tests (MAC1 pending).
@@ -317,7 +321,7 @@ impl Recorder {
         let mut summary = BuildSummary {
             units: vec![],
             counts: SummaryCounts::default(),
-            lifecycle_unresolved: report.fatal.is_some(),
+            executor_fatal: report.fatal.is_some(),
             effects_complete: true,
         };
         summary.counts.launched_attempts = launches.and_then(|map| {
@@ -355,7 +359,7 @@ impl Recorder {
             let counts = &mut summary.counts;
             counts.identity_only += usize::from(outcome == Outcome::IdentityOnly);
             counts.current += usize::from(outcome == Outcome::Current);
-            counts.stored_hits += usize::from(observation.lookup == Some(LookupReason::StoredHit));
+            counts.stored_hits += usize::from(outcome == Outcome::StoredHit);
             counts.submitted += sent;
             counts.worker_completed += observation.completed;
             counts.cached += usize::from(observation.publication == Some(CacheOutcome::Cached));
@@ -492,6 +496,7 @@ impl<B: Backend> Backend for ObservedBackend<'_, B> {
         completion: Self::Completion,
     ) -> Result<Published<Self::Checked>, String> {
         let id = work.unit().to_string();
+        let key = work.prepared().key().to_string();
         let result = self.inner.publish(work, completion);
         self.recorder
             .0
@@ -499,11 +504,13 @@ impl<B: Backend> Backend for ObservedBackend<'_, B> {
             .entry(id)
             .or_default()
             .publication = Some(match &result {
-            Ok(published) => match &published.publication {
-                Publication::Cached => CacheOutcome::Cached,
-                Publication::NotCached(_) => CacheOutcome::NotCached,
-            },
-            Err(_) => CacheOutcome::AttemptedUnknown,
+            Ok(published) if self.inner.view(&published.checked).key == key => {
+                match &published.publication {
+                    Publication::Cached => CacheOutcome::Cached,
+                    Publication::NotCached(_) => CacheOutcome::NotCached,
+                }
+            }
+            _ => CacheOutcome::AttemptedUnknown,
         });
         result
     }

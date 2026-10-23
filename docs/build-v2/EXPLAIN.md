@@ -25,15 +25,16 @@ submission and completion counts, cache publication, confirmed restore/install/r
 unsatisfied explicit final demands. Labels do not enter ingredient comparisons. A consumer hit needs
 only ancestor identities: an identity observation is neither an executed unit nor a restored hit.
 Pruned/unselected units are absent; they are not counted as successes.
+A backend's rejected hit claim remains visible in `lookup`, but does not increase accepted hit counts.
 
 | Observation | Meaning |
 |---|---|
 | `current` | The backend certified Current; no successful restore or receipt write was reported. |
 | `identity_only` | Metadata resolved an internal prerequisite; no byte availability is asserted. |
-| `stored_hit` | The backend supplied its checked cached authority. It counts as restored only when settlement confirms installation. |
+| `stored_hit` | The typed cached-hit decision. Reuse counts require scheduler acceptance; restoration also requires confirmed installation effects. |
 | `executed` | A completion was published or retained locally and final settlement succeeded. |
 | `cached` / `not_cached` | The backend reported successful cache publication or validated local completion without cache success. Explicit Stored may remain unsatisfied. |
-| `attempted_unknown` | Publication returned an error; this does not prove nothing reached the store. |
+| `attempted_unknown` | Publication returned an error or mismatched checked key; this does not prove nothing reached the store. |
 | missing/corrupt/unsupported reason | The original typed lookup fact. A missing record or blob does not prove eviction. |
 | source unavailable/changed/invalid | Conditional staging refused before dispatch. Original miss evidence is retained separately. |
 
@@ -47,9 +48,15 @@ have no submitted work and can prove zero from an empty complete evidence map.
 Completion, cache success, installation and final failure are separate facts. A later independent
 failure retains earlier success counts. A successful publication followed by settlement failure
 remains a cached publication and a failed unit; `effects_complete = false` warns that only confirmed
-returned effects are counted. Lifecycle uncertainty is reported separately. The summary rejects
+returned effects are counted. `executor_fatal` reports the scheduler's fatal executor boundary,
+without inferring that a child launched or cleanup was uncertain. The summary rejects
 inconsistent prepared keys, duplicate terminal events, foreign launch labels and mismatched effects.
 It does not reinterpret free-form backend errors or copy them into serialized output.
+
+This is a summary of `scheduler::run`, not a certificate of overall build success. Concrete
+`finish()` root/release calls run outside these traits: callers must retain their separate outcome,
+sample actual I/O after finish, and never erase valid per-unit work because finalization failed.
+`effects_complete` concerns observed scheduler settlement, not arbitrary finalization or all I/O.
 
 For ingredient reasons, retain `recorder.ingredients()` and supply that compact baseline on a later
 invocation. A missing baseline yields `ingredient_changes: null`, not an invented change. An unchanged

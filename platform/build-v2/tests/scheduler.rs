@@ -28,6 +28,7 @@ struct Fake {
     not_cached: BTreeSet<String>,
     miss_reason: Option<NonHitReason>,
     fail_settle: BTreeSet<String>,
+    bad_publish_key: bool,
     bad_key: bool,
     bad_settle: bool,
 }
@@ -48,6 +49,7 @@ impl Fake {
             not_cached: BTreeSet::new(),
             miss_reason: None,
             fail_settle: BTreeSet::new(),
+            bad_publish_key: false,
             bad_key: false,
             bad_settle: false,
         }
@@ -171,7 +173,7 @@ impl Backend for Fake {
                 external_locator: None,
             })
             .collect();
-        let checked = Checked {
+        let mut checked = Checked {
             key: w.prepared().key().into(),
             items,
             groups: BTreeMap::new(),
@@ -183,6 +185,9 @@ impl Backend for Fake {
             self.cache.insert(checked.key.clone(), checked.clone());
             Publication::Cached
         };
+        if self.bad_publish_key {
+            checked.key = "foreign".into();
+        }
         Ok(Published {
             checked,
             publication,
