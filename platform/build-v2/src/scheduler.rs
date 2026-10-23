@@ -197,7 +197,9 @@ pub trait Control {
 }
 
 /// Admission, worker sessions, retries, deadlines and cleanup belong to C5/C7.
-/// A returned error does not certify cleanup; scheduling stops with unresolved work blocked.
+/// Every submitted handle MUST return one terminal event, including queued cancellation.
+/// Flow::Stop forbids starting more work; it does not waive settlement of owned handles.
+/// A returned error or omitted outcome does not certify cleanup; scheduling stops with unresolved work blocked.
 pub trait Executor<T, C> {
     fn batch(
         &mut self,
@@ -539,14 +541,15 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
             if let Err(error) = executed {
                 report.fatal = Some(error);
             }
+            if !expected.is_empty() {
+                report.fatal.get_or_insert_with(|| {
+                    "executor omitted terminal outcome; cleanup unresolved".into()
+                });
+            }
             for (id, _) in expected {
                 report.states.insert(
                     id,
-                    if control.cancelled() {
-                        State::Cancelled
-                    } else {
-                        State::Failed("executor omitted terminal outcome".into())
-                    },
+                    State::Failed("executor omitted terminal outcome".into()),
                 );
             }
             if report.fatal.is_some() {

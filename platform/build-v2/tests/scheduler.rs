@@ -172,7 +172,8 @@ impl Executor<String, ()> for Jobs {
         _: &dyn Control,
         emit: &mut dyn FnMut(Event<String, ()>) -> Flow,
     ) -> Result<(), String> {
-        for w in work {
+        let mut work = work.into_iter();
+        while let Some(w) = work.next() {
             let id = w.unit().to_string();
             self.trace.borrow_mut().push(format!("execute:{id}"));
             if self.omit {
@@ -196,9 +197,15 @@ impl Executor<String, ()> for Jobs {
             let flow = emit(event);
             if let Some(flag) = &self.cancel_after {
                 flag.set(true);
+                for work in work {
+                    emit(Event::Cancelled { work });
+                }
                 return Ok(());
             }
             if flow == Flow::Stop {
+                for work in work {
+                    emit(Event::Cancelled { work });
+                }
                 return Ok(());
             }
         }
@@ -407,7 +414,7 @@ fn independent_failure_retains_publication_and_blocks_only_dependents() {
     assert!(fake.cache.contains_key(&report.keys["c"]));
 }
 #[test]
-fn cancellation_preserves_completed_units_and_marks_unreturned_work() {
+fn cancellation_preserves_completed_units_and_settles_queued_work() {
     let f = fixture(false);
     let trace = Trace::default();
     let mut fake = Fake::new(trace.clone());
@@ -419,6 +426,7 @@ fn cancellation_preserves_completed_units_and_marks_unreturned_work() {
     assert_eq!(report.publications, vec!["a"]);
     assert!(matches!(report.states["a"], State::Executed(_)));
     assert_eq!(report.states["c"], State::Cancelled);
+    assert!(report.fatal.is_none());
 }
 #[test]
 fn faulty_backend_key_and_materialization_claims_refuse() {
@@ -476,17 +484,27 @@ fn incompatible_profiles_split_batches_and_publication_failure_preserves_sibling
 
 #[test]
 fn missing_executor_terminal_is_failure_and_never_unlocks_dependents() {
-    let f = fixture(false);
+    let mut f = fixture(false);
+    f.runtimes.get_mut("c").unwrap().profile = "later-profile".into();
     let trace = Trace::default();
     let mut fake = Fake::new(trace.clone());
-    let mut jobs = Jobs::new(trace);
+    let mut jobs = Jobs::new(trace.clone());
     jobs.omit = true;
-    let demands = BTreeMap::from([("b".into(), Demand::Checkout)]);
-    let report = build(&f, &["b"], &demands, &mut fake, &mut jobs, &Never);
+    let demands = BTreeMap::from([("b".into(), Demand::Checkout), ("c".into(), Demand::Stored)]);
+    let report = build(&f, &["b", "c"], &demands, &mut fake, &mut jobs, &Never);
     assert!(
-        matches!(&report.states["a"],State::Failed(reason) if reason.contains("omitted terminal"))
+        matches!(&report.states["a"], State::Failed(reason) if reason.contains("omitted terminal"))
     );
-    assert_eq!(report.states["b"], State::Blocked(vec!["a".into()]));
+    assert!(
+        report
+            .fatal
+            .as_ref()
+            .unwrap()
+            .contains("cleanup unresolved")
+    );
+    assert!(matches!(report.states["b"], State::Blocked(_)));
+    assert!(matches!(report.states["c"], State::Blocked(_)));
+    assert!(!trace.borrow().iter().any(|event| event == "execute:c"));
     assert!(!report.keys.contains_key("b"));
     assert!(fake.cache.is_empty());
 }

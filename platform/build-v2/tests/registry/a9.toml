@@ -21,8 +21,8 @@ id = "a9a.independent_failure_retains_publication_and_blocks_only_dependents"
 tests = ["atelier-build-v2::scheduler/independent_failure_retains_publication_and_blocks_only_dependents"]
 
 [[scenarios]]
-id = "a9a.cancellation_preserves_completed_units_and_marks_unreturned_work"
-tests = ["atelier-build-v2::scheduler/cancellation_preserves_completed_units_and_marks_unreturned_work"]
+id = "a9a.cancellation_preserves_completed_units_and_settles_queued_work"
+tests = ["atelier-build-v2::scheduler/cancellation_preserves_completed_units_and_settles_queued_work"]
 
 [[scenarios]]
 id = "a9a.faulty_backend_key_and_materialization_claims_refuse"
