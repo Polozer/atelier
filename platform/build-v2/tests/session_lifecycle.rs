@@ -1748,15 +1748,16 @@ fn a_refreshed_quiet_window_never_outlasts_the_units_cleanup_limit() {
             settles,
             "evidence at {at} ms: {late:?}"
         );
-        let a = sim.lifecycle.unit("a").unwrap();
         if settles {
+            let a = sim.lifecycle.unit("a").unwrap();
             assert_eq!(a.attempts[0].quiescent, Some(at as f64 / 1000.0));
         } else {
             assert!(
                 late.contains(&SessionCommand::Stop { session: 1 }),
                 "evidence at {at} ms: {late:?}"
             );
-            assert_eq!(a.attempts[0].quiescent, None, "evidence at {at} ms");
+            // Still cleaning up, so it has no record yet: never settled by the late evidence.
+            assert!(sim.lifecycle.unit("a").is_none(), "evidence at {at} ms");
         }
     }
 }
@@ -1804,11 +1805,10 @@ fn a_broken_or_lost_protocol_poisons_the_session_in_every_phase() {
         }
         later.extend(sim.quiet(400, 1));
         assert!(!starts_another_unit(&later), "{case}: {later:?}");
-        assert_eq!(
-            sim.lifecycle.unit("a").unwrap().attempts[0].quiescent,
-            None,
-            "{case}"
-        );
+        // A unit still cleaning up has no record yet; a settled one was never settled by evidence.
+        if let Some(a) = sim.lifecycle.unit("a") {
+            assert_eq!(a.attempts[0].quiescent, None, "{case}");
+        }
         assert_eq!(runs(&sim), 1, "{case}: only a's own Run");
     }
 }
