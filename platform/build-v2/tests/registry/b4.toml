@@ -126,6 +126,14 @@ id = "b4.roots.a_guard_from_another_store_is_refused"
 tests = ["atelier-build-v2::roots/a_guard_from_another_store_is_refused"]
 
 [[scenarios]]
+id = "b4.roots.reopening_a_project_with_missing_metadata_is_damage"
+tests = ["atelier-build-v2::roots/reopening_a_project_with_missing_metadata_is_damage"]
+
+[[scenarios]]
+id = "b4.roots.retention_reports_a_missing_selected_project"
+tests = ["atelier-build-v2::roots/retention_reports_a_missing_selected_project"]
+
+[[scenarios]]
 id = "b4.roots.crash_temporary_file_is_swept_and_does_not_damage"
 tests = ["atelier-build-v2::roots/crash_temporary_file_is_swept_and_does_not_damage"]
 

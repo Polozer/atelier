@@ -1130,6 +1130,40 @@ fn a_guard_from_another_store_is_refused() {
 }
 
 #[test]
+fn reopening_a_project_with_missing_metadata_is_damage() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    fs::remove_dir_all(workspace.project_dir("yorimichi").join("session")).unwrap();
+
+    let error = RootStore::open(workspace.store(), "yorimichi").unwrap_err();
+    assert!(
+        matches!(error, RootError::Damaged(_)),
+        "reopening must not recreate lost metadata: {error}"
+    );
+    assert!(!workspace.project_dir("yorimichi").join("session").exists());
+}
+
+#[test]
+fn retention_reports_a_missing_selected_project() {
+    let workspace = Workspace::new();
+    let store = workspace.open("yorimichi");
+    let mut session = begin(&store, RootKind::Main, "first", 1);
+    session.use_result("unit.a", &key(1)).unwrap();
+    session.commit(None).unwrap();
+    fs::remove_dir_all(workspace.project_dir("yorimichi")).unwrap();
+
+    let view = store.retention().unwrap();
+    assert!(
+        !view.damaged.is_empty(),
+        "a vanished project must not look like empty retention"
+    );
+    assert!(view.keys.is_empty());
+}
+
+#[test]
 fn crash_temporary_file_is_swept_and_does_not_damage() {
     let workspace = Workspace::new();
     let store = workspace.open("yorimichi");

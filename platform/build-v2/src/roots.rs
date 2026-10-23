@@ -5,8 +5,7 @@
 //! Roots never participate in cache identity, and nothing here deletes payloads, result
 //! records or leases; B5 owns traversal and object cleanup.
 use crate::leases::{
-    LEASE_VERSION, LeaseRecord, LeaseStore, Liveness, MetadataGuard, ProcessIdentity, directory,
-    sync_dir,
+    LEASE_VERSION, LeaseRecord, LeaseStore, Liveness, MetadataGuard, ProcessIdentity, sync_dir,
 };
 use crate::results::ResultEnvelope;
 use crate::schema::{Declaration, Provenance};
@@ -454,9 +453,12 @@ fn retention_of_session(path: &Path, keys: &mut BTreeSet<String>) -> bool {
 impl RootStore {
     /// @cc [owner:fontanierh,label:correctness] build-v2-root-store
     /// Opening MUST require an existing trusted store root, refuse a missing one, and name one
-    /// explicit project. Root metadata MUST live under the shared metadata mutex, and readers MUST
-    /// be callable with the caller's already-held guard so GC can read retention, leases and decide
+    /// explicit project. Initialization MUST run under the shared metadata mutex and MUST fsync
+    /// every created ancestor before any publication can root a result. Reopening an initialized
+    /// project MUST NOT recreate missing metadata: a vanished directory is damage. Readers MUST be
+    /// callable with the caller's already-held guard so GC can read retention, leases and decide
     /// deletions under one lock hold. See tests/roots.rs `missing_store_root_is_refused`,
+    /// `reopening_a_project_with_missing_metadata_is_damage`,
     /// `retention_is_readable_under_the_callers_guard` and
     /// `a_hit_release_is_visible_to_a_guarded_gc_read`.
     pub fn open(
@@ -481,13 +483,45 @@ impl RootStore {
             project,
             leases,
         };
+        // Initialization and reopen observation share the metadata mutex with every reader.
+        let _guard = store.leases.lock()?;
+        let roots = store.root.join("roots");
         let base = store.project_dir();
-        fs::create_dir_all(store.root.join("roots"))?;
-        directory(&base)?;
-        for kind in ["worktree", "release", "pin", "session", "tmp"] {
-            directory(&base.join(kind))?;
+        match fs::symlink_metadata(&base) {
+            Ok(metadata) if metadata.is_dir() => {
+                for kind in ["worktree", "release", "pin", "session", "tmp"] {
+                    let path = base.join(kind);
+                    match fs::symlink_metadata(&path) {
+                        Ok(metadata) if metadata.is_dir() => {}
+                        _ => {
+                            return Err(damaged(format!(
+                                "missing metadata directory {}",
+                                path.display()
+                            )));
+                        }
+                    }
+                }
+            }
+            Ok(_) => return Err(invalid("project metadata is not a directory")),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                match fs::symlink_metadata(&roots) {
+                    Ok(metadata) if metadata.is_dir() => {}
+                    Ok(_) => return Err(invalid("roots metadata is not a directory")),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                        fs::create_dir(&roots)?;
+                        sync_dir(&store.root)?;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+                fs::create_dir(&base)?;
+                sync_dir(&roots)?;
+                for kind in ["worktree", "release", "pin", "session", "tmp"] {
+                    fs::create_dir(base.join(kind))?;
+                }
+                sync_dir(&base)?;
+            }
+            Err(error) => return Err(error.into()),
         }
-        sync_dir(&base)?;
         Ok(store)
     }
 
@@ -818,8 +852,9 @@ impl RootStore {
     /// tests/roots.rs `retention_counts_root_and_open_session_keys`,
     /// `retention_is_readable_under_the_callers_guard`,
     /// `malformed_root_metadata_fails_reads_and_retention_reports_damage` and
-    /// `missing_or_unreadable_metadata_is_damage`. A wrong-store guard never certifies a GC
-    /// snapshot: `retention_locked` and `roots_locked` MUST refuse it,
+    /// `missing_or_unreadable_metadata_is_damage`, including the selected project's own directory
+    /// (`retention_reports_a_missing_selected_project`). A wrong-store guard never certifies a
+    /// GC snapshot: `retention_locked` and `roots_locked` MUST refuse it,
     /// see `a_guard_from_another_store_is_refused`.
     pub fn retention_locked(&self, _guard: &MetadataGuard) -> Result<RetentionView, RootError> {
         self.check_guard(_guard)?;
@@ -831,6 +866,11 @@ impl RootStore {
                 view.damaged.push(roots.display().to_string());
                 return Ok(view);
             }
+        }
+        let selected = self.project_dir();
+        match fs::symlink_metadata(&selected) {
+            Ok(metadata) if metadata.is_dir() => {}
+            _ => view.damaged.push(selected.display().to_string()),
         }
         for project in fs::read_dir(&roots)? {
             let project = match project {
