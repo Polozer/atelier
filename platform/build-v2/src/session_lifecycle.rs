@@ -829,10 +829,15 @@ impl SessionLifecycle {
             && (!self.closed || self.units.iter().any(UnitSlot::waiting))
     }
 
-    /// Start waiting for unit `index`'s quiescence evidence on its live session.
+    /// Start waiting for unit `index`'s quiescence evidence on its live session, never past the
+    /// unit's overall deadline, which bounds its cleanup too (session-unit-time-limits).
     fn await_quiet(&mut self, now: MonoTime, index: usize) {
         let bound = self.config.quiescence.unwrap_or_default();
-        self.units[index].quiet_by = now.checked_add(bound);
+        let unit = &mut self.units[index];
+        unit.quiet_by = [now.checked_add(bound), unit.overall_deadline]
+            .into_iter()
+            .flatten()
+            .min();
     }
 
     /// End live session `s`: shut an idle healthy worker down, otherwise stop the session. Its
@@ -959,7 +964,8 @@ impl SessionLifecycle {
     /// (`a_reused_session_runs_the_next_unit_only_after_quiescence_evidence`,
     /// `without_quiescence_evidence_the_session_stops_and_the_receipt_settles_the_unit`,
     /// `cancelling_a_running_unit_cancels_only_its_job_when_others_wait`,
-    /// `every_session_serves_one_unit_without_quiescence_evidence`).
+    /// `every_session_serves_one_unit_without_quiescence_evidence`,
+    /// `evidence_past_its_bound_before_any_tick_never_settles_the_unit_or_reuses_the_worker`).
     ///
     /// Quiescence evidence for `session`'s active unit, after its terminal reply: the unit's
     /// attempt is settled, its cleanup finished, and the session may take the next unit.
@@ -981,7 +987,13 @@ impl SessionLifecycle {
             return Ok(());
         };
         let unit = &mut self.units[index];
-        if unit.quiet_by.is_none() || !unit.terminal_seen || !sample_time.is_finite() {
+        // Evidence at or past its bound is too late, even before a Tick: `pump_live` then stops
+        // the session in this same input.
+        if unit.quiet_by.is_none()
+            || reached(unit.quiet_by, now)
+            || !unit.terminal_seen
+            || !sample_time.is_finite()
+        {
             return Ok(());
         }
         unit.quiet_by = None;
@@ -1023,7 +1035,8 @@ impl SessionLifecycle {
     /// (`a_later_units_job_limit_counts_from_its_own_assignment`,
     /// `a_later_units_capacity_wait_stays_outside_its_job_limit`,
     /// `units_that_expire_while_waiting_withdraw_the_request_within_their_deadline`,
-    /// `an_expired_units_deadline_never_bounds_a_later_settlement`).
+    /// `an_expired_units_deadline_never_bounds_a_later_settlement`,
+    /// `a_reusable_units_quiescence_wait_never_outlasts_its_overall_deadline`).
     ///
     /// Give waiting unit `index` to admitted session `s`: this is the unit's own admission, so its
     /// job limit starts now.
