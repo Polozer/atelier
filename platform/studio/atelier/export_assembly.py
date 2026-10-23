@@ -13,7 +13,7 @@ from .model_files import regular_files, retain_files
 def runtime_inputs():
     """Only executed file assembly/clone helpers, excluding unused build-controller imports."""
     return [Path(__file__), *(Path(__file__).with_name(name) for name in
-            ('atomic_files.py', 'build_cache.py', 'export_manifest.py', 'model_files.py'))]
+            ('atomic_files.py', 'file_copy.py', 'export_manifest.py', 'model_files.py'))]
 
 
 @dataclass(frozen=True)
