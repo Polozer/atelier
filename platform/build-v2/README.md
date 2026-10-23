@@ -577,3 +577,32 @@ is the durable checkout authority; it is Current without asserting cache availab
 and owner evidence remain retained, including after quarantine recovery. They are not immortal shared
 CAS pins and introduce no cleanup CLI/service. Production scheduling and the guard/cleanup liveness
 adapter remain separately reviewed integrations.
+
+## Unit demand (A5)
+
+The unused `demand` module separates checkout satisfaction from stored availability.
+`checkout` first uses B3's cache-independent receipt reader. A current target returns
+without invoking the lazy cache opener or rewriting output, receipt or index files.
+Explicit retirement intents still require preflight even when surviving outputs are
+current. Dirty/absent targets use one B3 `lookup_restore`; misses retain that original
+write transaction, and hits return the existing install plan. Lock, recovery and
+ownership refusals remain hard errors rather than a reason to bypass install custody.
+Retirement authority is checked by B3's cache-free preflight before the lazy opener;
+constructor and B2 errors carry an explicit cache-origin wrapper. An invalid receipt
+ID, stale authority or malformed checkout metadata cannot become a cache miss merely
+because its low-level error uses a store digest type.
+
+`stored` uses B2's checked, durably pinned `lookup_groups`, exposing recorded content and
+private group tokens through a `StoredHit`. It never installs checkout files. Rooting
+delegates to B2; failed root callbacks retain claims. Missing/damaged/unavailable stores
+use B7a typed non-hit classifiers without offline verification, byte-copy fallback or
+payload rehashing. A miss without a transaction does not authorize unleased writes.
+
+The caller supplies an already prepared exact key and a matching checkout/project cache
+opener. These functions do not select, key, traverse, dispatch or stage ancestors: a
+satisfied final demand returns immediately. Tests use an A4-selected two-unit reference
+closure and a real cached final result with no intermediate result to prove this API
+does not materialize prerequisites. This does not prove cold key resolution, dynamic
+planner scheduling, worker staging or A9's end-to-end dispatch/output cutoff; those
+integration obligations remain separate. The complete ownership view and exact
+retirement authority still come from B3/D4 callers, never path-prefix inference.

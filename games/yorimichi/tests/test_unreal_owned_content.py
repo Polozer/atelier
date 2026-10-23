@@ -13,6 +13,11 @@ def test_owned_content_imports_declare_disjoint_complete_outputs(monkeypatch):
     content = paths.GAMES / 'yorimichi/unreal/Content'
     for name, folders in recipe.OWNED_CONTENT.items():
         step = by_name[name]
+        if step.products:
+            # Decomposed owners already declare complete native products; the legacy
+            # folder view must not add a second overlapping output scope.
+            assert not step.checkpoint_outputs, name
+            continue
         assert all(content / folder in step.checkpoint_outputs for folder in folders), name
         assert all(output in step.checkpoint_outputs or any(root in output.parents for root in step.checkpoint_outputs)
                    for output in step.outputs), name

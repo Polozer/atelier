@@ -209,13 +209,22 @@ class TreeMonitor:
 
 
 @contextmanager
-def attach_tree(pid, report, duration, limit_gib=10., expected_start=None, launch_nonce=None):
-    """Attach while the gated launcher waits. Call ready() after entering; reap its tree before leaving.
+def attach_tree(pid, report, duration, limit_gib=10., expected_start=None, launch_nonce=None, custody_fds=(),
+                invocation=None):
+    """@cc [owner:fontanierh,label:safety] tree-monitor-custody-detach
+    Checkout custody descriptors MUST be validated before the monitor starts and MUST reach only
+    the monitor, as its own inherited duplicates; the caller keeps and closes its descriptors.
+    With custody, no path MAY terminate or kill a still-running monitor, whatever its receipt
+    says: it MUST be detached and logged with its pinned identity, report and lock-file identity.
+    Without custody the existing bounded termination is unchanged. See tests/test_tree_guard_custody.py.
 
+    Attach while the gated launcher waits. Call ready() after entering; reap its tree before leaving.
     Readiness is deliberately outside __enter__, so a readiness failure still leaves the monitor
     attached until the caller's owned-tree cleanup has run.
     """
     from atelier.harness.safety import process_tree
+    from atelier.harness.safety.tree_guard import custody_descriptors
+    custody = custody_descriptors(tuple(custody_fds))
     started = process_tree.started(pid)
     if started is None or (expected_start is not None and started != expected_start):
         raise RuntimeError('Cannot attach aggregate guard to the pinned launcher')
@@ -226,26 +235,42 @@ def attach_tree(pid, report, duration, limit_gib=10., expected_start=None, launc
                '--controller-pid', str(os.getpid()), '--controller-start', str(usage(os.getpid()).started)]
     if duration is not None:
         command += ['--duration', str(duration)]
+    for fd, _ in custody:
+        command += ['--custody-fd', str(fd)]
+    kept = tuple(fd for fd, _ in custody)
     if launch_nonce is None:
-        process = subprocess.Popen(command, start_new_session=True)
+        process = subprocess.Popen(command, start_new_session=True, **({'pass_fds': kept} if kept else {}))
     else:
         from .launch_ownership import private_pipe
         with private_pipe(launch_nonce) as descriptor:
             process = subprocess.Popen([*command, '--launch-context-fd', str(descriptor)],
-                                       start_new_session=True, pass_fds=(descriptor,))
+                                       start_new_session=True, pass_fds=(*kept, descriptor))
     monitor = TreeMonitor(process, pid, started, report)
     try:
         yield monitor
     finally:
-        if process.poll() is None:
-            # The launcher has already been reaped by the caller. Let the monitor observe and
-            # drain its retained tree before detaching; its child-mode cleanup has a 2 s bound.
+        if custody:
+            # A custodian may hold checkout exclusion while cleanup is uncertain. Never end it.
             try:
                 process.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+                try:
+                    monitor_start = process_tree.started(process.pid)
+                except Exception:
+                    monitor_start = None
+                print(f'custody monitor retained: pid {process.pid} start {monitor_start} '
+                      f'invocation {invocation} report {report} '
+                      f'lock files {[list(identity) for _, identity in custody]}', flush=True)
+        else:
+            if process.poll() is None:
+                # The launcher has already been reaped by the caller. Let the monitor observe and
+                # drain its retained tree before detaching; its child-mode cleanup has a 2 s bound.
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)

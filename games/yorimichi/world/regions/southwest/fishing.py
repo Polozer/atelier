@@ -5,8 +5,8 @@ import sys as _sys; from pathlib import Path as _Path; _sys.path.insert(0, str(_
 import math, random, sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from village.build import window, door, shell, roof, awning, lantern, pot, bench
-from mesh import Mesh, PALETTE
+from village.mesh import window, door, shell, roof, awning, lantern, pot, bench
+from southwest.mesh import Mesh, PALETTE
 R=random.Random(23)
 def color_variant(key,amount=.05):
     f=R.uniform(1-amount,1+amount);return tuple(min(1,c*f) for c in PALETTE[key])

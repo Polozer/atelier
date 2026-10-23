@@ -58,6 +58,7 @@ def test_catalogue_binds_complete_membership_and_preserves_authored_order(tmp_pa
 
 def test_real_model_declarations_have_independent_inputs_and_complete_owners(tmp_path):
     steps = RECIPE.brinecove_model_steps(tmp_path)
+    build.check_modules(steps)
     assert len(steps) == 36
     build_products.Graph(steps)
     for step in steps:
@@ -69,7 +70,8 @@ def test_real_model_declarations_have_independent_inputs_and_complete_owners(tmp
         assert not forbidden.intersection(p.name for p in step.inputs)
         assert all('terrain' not in str(p) and 'textures' not in p.parts for p in step.inputs)
     assembly = RECIPE.brinecove_steps(tmp_path)[0]
-    assert {p.name for step in steps for p in step.products} <= set(assembly.reads)
+    assert {step.products[0].name for step in steps} <= set(assembly.reads)
+    assert not {step.products[1].name for step in steps} & set(assembly.reads)
     assert RECIPE.paths.STUDIO / 'atelier/model_export.py' in assembly.inputs
     assert RECIPE.paths.STUDIO / 'atelier/mesh_partition.py' in assembly.inputs
     assert RECIPE.REGIONS / 'brinecove/foliage_catalog.json' in assembly.inputs
@@ -87,6 +89,7 @@ def test_fresh_model_batch_serializes_the_actual_declared_arguments(tmp_path):
         assert action['args'] == list(step.commands[0].args)
         assert Path(action['args'][0]).is_file()
         assert Path(action['args'][1]) == step.products[0].paths[0]
+        assert Path(action['args'][2]) == step.products[1].paths[0]
 
 
 def test_model_entrypoint_imports_in_an_isolated_embedded_interpreter(tmp_path):
@@ -112,7 +115,8 @@ def test_actual_graph_preserves_models_for_placement_edits_and_rebuilds_only_cha
         copy.write_bytes(definition.read_bytes())
         definitions.append(copy)
         folder = original.products[0].paths[0]
-        def generate(ctx, log, source=copy, folder=folder, task=original.name):
+        query = original.products[1].paths[0]
+        def generate(ctx, log, source=copy, folder=folder, task=original.name, query=query):
             executed.append(task)
             mesh = models.build(json.loads(source.read_text()))
             data = encoded(mesh)
@@ -124,6 +128,8 @@ def test_actual_graph_preserves_models_for_placement_edits_and_rebuilds_only_cha
                                    [max(v[i] for v in mesh.verts) for i in range(3)]],
                          collision=False, lods=True)
             (folder / 'model.json').write_text(json.dumps(model, sort_keys=True))
+            # Cache-control fixture bytes; actual query serialization is native-tested separately.
+            query.parent.mkdir(parents=True, exist_ok=True); query.write_bytes(data)
         steps.append(replace(original, commands=[build.Call(original.name, generate)],
                              inputs=[copy, *[p for p in original.inputs if p != definition]],
                              cache=False, heavy=False, toolchain=False, batch=None))
@@ -189,20 +195,24 @@ def test_real_model_entrypoint_publishes_a_verifiable_independent_product(tmp_pa
     definition = next(p for p in lib.definitions() if p.stem == 'bloom_0')
     calls, exported = [], []
     monkeypatch.setitem(sys.modules, 'bpy', SimpleNamespace(
-        ops=SimpleNamespace(wm=SimpleNamespace(read_factory_settings=lambda **kw: calls.append(kw))),
+        ops=SimpleNamespace(wm=SimpleNamespace(read_factory_settings=lambda **kw: calls.append(kw)),
+                            object=SimpleNamespace(select_all=lambda **kw: None)),
+        context=SimpleNamespace(view_layer=SimpleNamespace(objects=SimpleNamespace(active=None))),
         data=SimpleNamespace(materials=SimpleNamespace(new=lambda name: SimpleNamespace(use_nodes=False)))))
     def object_from_builder(builder, materials):
         exported.append((builder, materials))
-        return builder
+        return SimpleNamespace(select_set=lambda value: None)
     monkeypatch.setattr(exporter, 'mesh_object', object_from_builder)
-    def glb(mesh, destination):
+    def glb(destination, *, options):
+        assert options == dict(export_apply=True, export_image_format='NONE')
+        mesh = exported[-1][0]
         # Only Blender's serialization is stubbed; execute the production metadata
         # readback and library validation against a real GLB container.
         document = dict(meshes=[{'primitives': [{'indices': 0, 'attributes': {'POSITION': 1}}]}],
             accessors=[{'count': 3}, {'min': [0, 1, 2], 'max': [3, 4, 5]}],
             materials=[{'name': 'BC_' + slot} for slot in sorted(set(mesh.mats))])
         destination.write_bytes(glb_pack(document, b''))
-    monkeypatch.setattr(exporter, 'export', glb)
+    monkeypatch.setattr(exporter, 'export_atomic_glb', glb)
     folder = tmp_path / 'library' / definition.stem
     exporter.main(definition, folder)
     monkeypatch.setattr(lib, 'definitions', lambda: [definition])

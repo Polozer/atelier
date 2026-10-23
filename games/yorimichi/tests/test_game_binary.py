@@ -130,4 +130,3 @@ def test_a_restored_receipt_verifies_in_another_checkout(tmp_path, monkeypatch, 
     tool.relocate(ctx, log)
     assert 'relocated' in log.text
     assert json.loads(receipt.read_text())['RuntimeDependencies'][0]['Path'] == portable
-

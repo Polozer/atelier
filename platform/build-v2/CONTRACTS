@@ -145,3 +145,20 @@ failure. Local installation MUST reuse the existing journal/ownership/receipt en
 CAS or claiming a StoredHit; known semantic conflicts MUST refuse before mutation. Local scopes and
 real owner/worker evidence remain independent from shared CAS claims and MUST be preserved on failure.
 See tests/results.rs metadata lookup cases and tests/installs.rs current/local completion scenarios.
+
+@cc [owner:fontanierh,label:correctness] build-v2-independent-oracle
+The test harness oracle MUST derive expected roots, order, typed edges, run sets and target outputs
+from its own fixture specification, without calling production key, graph, store or plan parsing.
+The fake adapter MAY use the fixture worker and wire/data types only. See tests/harness.rs.
+
+@cc [owner:fontanierh,label:correctness] build-v2-target-only-clean-comparison
+A build comparison MUST compare only explicitly requested target outputs against a fresh empty-store
+rebuild, and MUST reject a stale hit or a missing target output. See tests/harness.rs.
+
+@cc [owner:fontanierh,label:correctness] build-v2-pending-proof-not-pass
+A harness report MUST NOT report a pass while real A5/A9 engine integration or native worker proof
+is pending, even when every fake-adapter check succeeds. See tests/harness.rs.
+
+@cc [owner:fontanierh,label:correctness] build-v2-seeded-reproduction
+A seeded graph, edit or store-failure mismatch MUST carry the seed and ordered steps needed to
+reconstruct the scenario, and the same seed MUST rebuild the same scenario. See tests/harness.rs.
