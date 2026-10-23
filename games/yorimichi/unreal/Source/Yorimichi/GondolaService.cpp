@@ -1,4 +1,5 @@
 #include "GondolaService.h"
+#include "AtomicMeshBounds.h"
 #include "AtelierData.h"
 #include "JapanNetwork.h"
 #include "LiveLibrary.h"
@@ -29,7 +30,8 @@
 
 /** @cc [owner:fontanierh,label:correctness] gondola-native-logical-rope-bounds
  * Every declared rope/access child MUST retain its complete original logical
- * box and true sphere, measured from actual final native PositionVertexBuffers.
+ * box and true sphere, measured from saved LOD0 MeshDescriptions with the engine's
+ * non-orphan vertex/double arithmetic. Lower LODs MUST NOT expand the original bounds.
  * No AABB-diagonal sphere, CPU-access setting change or class fallback is allowed.
  * Missing buffers, mismatched family membership and nonfinite bounds MUST refuse. */
 FString UGondolaLogicalMeshComponent::FinishLogicalFamily(const FString& Parent, const TArray<UStaticMesh*>& Parts)
@@ -45,36 +47,13 @@ FString UGondolaLogicalMeshComponent::FinishLogicalFamily(const FString& Parent,
         UStaticMesh* Mesh=Parts[Part];
         const FString Expected=Parent+(Lods==3?TEXT("_LOD0"):TEXT(""))+FString::Printf(TEXT("_Piece%02d"),Part);
         if (!Mesh || Mesh->GetName()!=Expected || Seen.Contains(Mesh) || !Mesh->GetRenderData() || Mesh->GetRenderData()->LODResources.Num() != Lods) return {};
+        for (const auto& Lod : Mesh->GetRenderData()->LODResources)
+            if (!Lod.VertexBuffers.PositionVertexBuffer.GetVertexData() ||
+                Lod.VertexBuffers.PositionVertexBuffer.GetNumVertices() == 0) return {};
         Seen.Add(Mesh); Family.Add(Mesh->GetPathName());
     }
-    FBoxSphereBounds::Builder Bounds;
-    for (int32 Lod = 0; Lod < Lods; ++Lod)
-    {
-        FBox3f Box(ForceInit);
-        for (const UStaticMesh* Mesh : Parts)
-        {
-            const auto& Buffer = Mesh->GetRenderData()->LODResources[Lod].VertexBuffers.PositionVertexBuffer;
-            if (!Buffer.GetVertexData() || Buffer.GetNumVertices() == 0) return {};
-            for (uint32 Index = 0; Index < Buffer.GetNumVertices(); ++Index)
-            {
-                const FVector3f Position = Buffer.VertexPosition(Index);
-                if (Position.ContainsNaN()) return {};
-                Box += Position;
-            }
-        }
-        if (!Box.IsValid) return {};
-        const FVector3f Center = Box.GetCenter();
-        float RadiusSquared = 0.f;
-        for (const UStaticMesh* Mesh : Parts)
-        {
-            const auto& Buffer = Mesh->GetRenderData()->LODResources[Lod].VertexBuffers.PositionVertexBuffer;
-            for (uint32 Index = 0; Index < Buffer.GetNumVertices(); ++Index)
-                RadiusSquared = FMath::Max(RadiusSquared, (Buffer.VertexPosition(Index) - Center).SizeSquared());
-        }
-        Bounds += FBoxSphereBounds(FVector(Center), FVector(Box.GetExtent()), FMath::Sqrt(RadiusSquared));
-    }
-    const FBoxSphereBounds Result = Bounds;
-    if (Result.ContainsNaN() || Result.SphereRadius <= 0.) return {};
+    FBoxSphereBounds Result(ForceInit);
+    if (!AtomicMeshBounds::MeasureAuthoredLod0PartsBounds(Parts, Lods, Result)) return {};
     for (UStaticMesh* Mesh : Parts)
     {
         auto* Data = Cast<UGondolaLogicalBoundsData>(Mesh->GetAssetUserDataOfClass(UGondolaLogicalBoundsData::StaticClass()));

@@ -34,8 +34,8 @@ class YORIMICHI_API UGondolaLogicalMeshComponent : public UStaticMeshComponent
 {
     GENERATED_BODY()
 public:
-    /** Measure actual final native buffers in the declared one or three LODs and persist the original
-     * MeshBuilder per-LOD sphere/box union on every member. Empty refuses missing proof. */
+    /** Require the declared native LOD family and persist its original saved LOD0
+     * MeshDescription box/true sphere on every member. Empty refuses missing proof. */
     UFUNCTION(BlueprintCallable, Category="Yorimichi|Import")
     static FString FinishLogicalFamily(const FString& Parent, const TArray<UStaticMesh*>& Parts);
     /** Actual saved source-model binding; unavailable data returns empty. */
