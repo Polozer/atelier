@@ -8,7 +8,7 @@ from .build_cache import atomic_json
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=['capture', 'restore', 'restore-action', 'stage-candidates', 'export-zen'])
+    parser.add_argument('operation', choices=['capture', 'restore', 'restore-action', 'stage-candidates', 'export-zen', 'hydrate', 'clone-step'])
     parser.add_argument('game')
     parser.add_argument('report', type=Path)
     parser.add_argument('--key')
@@ -30,7 +30,10 @@ def main(argv=None):
         if previous.get('requested') in ('modern-incremental', 'modern-full'):
             mode = previous['requested']
     ctx = build.Context(args.game, cook_mode=mode, create=not args.read_only)
-    steps = build.load_recipe(args.game).steps(ctx)
+    # Hydration is scoped by the parent's request; it needs no recipe.
+    recipe_free = args.operation in ('hydrate', 'clone-step') or args.operation == 'restore-action' and 'labels' in (
+        checkpoint_store.read_json(ctx.out / '.state/action-requests' / (args.key + '.json')))
+    steps = build.load_recipe(args.game).steps(ctx) if not recipe_free else None
     store = checkpoint_store.Store(args.game)
     args.report.mkdir(parents=True, exist_ok=True)
     result = args.report / 'result.json'
@@ -59,9 +62,17 @@ def main(argv=None):
     elif args.operation == 'restore-action':
         from .checkpoint_actions import restore_worker
         request = checkpoint_store.read_json(ctx.out / '.state/action-requests' / (args.key + '.json'))
-        step = next(s for s in steps if s.name == request['task'])
-        restore_worker(ctx, step, store, args.key)
+        if 'labels' in request:
+            restore_worker(ctx, None, store, args.key, labels=request['labels'])
+        else:
+            restore_worker(ctx, next(s for s in steps if s.name == request['task']), store, args.key)
         atomic_json(result, dict(key=args.key))
+    elif args.operation == 'clone-step':
+        from .store_reuse import clone_worker
+        atomic_json(result, dict(key=args.key, cloned=clone_worker(ctx, args.key)))
+    elif args.operation == 'hydrate':
+        placed = checkpoint_store.hydrate_files(ctx, store, args.key, echo=lambda m: print(m, flush=True))
+        atomic_json(result, dict(key=args.key, placed=placed))
     else:
         if not args.key:
             parser.error('restoration requires --key')

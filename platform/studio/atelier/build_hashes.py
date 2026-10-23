@@ -31,6 +31,7 @@ class HashIndex:
     def __init__(self, path=None, *, read_only=False, verify=False):
         self.connection = None
         self.memory = {}
+        self.resolved = {}  # Path spelling -> resolved key; realpath dominated warm planning.
         self.read_only = read_only
         self.verify = verify
         if path is None:
@@ -66,12 +67,35 @@ class HashIndex:
     def __exit__(self, *exception):
         self.close()
 
+    @property
+    def proving_digest(self):
+        """index.digest, marked as binding each digest to the file's exact stat signature."""
+        def digest(path):
+            return self.digest(path)
+        digest.proves = not self.verify
+        return digest
+
+    def record(self, path, digest):
+        """Seed a digest proven elsewhere, e.g. a clone of a content-addressed checkpoint blob."""
+        path = Path(path)
+        key, stamp = str(path.resolve()), repr(signature(path.stat()))
+        self.memory[key] = (stamp, digest)
+        if self.connection is not None and not self.read_only:
+            try:
+                self.connection.execute('INSERT OR REPLACE INTO hashes_v1 VALUES (?, ?, ?)', (key, stamp, digest))
+            except sqlite3.Error:
+                self.close()
+
     def digest(self, path, *, verify=False):
         path = Path(path)
         before = path.stat()
         if not stat.S_ISREG(before.st_mode):
             raise ValueError(f'Not a regular file: {path}')
-        key, stamp = str(path.resolve()), repr(signature(before))
+        spelling = str(path)
+        key = self.resolved.get(spelling)
+        if key is None:
+            key = self.resolved[spelling] = str(path.resolve())
+        stamp = repr(signature(before))
         value = None
         entry = self.memory.get(key)
         # Whole-second metadata cannot provide a useful persistent change token.

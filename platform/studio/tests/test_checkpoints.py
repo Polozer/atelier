@@ -320,3 +320,79 @@ def test_checkpoint_transfer_reaches_real_guard_boundary_with_valid_invocation(t
     with pytest.raises(BeforeNativeLaunch):
         build_checkpoints._guard(ctx, operation, 'a' * 64)
     assert len(calls) == 1
+
+
+def hydrate_in_process(monkeypatch, fixture, failure=None):
+    def guard(ctx, operation, key):
+        assert operation == 'hydrate'
+        placed = cp.hydrate_files(ctx, fixture.store, key, echo=lambda _: None)
+        if failure:
+            raise cp.CheckpointError(failure)
+        return dict(key=key, placed=placed)
+    monkeypatch.setattr(build_checkpoints, '_guard', guard)
+
+
+def test_non_cold_receiver_fills_missing_files_and_stages_certificates(fixture, monkeypatch):
+    _, _, key = snapshot(fixture)
+    ctx, steps = fixture.checkout('receiver')
+    (ctx.out / 'tree').mkdir(parents=True)
+    (ctx.out / 'tree/asset.bin').write_bytes(b'stale')
+    (ctx.out / 'mine.txt').write_text('keep me')
+    plan, total, scanned = build_checkpoints.hydration_plan(ctx, steps, fixture.store)
+    assert (plan['key'], plan['units'], plan['missing'], plan['stamps']) == (key, ['generated/'], 2, ['combat', 'house', 'tree'])
+    hydrate_in_process(monkeypatch, fixture)
+    messages = []
+    assert build_checkpoints.hydrate(ctx, steps, fixture.store, echo=messages.append)['key'] == key
+    assert 'checkpoint restore: 2 files hydrated, 3 certificates staged' in messages[-1]
+    assert (ctx.out / 'tree/asset.bin').read_bytes() == b'stale' and (ctx.out / 'mine.txt').read_text() == 'keep me'
+    assert (ctx.out / 'house/asset.bin').read_bytes() == b'house' and not (ctx.out / cp.JOURNAL).exists()
+    assert not list(ctx.stamps.glob('*.json'))
+    house = steps[2]
+    source, stamp = build_checkpoints.staged_certificate(ctx, house, build.fingerprint(house, {}))
+    assert source == key and checkpoint_actions.certified(ctx, house, stamp['fingerprint'], stamp)
+    assert build_checkpoints.staged_certificate(ctx, house, '0' * 64) is None
+    assert build_checkpoints.hydration_plan(ctx, steps, fixture.store)[0] is None
+
+
+def test_hydration_failure_never_fails_the_build(fixture, monkeypatch):
+    _, _, key = snapshot(fixture)
+    ctx, steps = fixture.checkout('receiver')
+    (ctx.out / 'tree').mkdir(parents=True)
+    (ctx.out / 'tree/asset.bin').write_bytes(b'stale')
+    hydrate_in_process(monkeypatch, fixture, failure='interrupted')
+    messages = []
+    assert build_checkpoints.hydrate(ctx, steps, fixture.store, echo=messages.append) is None
+    assert 'skipped: interrupted' in messages[-1] and not (ctx.out / cp.JOURNAL).exists()
+    assert (ctx.out / 'tree/asset.bin').read_bytes() == b'stale'
+
+
+def test_any_retained_checkpoint_restores_one_task_by_fingerprint(fixture, monkeypatch):
+    from atelier import store_reuse
+    _, _, key = snapshot(fixture)
+    ctx, steps = fixture.checkout('receiver')
+    (ctx.out / 'tree').mkdir(parents=True)
+    (ctx.out / 'tree/asset.bin').write_bytes(b'stale')
+    (ctx.out / 'tree/extra.bin').write_bytes(b'stale extra')
+    monkeypatch.setattr(cp, 'Store', lambda game: fixture.store)
+    monkeypatch.setattr(build_checkpoints, '_guard', lambda ctx, operation, task: dict(
+        key=task, cloned=store_reuse.clone_worker(ctx, task)))
+    index, messages = store_reuse.Catalogue('fixture'), []
+    tree = steps[0]
+    reused = store_reuse.restore_checkpoint(ctx, tree, build.fingerprint(tree, {}), index, echo=messages.append)
+    assert reused[0] == key and 'restored from checkpoint' in messages[-1]
+    assert (ctx.out / 'tree/asset.bin').read_bytes() == b'tree' and not (ctx.out / 'tree/extra.bin').exists()
+    assert not (ctx.out / 'house').exists()
+    assert store_reuse.restore_checkpoint(ctx, tree, '0' * 64, index, echo=messages.append) is None
+
+
+def test_hydration_never_touches_outputs_of_current_local_stamps(fixture, monkeypatch):
+    _, _, key = snapshot(fixture)
+    ctx, steps = fixture.checkout('receiver')
+    fixture.produce(ctx, steps)
+    for step in steps:  # Same names, different metadata: exactly the build-8 clobbering case.
+        os.utime(step.outputs[0], ns=(1, 1))
+    before = {s.name: s.outputs[0].stat().st_ino for s in steps}
+    hydrate_in_process(monkeypatch, fixture)
+    build_checkpoints.hydrate(ctx, steps, fixture.store, echo=lambda _: None)
+    assert {s.name: s.outputs[0].stat().st_ino for s in steps} == before
+    assert set(cp.certificates(ctx, steps)) == {'tree', 'combat', 'house'}

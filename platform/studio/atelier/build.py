@@ -862,9 +862,8 @@ def run_argv(ctx, step, command, argv, env, log, request, slots, *, pass_fds=())
                                    f'its report now sends it to the big slot, run it again')
     else:
         from atelier.harness.safety.process import policy_command
-        result = subprocess.run(policy_command(argv), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
-                                text=True, errors='ignore', **({'pass_fds': pass_fds, 'stdin': subprocess.DEVNULL} if pass_fds else {}))
-        code, text = result.returncode, result.stdout
+        code, text = run_light(policy_command(argv), env,
+                               {'pass_fds': pass_fds, 'stdin': subprocess.DEVNULL} if pass_fds else {})
         log.write(text)
     if code:
         if step.heavy and cook is not None:
@@ -932,9 +931,12 @@ def build(game, wanted=(), force=False, dry=False, touch=False, echo=print, veri
     ctx = Context(game, **({'cook_mode': cook_mode, 'cook_reason': cook_reason} if cook_mode is not None else {}),
                   **({'recover_cook': recover_cook} if recover_cook is not None else {}),
                   **({'cook_memory_gib': cook_memory_gib} if cook_memory_gib is not None else {}))
-    return _prepared_build(ctx, wanted, force=force, touch=touch, echo=echo, verify=verify,
-                           rebuild_reason=rebuild_reason, rebuild_touched=rebuild_touched,
-                           record_cook_recovery=record_cook_recovery, max_heavy_commands=max_heavy_commands)
+    # TERM/HUP unwind the build, so running children are stopped and completed results stay published.
+    from atelier.harness.safety.cancellation import termination_cleanup
+    with termination_cleanup():
+        return _prepared_build(ctx, wanted, force=force, touch=touch, echo=echo, verify=verify,
+                               rebuild_reason=rebuild_reason, rebuild_touched=rebuild_touched,
+                               record_cook_recovery=record_cook_recovery, max_heavy_commands=max_heavy_commands)
 
 
 def _prepared_build(ctx, wanted, *, force, touch, echo, verify, rebuild_reason, rebuild_touched,
@@ -976,6 +978,35 @@ def _prepared_build(ctx, wanted, *, force, touch, echo, verify, rebuild_reason, 
                           steps=checkpoint_steps, max_heavy_commands=max_heavy_commands)
 
 
+def run_light(argv, env, extra):
+    """@cc [owner:fontanierh,label:safety] light-command-process-group
+    A light command MUST run in its own process group, and any interruption of the build,
+    including TERM/HUP unwinding, MUST terminate that whole group before propagating.
+    """
+    process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True,
+                               errors='ignore', start_new_session=True, **extra)
+    try:
+        text, _ = process.communicate()
+    except BaseException:
+        stop_group(process)
+        raise
+    return process.returncode, text
+
+
+def stop_group(process):
+    import signal
+    for number, wait in ((signal.SIGTERM, 5.), (signal.SIGKILL, 2.)):
+        try:
+            os.killpg(process.pid, number)
+        except (ProcessLookupError, PermissionError):
+            return
+        try:
+            process.wait(wait)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
 def touched_targets(ctx, steps, wanted):
     if not getattr(ctx, 'rebuild_touched', False):
         return set()
@@ -988,6 +1019,7 @@ def touched_targets(ctx, steps, wanted):
 def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None, max_heavy_commands=None):
     from .build_cook import validate_force
     validate_force(ctx, force)
+    ctx.build_hash_index = index  # Publication reuses the digests this build already computed.
     checkpoint = {}
     completed = False
     try:
@@ -1001,6 +1033,10 @@ def _build(ctx, wanted, *, force, touch, echo, index, steps=None, produced=None,
         if completed and checkpoint.get('steps') is not None:
             from .checkpoint_manifest import finish
             finish(ctx, checkpoint['steps'])
+    if completed and getattr(ctx, 'checkpoint_settings', None) is not None:
+        from . import store_retention
+        from .checkpoint_store import Store
+        store_retention.maybe_collect(Store(ctx.game), echo=echo)
     if invalid:
         echo('FAILED: products changed after their owner completed: ' + ', '.join(invalid))
         return 1
@@ -1093,7 +1129,7 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
     if actions is not None:
         from .checkpoint_actions import validate_ownership
         validate_ownership(ctx, steps)
-    done, ran, restored = {}, 0, 0
+    done, ran, restored, saved_seconds = {}, 0, 0, 0.
     heavy_commands = 0
     def budget_spent():
         return max_heavy_commands is not None and heavy_commands >= max_heavy_commands
@@ -1146,6 +1182,26 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
             from .build_batch_migration import migrate as migrate_batch
             previous = migrate_batch(ctx, step, current, input_state, previous, done, echo=echo)
         ctx.__dict__.setdefault('native_previous_stamps', {})[step.name] = previous
+        adopted = None
+        if actions is not None and not force and previous.get('fingerprint') != current:
+            # A hydrated checkpoint certificate counts only for the build's own fingerprint.
+            from .build_checkpoints import staged_certificate
+            staged = staged_certificate(ctx, step, current)
+            from .checkpoint_store import hashing
+            with hashing(ctx, index.digest):  # Hydrated clones were recorded in this index.
+                adoptable = (staged is not None and outputs_present(step) and task_cache.compile_present(ctx, step)
+                             and task_cache.certified(ctx, step, current, staged[1]))
+            if adoptable:
+                adopted, previous = 'checkpoint ' + str(staged[0])[:12], staged[1]
+            elif (step.heavy or step.products) and task_cache.key(ctx, step, current) is not None and \
+                    task_cache.load(actions.store, task_cache.key(ctx, step, current)) is None:
+                # Without a saved action, any retained store checkpoint certifying this fingerprint serves.
+                from . import store_reuse
+                if not hasattr(ctx, 'store_catalogue'):
+                    ctx.store_catalogue = store_reuse.Catalogue(ctx.game)
+                reused = store_reuse.restore_checkpoint(ctx, step, current, ctx.store_catalogue, echo=echo)
+                if reused is not None:
+                    adopted, previous = 'checkpoint ' + reused[0][:12], reused[1]
         outputs_ok = outputs_present(step) and task_cache.compile_present(ctx, step)
         if actions is not None:
             outputs_ok = outputs_ok and (task_cache.certified(ctx, step, current, previous)
@@ -1172,6 +1228,12 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
             return 1
         rebuilding_touched = step.name in rebuild_names and previous.get('touched')
         if not recovering and not force_step and not rebuilding_touched and previous.get('fingerprint') == current and outputs_ok:
+            if adopted is not None:
+                stamp.write_text(json.dumps(previous) + '\n')
+                from .build_checkpoints import estimate
+                restored += 1
+                saved_seconds += estimate(previous) or 0.
+                echo(f'{print_} certificate adopted from {adopted}')
             done[step.name] = result(step, current, previous)
             build_products.feed_results(done, previous.get('products', {}))
             if actions is not None and saved_action is None and task_cache.certified(ctx, step, current, previous):
@@ -1290,7 +1352,7 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
             return 1
         if action_hit is not None:
             actions.restore(step, current, action_hit, done)
-            products = build_products.records(step)
+            products = build_products.records(step, hasher=index.digest)
             restore_source = "checkpoint"
         if products is None and store is not None and not force_step:
             try:
@@ -1317,7 +1379,7 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
             action_hit = actions.get(step, current)
             if action_hit is not None:
                 actions.restore(step, current, action_hit, done)
-                products = build_products.records(step)
+                products = build_products.records(step, hasher=index.digest)
                 restore_source = 'checkpoint'
         from_cache = products is not None
         if not from_cache and step.heavy and any(not isinstance(c, Call) for c in step.commands) and budget_spent():
@@ -1462,10 +1524,13 @@ def _execute_build(ctx, wanted, *, force, touch, echo, index, steps, produced, c
             retain_record(ctx, step, record, store=actions.store)
         restored += int(from_cache)
         ran += int(not from_cache)
+        if from_cache:
+            saved_seconds += record.get('checkpoint_build_seconds') or 0.
         if produced is not None and not from_cache:
             produced.append((step.name, record))
         echo(f'{print_} {"restored" if from_cache else "done"} in {seconds:.1f} s{slot_summary(slots)}')
-    echo(f'{len(plan)} steps, {ran} ran, {restored} restored, {time.monotonic() - started:.0f} s')
+    echo(f'{len(plan)} steps, {ran} ran, {restored} restored, {len(plan) - ran - restored} up to date, '
+         f'~{saved_seconds:.0f} s of building saved by reuse, {time.monotonic() - started:.0f} s')
     return 0
 
 
