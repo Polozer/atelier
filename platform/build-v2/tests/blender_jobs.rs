@@ -53,6 +53,45 @@ fn blender_job_loop_command_keeps_explicit_threads_before_the_script() {
 }
 
 #[test]
+fn a_loop_command_converts_to_the_guarded_launcher_command_field_for_field() {
+    use atelier_build_v2::guard_adapter;
+    use std::ffi::OsString;
+    let mut command = WorkerCommand::blender_job_loop(
+        PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender"),
+        PathBuf::from("/checkout/build_v2/blender_worker.py"),
+    )
+    .unwrap();
+    command.env.insert("PATH_EXTRA".into(), "a b=c".into());
+    command.cwd = PathBuf::from("/private/var/empty");
+    let guarded = guard_adapter::WorkerCommand::from(command.clone());
+    assert_eq!(guarded.program, command.program);
+    assert_eq!(
+        guarded.args,
+        command.args.iter().map(OsString::from).collect::<Vec<_>>(),
+        "every argument, in order"
+    );
+    let position = |arg: &str| guarded.args.iter().position(|a| a == arg).unwrap();
+    assert!(position("--threads") < position("-P"));
+    assert_eq!(guarded.args.last().unwrap(), "--");
+    assert_eq!(
+        guarded.env, command.env,
+        "the complete environment, nothing added"
+    );
+    assert_eq!(guarded.cwd, PathBuf::from("/private/var/empty"));
+    let python = WorkerCommand::python_job_loop(
+        PathBuf::from("/usr/bin/python3"),
+        PathBuf::from("/checkout/build_v2/python_worker.py"),
+    )
+    .unwrap();
+    let guarded = guard_adapter::WorkerCommand::from(python.clone());
+    assert_eq!(guarded.args, ["-I", "/checkout/build_v2/python_worker.py"]);
+    assert_eq!(
+        (guarded.program, guarded.env, guarded.cwd),
+        (python.program, python.env, python.cwd)
+    );
+}
+
+#[test]
 fn job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it() {
     use std::os::unix::ffi::OsStringExt;
     let script = PathBuf::from(std::ffi::OsString::from_vec(

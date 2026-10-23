@@ -213,8 +213,11 @@ Native Blender reads of an existing undeclared path and any other network use MU
 source stays refused; only module objects loaded by Blender's own startup are exempt from the
 undeclared-module check. The production entry MUST have no unsandboxed
 mode, and the test-only entry MUST announce a distinct worker version. The Python and Blender loop
-commands MUST refuse a non-UTF-8 script path rather than alter it. Installed Blender and its
+commands MUST refuse a non-UTF-8 script path rather than alter it, and MUST convert to the guarded
+launcher's command with the program, every argument in order, the environment and the working
+folder unchanged. Installed Blender and its
 bundled add-ons are platform, not key ingredients. The same limitations and scope as the Python job
 isolation contract apply, including native probes of missing paths. See
 platform/studio/tests/test_build_v2_blender_worker.py and tests/blender_jobs.rs, including
-job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it.
+job_loop_commands_refuse_a_non_utf8_script_path_instead_of_replacing_it and
+a_loop_command_converts_to_the_guarded_launcher_command_field_for_field.

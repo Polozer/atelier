@@ -93,6 +93,21 @@ impl WorkerCommand {
 /// Version the Blender job loop announces in `hello`.
 pub const BLENDER_JOB_LOOP_VERSION: &str = "atelier-blender-job-1";
 
+/// The same invocation for the guarded launcher (C7), field for field: program, arguments in
+/// order, the complete environment and the working folder. Both launchers append only the two
+/// protocol descriptor flags. Arguments here are always UTF-8 (the loop constructors refuse
+/// anything else), so the conversion cannot fail.
+impl From<WorkerCommand> for crate::guard_adapter::WorkerCommand {
+    fn from(command: WorkerCommand) -> Self {
+        Self {
+            program: command.program,
+            args: command.args.into_iter().map(Into::into).collect(),
+            env: command.env,
+            cwd: command.cwd,
+        }
+    }
+}
+
 /// The controller's ends of a worker's protocol pipe.
 pub struct WorkerPipes {
     pub requests: PipeWriter,
