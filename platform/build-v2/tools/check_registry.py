@@ -222,6 +222,10 @@ def check_registry(registry: dict, listing: dict, *,
                   for tier, tests in expected.items()},
     }
     for tier, filtered in tier_listings.items():
+        filtered_platform = _host_platform(filtered)
+        if filtered_platform != plan['platform']:
+            raise ValueError(f'{tier} listing host {filtered_platform} does not match the '
+                             f'collection host {plan["platform"]}')
         matched = set()
         for identity, case in _iter_cases(filtered):
             if case['filter-match']['status'] != 'matches':

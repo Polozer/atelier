@@ -203,6 +203,12 @@ def test_an_omitted_tier_listing_test_fails():
         check_registry(registry, listing, tier_listings={'t0': listing_of('fixture/test')})
 
 
+def test_a_tier_listing_from_another_host_is_refused():
+    registry, listing, _ = evidence()
+    with pytest.raises(ValueError, match='listing host darwin does not match the collection host linux'):
+        check_registry(registry, listing, tier_listings={'t0': listing_of('fixture/test', triple=DARWIN)})
+
+
 def test_overlapping_tier_assignment_is_refused():
     registry, listing, _ = evidence()
     registry['scenarios'].append({'id': 'two', 'tests': ['fixture/test'], 'tier': 't1a'})
