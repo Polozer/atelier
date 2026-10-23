@@ -66,7 +66,15 @@ fn fixture(project: &str, version: &str) -> (BuildGraph, PreparedUnit) {
     fixture_named(project, version, "/Game/Shared")
 }
 fn fixture_named(project: &str, version: &str, logical: &str) -> (BuildGraph, PreparedUnit) {
-    let declaration = Declaration {
+    fixture_mixed(project, version, logical, false)
+}
+fn fixture_mixed(
+    project: &str,
+    version: &str,
+    logical: &str,
+    mixed: bool,
+) -> (BuildGraph, PreparedUnit) {
+    let mut declaration = Declaration {
         schema_version: SCHEMA_VERSION,
         cache_version: version.into(),
         units: vec![Unit {
@@ -101,6 +109,19 @@ fn fixture_named(project: &str, version: &str, logical: &str) -> (BuildGraph, Pr
             }],
         }],
     };
+    if mixed {
+        declaration.units[0].outputs.push(Item {
+            id: "sibling".into(),
+            logical_path: "/Data/sibling".into(),
+            class: "Blob".into(),
+            destination: Destination::Store,
+            files: vec![OutputFile {
+                path: "output/sibling.bin".into(),
+                install_path: None,
+                required: true,
+            }],
+        });
+    }
     let registry = BTreeMap::from([(
         ("blob".into(), "1".into()),
         OpDefinition {
@@ -227,6 +248,16 @@ fn publish(
         let path = workspace.path(&format!("side-{serial}"));
         fs::write(&path, side).unwrap();
         sources.insert(("mesh".into(), "output/extra.bin".into()), path);
+    }
+    if unit
+        .ingredients()
+        .logical_outputs
+        .iter()
+        .any(|item| item.id == "sibling")
+    {
+        let sibling = workspace.path("store-sibling");
+        fs::write(&sibling, b"store-only sibling").unwrap();
+        sources.insert(("sibling".into(), "output/sibling.bin".into()), sibling);
     }
     let identity = identity();
     ResultStore::open(workspace.path("cache"))
@@ -1358,7 +1389,7 @@ fn current_sources_pin_without_cache_and_clone_only_certified_unchanged_items() 
         .join("../studio/atelier/build_v2/python_worker.py")
         .canonicalize()
         .unwrap();
-    let command = atelier_build_v2::launch::WorkerCommand::python_job_loop(python, script);
+    let command = atelier_build_v2::launch::WorkerCommand::python_job_loop(python, script).unwrap();
     let outcome = atelier_build_v2::launch::run_staged(
         &atelier_build_v2::launch::DirectChild,
         &command,
@@ -1475,11 +1506,25 @@ fn freeze_local(
     assert!(!work.lease().rooted);
     let source = workspace.path("local-source");
     fs::write(&source, bytes).unwrap();
+    let mut actual = vec![ActualOutput {
+        path: "output/main.bin".into(),
+        source,
+    }];
+    if unit
+        .ingredients()
+        .logical_outputs
+        .iter()
+        .any(|item| item.id == "sibling")
+    {
+        let sibling = workspace.path("local-sibling");
+        fs::write(&sibling, b"store-only sibling").unwrap();
+        actual.push(ActualOutput {
+            path: "output/sibling.bin".into(),
+            source: sibling,
+        });
+    }
     work.freeze(
-        vec![ActualOutput {
-            path: "output/main.bin".into(),
-            source,
-        }],
+        actual,
         |outputs| {
             use std::io::Read;
             let mut actual = vec![];
@@ -1511,7 +1556,7 @@ fn local_valid_completion_installs_without_cache_and_preserves_frozen_bytes_afte
     )
     .unwrap();
     let guard = reader.locks().try_build_exclusive().unwrap();
-    let (graph, unit) = fixture("first", "1");
+    let (graph, unit) = fixture_mixed("first", "1", "/Game/Shared", true);
     let mut completion = freeze_local(&reader, &guard, &unit, &workspace, b"validated local bytes");
     let lease = completion.lease().clone();
     assert!(!workspace.path("cache").exists());
@@ -1549,6 +1594,46 @@ fn local_valid_completion_installs_without_cache_and_preserves_frozen_bytes_afte
         reader.receipt_status(&guard, &unit).unwrap(),
         CurrentStatus::Current(_)
     ));
+    assert_eq!(
+        plan.local_completion().unwrap().result().result.key,
+        unit.key()
+    );
+    assert!(plan.cached_sources().is_none());
+    let frozen = plan.local_completion().unwrap();
+    let sibling = frozen
+        .result()
+        .result
+        .outputs
+        .iter()
+        .find(|item| item.item.id == "sibling")
+        .unwrap();
+    let selected = PreparedInput {
+        wire: atelier_build_v2::protocol::StagedInput {
+            name: "sibling".into(),
+            path: "inputs/sibling".into(),
+            identity: ContentIdentity::Digest {
+                digest: "a".repeat(64),
+            },
+        },
+        payload: InputPayload::Item {
+            logical_path: sibling.item.logical_path.clone(),
+            class: sibling.item.class.clone(),
+            files: sibling.files.clone(),
+        },
+    };
+    let provider = frozen.objects_for(&[&selected]).unwrap();
+    use atelier_build_v2::staging::ObjectSource;
+    provider
+        .clone_object(
+            &atelier_build_v2::store::ObjectDigest::from_hex(&sibling.files[0].digest).unwrap(),
+            &workspace.path("local-consumer-sibling"),
+        )
+        .unwrap();
+    assert_eq!(
+        fs::read(workspace.path("local-consumer-sibling")).unwrap(),
+        b"store-only sibling"
+    );
+    assert!(plan.commit(&guard, |_| Ok(())).is_err());
     let scope = workspace
         .path("build/build-v2/install/completions")
         .join(&lease.staging);
@@ -1748,4 +1833,99 @@ fn corrupt_cached_metadata_is_not_cached_and_does_not_invalidate_frozen_local_wo
         installer.receipt_status(&guard, &unit).unwrap(),
         CurrentStatus::Current(_)
     ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn retained_restore_sources_survive_settlement_until_explicit_release() {
+    use atelier_build_v2::{staging::ObjectSource, store::ObjectDigest};
+    let workspace = Workspace::new();
+    let installer = workspace.installer("first");
+    let guard = installer.locks().try_build_exclusive().unwrap();
+    let (graph, unit) = fixture_mixed("first", "1", "/Game/Shared", true);
+    publish(&workspace, &unit, b"cached source", None, 0o644);
+    let mut plan = installer
+        .prepare_restore(&guard, &unit, identity(), &view("first", &graph), vec![])
+        .unwrap()
+        .unwrap();
+    let digest = ObjectDigest::from_hex(
+        &plan
+            .result()
+            .result
+            .outputs
+            .iter()
+            .find(|item| item.item.id == "sibling")
+            .unwrap()
+            .files[0]
+            .digest,
+    )
+    .unwrap();
+    assert!(matches!(
+        plan.commit_with_sources(&guard, |_| Err("root pending".into()))
+            .unwrap(),
+        InstallOutcome::InstalledWithRootPending(_)
+    ));
+    let store = ResultStore::open(workspace.path("cache")).unwrap();
+    assert!(
+        store
+            .leases()
+            .lock()
+            .unwrap()
+            .leases()
+            .unwrap()
+            .iter()
+            .any(|lease| !lease.rooted && lease.object_digests.contains(digest.as_hex()))
+    );
+    assert!(plan.local_completion().is_none());
+    plan.cached_sources()
+        .unwrap()
+        .clone_object(&digest, &workspace.path("consumer-source"))
+        .unwrap();
+    assert!(
+        plan.finish_sources(|_| Err("still pending".into()))
+            .is_err()
+    );
+    assert!(plan.cached_sources().is_some());
+    plan.finish_sources(|_| Ok(())).unwrap();
+    assert!(plan.cached_sources().is_none());
+    assert_eq!(
+        fs::read(workspace.path("consumer-source")).unwrap(),
+        b"store-only sibling"
+    );
+    assert!(matches!(
+        installer.receipt_status(&guard, &unit).unwrap(),
+        CurrentStatus::Current(_)
+    ));
+    // No downstream consumer: explicit finish still deterministically releases claims.
+    let mut plan = installer
+        .prepare_restore(&guard, &unit, identity(), &view("first", &graph), vec![])
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        plan.commit_with_sources(&guard, |_| Ok(())).unwrap(),
+        InstallOutcome::Installed
+    ));
+    assert!(
+        store
+            .leases()
+            .lock()
+            .unwrap()
+            .leases()
+            .unwrap()
+            .iter()
+            .any(|lease| !lease.rooted && lease.object_digests.contains(digest.as_hex()))
+    );
+    plan.finish_sources(|_| panic!("successful root must not be repeated"))
+        .unwrap();
+    assert!(plan.cached_sources().is_none());
+    assert!(
+        !store
+            .leases()
+            .lock()
+            .unwrap()
+            .leases()
+            .unwrap()
+            .iter()
+            .any(|lease| !lease.rooted && lease.object_digests.contains(digest.as_hex()))
+    );
 }

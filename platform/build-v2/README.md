@@ -9,6 +9,8 @@ not game cache identities.
 - `schema`: `Declaration`, `Unit`, `Input`, `Item`, `ResultRecord`, `IdentityIngredients`.
 - `protocol`: `JobRequest`, `Request`, `Response`, `read_frame`, `write_frame`.
 - `fixture`: `Worker`, `MockWorker`, `MockStep`, `FixtureFile`.
+- `explain`: observational `Recorder`, compact ingredient differences and per-unit `BuildSummary`;
+  see [summary semantics](../../docs/build-v2/EXPLAIN.md). CLI wiring remains I2.
 
 [examples/units.toml](examples/units.toml) is a complete parseable declaration. Code lists are explicit,
 project-relative and include the entry script. Loading undeclared project code will be refused by the
@@ -47,23 +49,35 @@ Local compile/tests must use the standalone compile admission described in
 Run from this crate directory so `.cargo/config.toml` places generated files in `build/build-v2/`:
 `cargo test --locked`. Compilation time and test execution time are reported separately.
 
-## T0 CI (A1)
+## Host CI tiers (A1, H5b)
 
-Every PR runs the `Rust / T0` hosted job. It compiles the current crate with three workers, then runs
-pinned cargo-nextest 0.9.149 with profile `ci`: a ten-second global test timeout, no retries and no
-ignored tests. Compile time is reported in its own step. The job retains collection JSON and JUnit
-execution/timing artifacts; neither a cached binary nor an empty test run can provide success.
+Every PR runs the `Rust / host tiers` hosted job. It compiles the current crate with three workers,
+then runs pinned cargo-nextest 0.9.149 twice, in two required steps of the same job: profile `ci`
+for T0 with a ten-second global test timeout, and profile `t1a` for tests that execute a real
+Python op or job with a thirty-second one. Both keep three test threads, no retries and no ignored
+tests. Compile time is reported in its own step. The job retains the full collection, each tier's
+filtered listing, both JUnit execution/timing artifacts and the derived filter plan; neither a
+cached binary nor an empty test run can provide success.
 
 `tests/registry/<task>.toml` holds one fragment per task, each with `schema_version = 1` and its
 `scenarios` and `pending` rows. The loader discovers the fragments from the explicit directory,
 merges them in filename order and refuses any other directory entry, unknown key, malformed row or
 empty fragment. Active rows map each scenario to nextest IDs (`binary-id/test-name`). The hook
 checks that collection and execution cover exactly those tests once, with no ignored, filtered,
-skipped, failing or unmapped tests. Add an active row to your task's fragment with each new T0
-scenario; use the named scenario IDs in future engine tests. Future required scenarios remain
-explicit `pending` rows in the fragment of the task that will implement them. A pending row is a
-gap, not a pass. A8/H5 will activate those rows as the engine/reference model is implemented; A1 does
-not claim the full TESTING scenario suite exists.
+skipped, failing or unmapped tests.
+
+Each active row declares `tier`: `t0` for wire, schema, key, filesystem and process-mechanism
+decisions, `t1a` for tests that execute a real Python op or job, `t1b` for real Blender and `t2`
+for real Unreal. The checker derives one nextest filter expression per host tier from that field,
+so a test that shares a binary with tests of another tier is selected by its own test ID. `t1b`
+and `t2` never run in either host step; they are reported as explicit native exclusions and never
+count as coverage. A missing or unknown tier fails the check.
+
+Add an active row to your task's fragment with each new T0 scenario; use the named scenario IDs in
+future engine tests. Future required scenarios remain explicit `pending` rows in the fragment of
+the task that will implement them. A pending row is a gap, not a pass. A8/H5 will activate those
+rows as the engine/reference model is implemented; A1 does not claim the full TESTING scenario
+suite exists.
 
 The registry checker is a read-only Python tool. Its focused tests run in ordinary Python CI:
 `uv run pytest platform/studio/tests/test_build_v2_registry.py -q`. A local nextest compile/run must
@@ -349,7 +363,8 @@ Supported Python-level checks:
   of a path), resolved against the job folder or the descriptor's real directory;
 - writes outside `output/`;
 - refused directory changes, links, process starts, sockets and named `ctypes` libraries;
-- imports limited to installed platform modules and the declared code;
+- imports limited to installed platform modules and the declared code, and new import path entries
+  (`sys.path` or package paths) that are undeclared fail when probed, present or missing;
 - fixed wall clocks (`time.time`/`time_ns`, default `localtime`/`gmtime`/`ctime`/`strftime`,
   `datetime` now/today, `clock_gettime` of realtime clocks);
 - `random` on the declared seed, including `random.seed()` and `Random()`;
@@ -359,13 +374,95 @@ Known gaps, which these checks do not intercept:
 - native extension code that probes a *missing* undeclared path through the C library (an existing
   one is still killed by the kernel), so nothing here proves undeclared absence probes cannot happen;
 - monotonic, performance-counter and CPU-time clocks, and file timestamps, which stay real;
-- random generators in native libraries that read OS entropy themselves.
+- random generators in native libraries that read OS entropy themselves;
+- deliberate tampering with the guard itself: removing the import path hook or the declared-code
+  finder is detected when the op returns, but code that removes and restores them, or restores the
+  original `os` functions, is outside this trusted-code scope.
 
 Unit code MUST NOT derive outputs from real clocks, timestamps or native entropy. Clean-room and
 determinism fixtures remain required.
 
 Other open work: Linux has no sandbox yet. The worker implementation digest, B3 installs, A6 live-edit
 revalidation and C3/C7 supervision are not here.
+
+## C2b Blender job loop
+
+`platform/studio/atelier/build_v2/blender_worker.py` is the Blender job loop. `launch::WorkerCommand::blender_job_loop`
+starts it inside the installed background Blender as
+`Blender --factory-startup -b --threads 3 --python-exit-code 1 --disable-autoexec -P blender_worker.py --`; the
+launcher appends the protocol descriptors after `--`. The thread count precedes `-P`, so capacity admission
+reads three threads rather than the full pool. The loop is the Python job loop with another platform and
+child command: the same protocol, cancel and output reporting, and its own `hello` version
+(`atelier-blender-job-1`, `launch::BLENDER_JOB_LOOP_VERSION`). One loop serves any number of jobs; it holds no
+Blender state itself.
+
+Each job runs in a fresh Blender from the same binary (`bpy.app.binary_path`), in the staged job folder:
+the loop's flags plus `--python-use-system-env`, then `--python-expr` with the bootstrap `blender_job.py`
+and the Python job bootstrap `python_job.py` as source text. The configuration arrives on stdin. The
+bootstrap resets the scene to an empty factory file (`read_factory_settings(use_empty=True)`) and runs
+the Python job bootstrap, so a Blender op is `def run(context)` with `bpy` importable and the whole
+Python job isolation above applies. The environment is the Python job's (`LC_ALL=C`, `TZ=UTC`,
+`PYTHONHASHSEED=0`, two Python I/O settings), with `--python-use-system-env` so the embedded Python
+honours it, plus `HOME` and every `BLENDER_USER_*` folder (resources, config, scripts, datafiles,
+extensions) pointed at a missing path inside the job folder. With `--factory-startup` no user
+preferences, startup file, add-ons, extensions or scripts load; only Blender's bundled add-ons are
+available. A new process per job means no scene, module or interpreter state reaches the next job.
+Two Blender-only adjustments to the Python job bootstrap, both in `blender_job.py`: `uuid.uuid4()`
+returns UUIDs drawn from the declared seed through its own generator, because the bundled glTF
+exporter keys its node tree with them (`uuid1`, `os.urandom`, `secrets` and `SystemRandom` still
+raise); and the undeclared-module check skips the module objects Blender's own startup loaded before
+the bootstrap (`__main__`, add-on and extension namespace packages, some named after the missing user
+folders), which are platform. Blender's bundled Python has no `time.clock_gettime`, so there is no
+realtime clock of that kind to fix. With `--python-use-system-env` the declared `PYTHONHASHSEED=0`
+applies: string hashes are the same in every job and process.
+
+On macOS the child runs under the Python job profile with the Blender application bundle as the
+platform: it may execute only the Blender binary (its path, links and target), read the bundle, the
+platform files of the Python profile and its job folder, and write only `output/`. Added allowances,
+each needed by Blender itself:
+- the application bundle (`Blender.app`), as a read subpath: Blender's binary, bundled Python, `bpy`
+  modules, bundled add-ons and data files;
+- `/usr/share/icu`, as a read subpath: the system ICU data Blender loads at startup;
+- `/Library/Preferences/.GlobalPreferences.plist`, as a read literal: the system-wide (not per-user)
+  CoreFoundation preferences read at startup;
+- opening the GPU's IOKit user clients (`AGXDeviceUserClient`, `IOSurfaceRootUserClient`), no file
+  access: Blender probes the Metal device during startup even in background mode and crashes
+  (SIGSEGV in its GPU backend detection) without one;
+- metadata only (no listing) of `/tmp` (`/private/tmp`) and `/Applications/Xcode.app`: Blender's
+  temp-folder probe and a system framework's developer-folder probe at startup; writes to `/tmp` stay
+  denied, so Blender runs without a temp folder;
+- reading `/dev/urandom` in the kernel profile only: the bundled Python's `os.urandom` reads it and the
+  bundled extensions add-on calls it at startup. Job code still cannot: the guard refuses
+  `os.urandom` and opening `/dev/urandom`;
+- binding a socket is refused without ending the job (a later `(deny network-bind)` replaces the
+  kill for binds only): the bundled HTTP library, imported by the extensions add-on at startup,
+  probes IPv6 support by binding a local socket. Connections and all other network use still end the
+  job, and job code cannot create sockets at all.
+
+Nothing in the home folder is readable: user preferences, `~/Library` and caches stay denied, and
+user-database, temp-folder and window-server service lookups stay denied without ending the job.
+
+The Python guard does not see Blender's native (C) file access: an existing undeclared path read
+natively (for example `bpy.data.images.load`) is stopped by the kernel sandbox and fails the job as
+`dependency`; a native probe of a *missing* undeclared path is the same documented gap as for Python
+native extensions (in the T1b session the probe used, `bpy.data.images.load` of a missing file in an
+existing undeclared folder, was still stopped by the kernel, but that is not a guarantee). Installed Blender and its bundled add-ons are platform, not key ingredients; a
+change of Blender is an explicit cache or op version change.
+
+Portable tests run the loop's test-only entry
+[tests/fixtures/unsandboxed_blender_loop.py](tests/fixtures/unsandboxed_blender_loop.py), announcing
+`atelier-blender-job-1+unsandboxed-test`, over a stand-in Blender
+([tests/fixtures/fake_blender.py](tests/fixtures/fake_blender.py)) that accepts only the job command line
+and installs a minimal `bpy`. They cover the protocol, command line, environment, order independence,
+seed and params, cancel, failures and output refusal through the result store. Blender itself, its
+exporter, the sandbox profile and native reads are proven only by the T1b session
+(the example [examples/t1b_blender_session.rs](examples/t1b_blender_session.rs), run with
+`cargo run --example t1b_blender_session` under `guarded --kind job`; an example because CI hosts have no
+Blender and the T0 registry admits no ignored tests): the production entry in the installed
+Blender, run once in one admitted session over the frozen pyramid in
+[tests/fixtures/t1b](tests/fixtures/t1b), checking equal export bytes alone, after another job and in a
+fresh loop, seed determinism, the selected payload, params and code, refusals and denials, and the
+GLB's corners, UVs and materials. The registry keeps it pending until its evidence is recorded.
 
 ## B2 fixed-result publication and leases
 
@@ -414,6 +511,67 @@ All such decisions and deletions must hold the same persistent `metadata.lock` i
 public `LeaseStore::lock()` guard; never remove that mutex file. `MetadataGuard::leases()` fails closed
 on malformed/unsupported records. B2 does not implement root selection, scope deletion, checkout
 installs, OS process probing, age-based retention or GC. Production v1 remains unchanged.
+
+## Roots, provenance and build sessions (B4)
+
+`roots::RootStore::open(store_root, project)` names one explicit project inside an existing
+trusted canonical store (a missing store root is refused) and takes the store's `metadata.lock`
+inode through its own `LeaseStore` handle. Roots live under `roots/<project>/`:
+`main.json`, `worktree/<id>.json`, `release/<sequence>.json`,
+`pin/<id>.json`, in-flight `session/<id>.jsonl` and a private `tmp/` for atomic
+writes. A root is a map from the unit's scheduling label to that unit's last result key, and each
+entry keeps the provenance of the session that wrote it; `RootRecord::provenance` describes
+only the most recent merge. Roots and provenance never enter cache identity.
+
+Beside `roots/`, the store keeps `meta/projects.json`: every initialized project with a
+creation time and a digest bound to its exact name. The first time a project is initialized,
+`open` writes that record under the metadata guard with a temporary file, fsync, rename and a
+parent-directory fsync. A registered project is never recreated: a fresh `open` after
+`roots/<project>`, all of `roots/` or the registry itself is lost is damage, so retention can
+never report a silently empty project. No production v2 store exists yet, so a store built before
+this record (with `roots/` but no registry) also reads as damage: there is no silent migration.
+
+`RootStore::begin_session(target, provenance, owner)` creates a build session whose header
+records the owner identity. `BuildSession::use_result` appends `(unit, key)` to an
+append-only journal and fsyncs it; `root_callback(unit)` is the exact
+`FnOnce(&ResultEnvelope) -> Result<(), String>` that `StagedResult::publish` and
+`WriteTransaction::retain_hit` accept, so a result is retained before B2 clears its claims.
+The caller names the unit: the winning envelope's `unit` may belong to an earlier equivalent
+producer. A session keeps every key it used, including retries and re-keys, and the commit keeps the
+last key per unit. Each call takes the store flock and fsyncs one small append; nothing rewrites the
+whole root per unit.
+
+`commit(declared)` merges a main or worktree root with the current one inside a single
+metadata-lock hold. Without a `DeclaredRoster` nothing is pruned; a roster can only be built
+from a full `validate()` result whose dependency order covers exactly the declaration's
+units, and entries outside it are dropped. A release or pin is a frozen snapshot written whole and
+never merged. Releases are identified by an explicit sequence; an existing sequence with different
+entries is a conflict, an identical retry keeps the first record, a sequence below the retained
+window is refused before anything is written, and only the three greatest sequences survive. Pins
+are never trimmed. `snapshot` freezes an existing root into a release or pin.
+
+A torn, unterminated or otherwise invalid journal record makes `commit` fail and leaves both
+the previous root and the journal untouched. A failed append truncates back to its previous length,
+so it cannot leave a torn tail. `commit_observed` exposes the same boundaries as B2's
+publication steps for fault tests, after the lock. Temporary files live in `tmp/` and are
+swept by the next lock holder, so a crash between write and rename never damages the listing.
+
+`retention()` counts every key named by any readable root or session and reports unreadable
+records instead of guessing: B5 must retain when that list is not empty.
+`retention_locked(guard)` and `roots_locked(guard)` read under a caller-held guard, so
+GC reads retention, leases and decides deletions under one lock hold; a missing metadata directory is
+damage, not an empty view. `sessions()` lists session headers and
+`release_dead_session(id, probe, custodians, cleanup)` removes a journal only when its owner is
+positively dead and, if the owner is a registered custodian, C5c's cleanup is confirmed.
+
+`may_reclaim(lease, probe, custodians, cleanup)` is the only public reclaim decision. Every
+owner and worker identity must be positively dead, and a dead registered session custodian keeps the
+lease retained as unknown liveness until C5c's cleanup record is durably confirmed. An unreadable
+correlation or cleanup record also retains, and a dead monitor process alone never proves cleanup.
+The custodian registry and confirmation are traits (`SessionCustodians`,
+`CustodianCleanup`) until C5c lands its durable store. B4 deletes root records and its own
+journals only; result records, objects and leases are untouched, and no root is removed because a
+checkout directory disappeared.
 
 ## Bounded groups and typed child expansion (A4b)
 
@@ -662,6 +820,16 @@ executor owns admission, sessions, retry, deadlines and cleanup. This slice reso
 identity closure before target lookup; it does not claim target-first cold discovery
 or activate production v1.
 
+Selected downstream source custody: `WriteTransaction::pin_recorded_items` checks/pins only requested
+fixed item IDs from its same-store `RecordedIdentities`. `pinned_objects` exposes existing claims;
+both return borrowed clone-only providers. `retain_recorded` roots checked metadata and releases its
+read ticket without requiring payload availability or claiming Stored. Cached checkout plans may
+opt into `commit_with_sources`, borrow `cached_sources` through downstream staging, then call
+`finish_sources` (also when no consumer stages). Root success leaves these source claims active until
+that explicit finish; failed finish/drop retains claims conservatively. Ordinary commit releases as
+before. A committed local plan retains `local_completion` for frozen store-only siblings, without
+opening CAS or converting Current into Stored. These accessors remain unused by production v1.
+
 ## Plain-Python data op (D1)
 
 `py_data::PyDataSpec` converts unit-family input slot, output class and parameter schemas into a
@@ -680,3 +848,143 @@ frozen bytes, and dispatches payload format validation strictly on the declared 
 (`JsonData` semantic UTF-8 JSON object/array with finite numbers and no duplicate keys,
 `RouteData` finite waypoints and monotone distances, `RuntimeData` `ATD1\x01` binary tables,
 and non-empty `Data`).
+
+## Static Python backend checkpoint (A9b1, unused)
+
+`python_backend` implements the existing static scheduler's authority, conditional input staging,
+and per-unit frozen publication/local installation using B2/B3/B7 and the D1 validator. Internal
+Recorded identity, short-lived Current observation and explicit Stored/Checkout requirements stay
+separate. `finish` ends retained source custody after all consumers have staged. Explicit named source
+capture supplies complete descriptor observations; later live-edit acceptance remains A6 work.
+
+`python_worker` binds exactly the frozen worker, job bootstrap and protocol files into its implementation
+identity, then materializes those same files read-only under each unit's local lease. Installed Python
+and dependencies remain platform context. `python_executor` uses C5b's existing lifecycle and refuses
+production dispatch until actual custodian registration is available; its scripted-bridge constructor
+exists only in test builds. Scripted admission cannot prove real guarded batching or cleanup custody.
+
+This unused checkpoint includes real sandbox/I/O T1a cases and independent-harness integration.
+Dynamic cold targets, conditional regeneration of unavailable recorded payloads,
+cross-process retirement, A6 fencing, resident guarded batching and I1 caller activation remain pending.
+
+## Cleanup policy facts (B5 first slice)
+
+`cleanup::plan_catalog` analyzes caller-supplied metadata facts without filesystem access or a
+mutation API. It validates every supplied reference, accounts for shared CAS payload bytes once,
+protects roots/lease sets/recent or unknown observations and their producer closure, and proposes
+oldest currently eligible result removals. A producer stays while a remaining consumer refers to
+it. Cyclic closure is conservatively retained; missing producer metadata refuses a plan. Missing
+payloads are reported as missing, without inventing availability or byte counts.
+
+Age is a durable use/grace observation's conservative upper bound; payload mtime and production
+provenance are not last use. Unknown and future observations retain. A single absolute deadline
+covers all fact validation/planning and returns no partial plan on expiry. The explicit byte target
+is a logical unique CAS budget; physical APFS space freed is unmeasured. Unresolved pre-publication
+lease keys conservatively fence proposals, rather than being guessed to have no upstreams.
+
+This pure plan is diagnostic, not filesystem snapshot/deletion authority. Raw metadata acquisition,
+B4/B4b usage retention, the sole `roots::may_reclaim` adapter, same-store custody, actual unlink/fault
+handling, the restore/GC race, CLI wiring and physical free-space proof remain separate. No shared
+store cleanup or production activation is added. All nine registered pure cases remain T0; the
+pending `t0.restore-gc-race` row is retained.
+
+## Unreal worker (C3)
+
+`unreal::UnrealContext` declares what one Unreal session loads: the engine root and BuildId, the
+editor compile (`Binaries`: a produced folder and its `tree_identity`), the project modules, the
+declared engine plugins (each with the `tree_identity` of its installed descriptor and `Binaries`;
+default-enabled engine plugins are bound only by the BuildId), the project plugins (the editor-only
+`AtelierBuildWorker` plugin is required)
+and the declared `-ini:`/`-ForceDPCVars=` settings. `identity()` drops every location, and
+`profile()` (`unreal-<sha256>`) is the scheduler's `Compatibility.profile`. The profile only groups
+sessions: semantic ini, CVars and module bytes still enter each unit's key.
+
+**DDC.** `UnrealDdc::open(store, build_id)` gives the context its derived-data cache folder,
+`<store root>/unreal-ddc/<engine BuildId>`. The v2 store owns it. It outlives jobs and sessions, and
+nothing cleans it per job. It is rebuildable acceleration only: no reuse, key or receipt decision
+reads it, and store GC may drop it whole. Every session passes `-nowrite -NoZenAutoLaunch` and
+`-DDC=(InstalledEnginePak,V2Local=(Type=FileSystem,Path=<folder>))`. Those flags, the graph and the
+folder are in the profile, so changing any of them gives a new session. Before `hello` the worker
+reads the editor's effective cache graph from the plugin and records it in `unreal-context.json`.
+It refuses the session if the graph holds anything else:
+- a Zen, shared, remote or unknown store;
+- a file-system node outside the folder;
+- a pak other than the installed engine pak.
+
+It also refuses if no node is inside the folder. The controller checks the recorded graph again.
+The graph cannot show a pak opened for writing, so the receipt stamps the installed engine pak and
+`verify()` refuses any change to its size or modification time. That stamp is not a content hash and
+does not prove the pak stayed read-only (a named gap). The T2 probe timings came from tiny inputs and are not
+representative; real assets are measured after C3.
+
+**Frozen worker.** `UnrealWorkerBundle::read(dir)` freezes the bytes of `unreal_worker.py` and the
+`protocol.py` it loads when the context is declared. Each session writes them read-only to
+`<session>/worker/`, and the editor runs that copy, so a later source edit never reaches a session.
+`digest()` is their content identity. It is in the profile and exposed for the future D4/A9 item/op
+key binder, which must also hash the compiled project module and plugin outputs and the semantic
+settings, never the installed BuildId, editor or engine-plugin bytes, or DDC paths. The worker
+reports the digest of the files it actually loaded before `hello`.
+
+`ScratchProject::prepare(session, ctx)` builds `<session>/project/Atelier.uproject` with empty
+`Content`, `Config`, `Saved` and `Intermediate`, and a session `user/` folder. It APFS-clones only the
+editor binaries and each plugin's descriptor and `Binaries`, checks them against the declared
+identities, writes `scratch-receipt.json` and `Atelier/expected-context.json`, and makes the clones
+read-only. A module the editor wants to rebuild therefore fails closed. `verify()` rechecks the
+receipt after the session. Off macOS, `prepare` refuses with "requires macOS".
+
+`job_loop_command` runs `UnrealEditor-Cmd` on the scratch project with
+`-run=pythonscript -script=platform/studio/atelier/build_v2/unreal_worker.py`, fixed unattended
+flags, `-NullRHI`, `-nocrashreports`, `-UserDir=<session>/user`, the DDC flags and graph, and the
+declared settings. The launcher appends the
+protocol descriptors. Once per session, before `hello`, the worker:
+- recomputes each declared engine plugin's identity from the folder the editor loaded it from;
+- reads every declared setting back from the editor: a missing value never matches, ini values
+  compare as exact text and CVars as exact text or the same finite decimal, and each raw readback
+  is kept in `settings_read`;
+- writes `<session>/unreal-context.json` (what the editor loaded and holds).
+
+The controller reads that file with `verify_context_report()` before the first `Run`.
+Each job then:
+- gets an empty `/Game` with its input packages copied in read-only;
+- must save exactly its declared packages, which move to `output/content/Game/`. Each collected
+  file must hold the bytes its last save wrote, and every required output must exist. The plugin
+  hashes the files a save wrote (its target, and each companion it created or replaced) with SHA1
+  after flushing its writes; that hash is integrity only, never a key. A file already there that the
+  save left alone fails the job. Each file keeps its latest attestation and the package that saved
+  it: a file saved by two packages, or attested by another package's save, fails the job.
+  A file written straight into `output/` fails the job;
+- leaves each saved file's own import table in `evidence/imports.json` (`read_import_evidence`). An
+  unreadable table fails the job.
+
+After each job the worker resets Python state, `/Game` and the asset registry. It unloads the
+touched packages with the plugin's synchronous garbage collection, in up to three passes, because an
+imported package survives its first unload. Each package is then checked with `find_object`. Every
+console variable that existed before the job must keep its value, and one registered during the job
+must still be at its default. A failed ensure fails the job. If any reset check fails, the worker
+replies, then exits.
+
+The editor-only plugin lives at `unreal/AtelierBuildWorker`, outside every folder a game or v1
+enumerates. It is cloned only into scratch and micro projects, and its compiled binaries are never
+committed. Its library is the editor surface the worker uses:
+- native context;
+- the effective DDC graph;
+- save recording with flushed file hashes;
+- each saved file's import table;
+- ini values;
+- ensure counting;
+- dirty and loaded packages;
+- the CVar snapshot;
+- synchronous GC;
+- registry forgetting;
+- diagnostic reference chains.
+
+T0 runs this end to end against `tests/fixtures/fake_unreal.py`, a stand-in editor with the same
+command line and plugin surface. Real-editor behaviour (descriptor inheritance, `-UserDir`, shader
+workers, registry forgetting and engine-wide writes) is T2 evidence. Unreal is not sandboxed.
+The engine-wide writes the T2 probes measured are named proof gaps in `build-v2-unreal-scratch-project`:
+- EditorSettings.ini (stopped by `-nowrite`);
+- the tool preset JSON;
+- `Trace.uba`;
+- Zen files and its status utility;
+- crash reports;
+- the shared filesystem DDC, which a session refused for its graph may already have written at startup.

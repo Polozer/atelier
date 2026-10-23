@@ -39,6 +39,8 @@ jobs:
 
   board:
     name: Python / board
+    # macOS deferred to final validation (owner 2026-10-23); see TASKS MAC1.
+    if: false
     # The board group starts the real board server, so this job builds the macOS-only Rust crate
     # (libproc, statfs, darwin priorities) and then runs its tests on the same runner. Every other
     # group runs on Linux.
@@ -149,8 +151,8 @@ jobs:
           retention-days: 7
 
   gate:
-    name: Studio Python / macOS
-    needs: [quality, board, tests]
+    name: Studio Python / Linux (macOS deferred)
+    needs: [quality, tests]
     # A newer commit on main cancels this run; a cancelled run is not a failure. Pull requests still
     # fail on cancellation, so a skipped gate can never stand in for a passing one.
     if: ${{ !cancelled() || github.event_name == 'pull_request' }}
@@ -159,7 +161,6 @@ jobs:
       - name: Require every job to pass
         env:
           QUALITY: ${{ needs.quality.result }}
-          BOARD: ${{ needs.board.result }}
           TESTS: ${{ needs.tests.result }}
-        run: test "$QUALITY" = success && test "$BOARD" = success && test "$TESTS" = success
+        run: test "$QUALITY" = success && test "$TESTS" = success
 

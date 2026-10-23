@@ -1323,9 +1323,9 @@ fn pin_guard_releases_claims_on_normal_error_and_panic_exits_and_crashed_lease_i
             assert!(lease.object_digests.contains(&obj_digest));
             assert!(!lease.rooted);
             // While alive or unknown, GC may not reclaim. If the owner died abruptly, GC can reclaim.
-            assert!(!lease.may_reclaim(|_| Liveness::Alive));
-            assert!(!lease.may_reclaim(|_| Liveness::Unknown));
-            assert!(lease.may_reclaim(|_| Liveness::Dead));
+            assert!(!lease.identities_all_dead(|_| Liveness::Alive));
+            assert!(!lease.identities_all_dead(|_| Liveness::Unknown));
+            assert!(lease.identities_all_dead(|_| Liveness::Dead));
             captured_mid_verify = Some(lease.clone());
             return Err(io::Error::other("injected mid-verify failure"));
         }
