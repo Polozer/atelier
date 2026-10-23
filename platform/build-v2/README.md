@@ -313,3 +313,28 @@ All such decisions and deletions must hold the same persistent `metadata.lock` i
 public `LeaseStore::lock()` guard; never remove that mutex file. `MetadataGuard::leases()` fails closed
 on malformed/unsupported records. B2 does not implement root selection, scope deletion, checkout
 installs, OS process probing, age-based retention or GC. Production v1 remains unchanged.
+
+## Bounded group metadata (A4b, isolated first slice)
+
+`groups` reads the existing D2 schema1 plan envelope and checks complete flat membership, authored
+names, encoding, budgets, payload digests and whole-collision ownership. Payload geometry stays
+opaque; a source-specific validator must inspect the same B1 frozen objects before a private
+`ValidatedGroup` can exist. `PlanRoster` alone is discovery metadata, never a format certificate.
+The retained Village_Edges plan fixture is source-format evidence, not native acceptance.
+
+A fixed `OutputGroupContract` owns an exclusive job-output-relative root, including its manifest.
+A manifest or payload cannot also be a fixed output; auxiliary query/runtime outputs remain
+explicitly outside that group or in separately declared groups. The worker output-root parameter
+is declared and keyed and must equal `output/<group.root>`. Run/protocol v1 stays unchanged: the
+controller obtains group contracts from exact prepared ingredients; Run.outputs remains its fixed
+file portion. Future C1b must report all fixed plus group output membership and reject unknown,
+aliasing or over-budget members. C1a framing alone proves none of that group behavior.
+
+Selected projections reuse one-member Item staging and bind that member's logical identity,
+path, byte digest, size and mode. A complete saved manifest can restore a token through B2's
+trusted reader with named object checks, without scanning mutable output folders. Group/roster
+changes remain separate from a selected member's content view.
+
+This first slice is unused: declaration/result/key schema additions, B2 sealed-token publication,
+child graph expansion and removal intents are not yet integrated. Existing B2 explicitly refuses
+unknown group fields. No worker, store publication, install/removal or native equivalence is claimed.

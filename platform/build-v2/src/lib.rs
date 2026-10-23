@@ -3,6 +3,7 @@
 pub mod failure_policy;
 pub mod fixture;
 pub mod graph;
+pub mod groups;
 pub mod keys;
 pub mod leases;
 mod paths;

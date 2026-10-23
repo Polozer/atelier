@@ -477,3 +477,36 @@ platforms = ["darwin"]
 id = "b2.results.concurrent_publication_and_gc_observer_share_claim_mutex_without_gap"
 tests = ["atelier-build-v2::results/concurrent_publication_and_gc_observer_share_claim_mutex_without_gap"]
 platforms = ["darwin"]
+
+[[scenarios]]
+id = "a4b.groups.retained_plan_maps_exact_flat_membership_without_geometry_reinterpretation"
+tests = ["atelier-build-v2::groups/retained_plan_maps_exact_flat_membership_without_geometry_reinterpretation"]
+
+[[scenarios]]
+id = "a4b.groups.fixed_and_group_roots_have_one_owner_under_shared_path_policy"
+tests = ["atelier-build-v2::groups/fixed_and_group_roots_have_one_owner_under_shared_path_policy"]
+
+[[scenarios]]
+id = "a4b.groups.malformed_foreign_or_incomplete_discovery_refuses"
+tests = ["atelier-build-v2::groups/malformed_foreign_or_incomplete_discovery_refuses"]
+
+[[scenarios]]
+id = "a4b.groups.missing_extra_alias_members_and_invalid_modes_refuse"
+tests = ["atelier-build-v2::groups/missing_extra_alias_members_and_invalid_modes_refuse"]
+
+[[scenarios]]
+id = "a4b.groups.declared_limits_and_payload_encoding_are_enforced"
+tests = ["atelier-build-v2::groups/declared_limits_and_payload_encoding_are_enforced"]
+
+[[scenarios]]
+id = "a4b.groups.group_root_must_match_explicit_keyed_worker_param"
+tests = ["atelier-build-v2::groups/group_root_must_match_explicit_keyed_worker_param"]
+
+[[scenarios]]
+id = "a4b.groups.source_validator_reads_the_same_frozen_objects_and_failure_issues_no_token"
+platforms = ["darwin"]
+tests = ["atelier-build-v2::groups/source_validator_reads_the_same_frozen_objects_and_failure_issues_no_token"]
+
+[[scenarios]]
+id = "a4b.groups.recorded_group_projects_only_selected_member_without_output_reads"
+tests = ["atelier-build-v2/groups::tests::recorded_group_projects_only_selected_member_without_output_reads"]
