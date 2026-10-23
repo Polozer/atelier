@@ -16,9 +16,9 @@
 //! - `s1-single`: A alone.
 //! - `s2-reuse`: B then A in one session, A only after quiescence evidence.
 //! - `s3-aba`: A, B, A again in one session; the second A gets its own prepared request.
-//! - `s4-fresh`: A, then an idle expiry, then B in a fresh session with a fresh admission and
-//!   monitor. (A real crash cannot be produced from inside the no-fork sandbox without fault
-//!   injection, so this case is a fresh session, not a crash retry.)
+//! - Crash and retry are NOT COVERED: no existing identity-bound primitive lets this controller
+//!   end the guard's worker (the adapter signals only its own bridge, and never the worker), and a
+//!   sandboxed job cannot end its loop. An idle expiry is not crash evidence, so there is no S4.
 //! - `s5-cancel`: a spinning unit cancelled while it runs.
 //! - `s6-originals`: the controller's original B3 guards are dropped right after the monitor's
 //!   registration; exclusion is then held by the custody set (the controller's session custody
@@ -51,6 +51,7 @@ use atelier_build_v2::worker_lifecycle::{
     SessionUnit, SystemClock, cleanup_confirmed, run_session_prepared, session_channel,
 };
 use serde_json::{Value, json};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::os::fd::AsRawFd;
@@ -58,7 +59,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// The admission ceiling of one session: the full job profile, as in the C5b/C7 window.
 const MEMORY_GIB: u32 = 10;
@@ -71,7 +72,7 @@ const UNIT_LIMITS: Limits = Limits {
     cleanup: Duration::from_secs(60),
     overall: Some(Duration::from_secs(300)),
 };
-/// How long an idle, open session keeps its worker; S4 waits past it.
+/// How long an idle, open session keeps its worker.
 const IDLE: Duration = Duration::from_secs(3);
 /// Quiescence evidence must arrive within this bound of a unit's terminal reply.
 const QUIESCENCE: Duration = Duration::from_secs(10);
@@ -98,7 +99,7 @@ fn op_sources() -> BTreeMap<&'static str, &'static [u8]> {
         ),
         (
             "ops/spin.py",
-            b"def run(context):\n    n = 0\n    while True:\n        n += 1\n",
+            b"def run(context):\n    context.output(context.outputs[0]).write_text('started\\n')\n    n = 0\n    while True:\n        n += 1\n",
         ),
     ])
 }
@@ -258,7 +259,6 @@ enum Wait {
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     Batch,
-    Fresh,
     Cancel,
     DropOriginals,
 }
@@ -293,12 +293,6 @@ fn cases() -> Vec<Case> {
             sessions: 1,
         },
         Case {
-            name: "s4-fresh",
-            kind: Kind::Fresh,
-            units: vec![("a", "a", done()), ("b", "b", done())],
-            sessions: 2,
-        },
-        Case {
             name: "s5-cancel",
             kind: Kind::Cancel,
             units: vec![("spin", "spin", End::Failed(Stop::Cancelled))],
@@ -321,6 +315,29 @@ struct World {
     prepared: BTreeMap<String, PreparedUnit>,
     sources: BTreeMap<&'static str, &'static [u8]>,
     started: Instant,
+}
+
+/// A registered identity and the wall time its on-disk lease verification finished.
+type Verified = (ProcessIdentity, SystemTime);
+
+/// One unit attempt's registrations, bound by `prepare` (worker) and after it (monitor).
+#[derive(Default)]
+struct BoundAttempt {
+    worker: Option<Verified>,
+    monitor: Option<Verified>,
+}
+
+/// Per unit: the worker verified but not yet bound to an attempt, the attempt `prepare` last
+/// started, and every attempt's bound registrations.
+#[derive(Default)]
+struct Bound {
+    pending_worker: Option<Verified>,
+    current: Option<u32>,
+    attempts: BTreeMap<u32, BoundAttempt>,
+}
+
+fn epoch(at: SystemTime) -> Option<f64> {
+    at.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs_f64())
 }
 
 /// The two real leases of one unit, bound before any Run.
@@ -473,6 +490,18 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
     let (registered_tx, registered_rx) = mpsc::channel::<(String, bool)>();
     let mut originals = Some((build, read));
     let mut registrations: Vec<Value> = vec![];
+    let lease_ids: BTreeMap<String, (String, String)> = leases
+        .iter()
+        .map(|(unit, leases)| {
+            (
+                unit.clone(),
+                (
+                    leases.local.lease().id.clone(),
+                    leases.cas.lease().id.clone(),
+                ),
+            )
+        })
+        .collect();
     let mut s6: Value = Value::Null;
     let mut collected: Vec<UnitRecord> = vec![];
     let deadline = world.started + SEQUENCE_DEADLINE;
@@ -480,6 +509,8 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
 
     let report = std::thread::scope(|scope| {
         let driver = scope.spawn(|| {
+            let bound: RefCell<BTreeMap<String, Bound>> = RefCell::new(BTreeMap::new());
+            let checks: RefCell<Vec<Value>> = RefCell::new(vec![]);
             let mut launcher = GuardedLauncher {
                 bridge: vec![
                     world.python.clone().into(),
@@ -564,10 +595,48 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                         );
                     }
                 }
+                // Bind this verified registration: a worker waits for its attempt's `prepare`; a
+                // monitor belongs to the attempt `prepare` last started for this unit.
+                {
+                    let verified = SystemTime::now();
+                    let mut bound = bound.borrow_mut();
+                    let entry = bound.entry(unit.clone()).or_default();
+                    if monitor {
+                        let attempt = entry
+                            .current
+                            .ok_or("a monitor registered before its unit's attempt was prepared")?;
+                        entry.attempts.entry(attempt).or_default().monitor =
+                            Some((process.clone(), verified));
+                    } else {
+                        entry.pending_worker = Some((process.clone(), verified));
+                    }
+                }
                 let _ = registered_tx.send((unit.clone(), monitor));
                 Ok(())
             };
             let mut prepare = |unit: &String, attempt: u32| -> Result<_, String> {
+                // Before this attempt's Run: its worker is durably on both leases, re-read from
+                // disk here. (Its monitor is registered only after `prepare`; its ordering is
+                // proven from the evidence below.)
+                let worker = {
+                    let mut bound = bound.borrow_mut();
+                    let entry = bound.entry(unit.clone()).or_default();
+                    let worker = entry
+                        .pending_worker
+                        .take()
+                        .ok_or("no verified worker registration before prepare")?;
+                    entry.current = Some(attempt);
+                    entry.attempts.entry(attempt).or_default().worker = Some(worker.clone());
+                    worker
+                };
+                let (local_id, cas_id) = lease_ids.get(unit).ok_or("no leases bound")?;
+                let on_disk = lease_holds(&local_leases, local_id, &worker.0)
+                    .and_then(|()| lease_holds(store.leases(), cas_id, &worker.0));
+                checks.borrow_mut().push(json!({
+                    "unit": unit, "attempt": attempt, "worker": identity_json(&worker.0),
+                    "worker_on_both_leases": on_disk.is_ok(), "error": on_disk.as_ref().err(),
+                }));
+                on_disk?;
                 let declared = declared.get(unit).ok_or("unknown unit")?;
                 let prepared = &world.prepared[*declared];
                 let folder = jobs.join(format!("{unit}-{attempt}"));
@@ -585,7 +654,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                 }
                 Ok(request)
             };
-            run_session_prepared(
+            let result = run_session_prepared(
                 &mut launcher,
                 &SystemClock::new(),
                 &spec,
@@ -593,7 +662,8 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                 &mut register,
                 &mut prepare,
                 published,
-            )
+            );
+            (result, bound.into_inner(), checks.into_inner())
         });
 
         // Feed the session as the case requires, under the enclosing deadline. A driver that
@@ -618,20 +688,6 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
             Kind::Batch | Kind::DropOriginals => {
                 for unit in units {
                     handle.submit(unit);
-                }
-                handle.close();
-            }
-            Kind::Fresh => {
-                let mut units = units.into_iter();
-                handle.submit(units.next().unwrap());
-                match wait_record(&mut collected) {
-                    Wait::Got => {
-                        // Past the idle limit: the next unit needs a fresh session.
-                        std::thread::sleep(IDLE + Duration::from_secs(2));
-                        handle.submit(units.next().unwrap());
-                    }
-                    Wait::Ended => ended = true,
-                    Wait::Deadline => deadline_hit = true,
                 }
                 handle.close();
             }
@@ -678,6 +734,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
         driver.join().expect("the session driver panicked")
     });
     drop(registered_rx);
+    let (report, bound, prepare_checks) = report;
 
     let mut evidence = json!({"case": case.name});
     if deadline_hit {
@@ -689,6 +746,7 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
             problems.push(format!("run_session failed: {error:?}"));
             evidence["problems"] = json!(problems);
             evidence["registrations"] = json!(registrations);
+            evidence["prepare_checks"] = json!(prepare_checks);
             return (false, evidence);
         }
     };
@@ -706,17 +764,22 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
                 record.outcome.end
             ));
         }
-        let settled = record
-            .attempts
-            .iter()
-            .all(|attempt| attempt.custody == Custody::Released || attempt.quiescent.is_some());
-        if !settled {
-            problems.push(format!(
-                "{unit}: published before release or quiescence evidence"
-            ));
-        }
-        if !collected.iter().any(|published| published.unit == *unit) {
-            problems.push(format!("{unit}: never published"));
+        // The record as published, not the final report: each attempt must already carry its
+        // release receipt or quiescence evidence when it was handed off.
+        let published = collected.iter().find(|published| published.unit == *unit);
+        match published {
+            None => problems.push(format!("{unit}: never published")),
+            Some(published) => {
+                let settled = published.attempts.iter().all(|attempt| {
+                    attempt.custody == Custody::Released || attempt.quiescent.is_some()
+                });
+                if !settled || published.outcome.end != *expected {
+                    problems.push(format!(
+                        "{unit}: published before release or quiescence evidence, or with \
+                         another end"
+                    ));
+                }
+            }
         }
         units_evidence.push(json!({
             "unit": unit, "end": format!("{:?}", record.outcome.end),
@@ -796,19 +859,59 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
             },
         }));
     }
-    // Before every Run: a worker and a monitor registration for every unit.
-    for (unit, _, _) in &case.units {
-        for role in ["worker", "monitor"] {
-            let found = registrations
+    // Every attempt's registrations are bound to the session that ran it, and both were verified
+    // on disk before the job's first write, which can only follow its Run.
+    let mut bindings = vec![];
+    for record in &report.units {
+        for attempt in &record.attempts {
+            let bound_attempt = bound
+                .get(&record.unit)
+                .and_then(|unit| unit.attempts.get(&attempt.attempt));
+            let worker = bound_attempt.and_then(|b| b.worker.clone());
+            let monitor = bound_attempt.and_then(|b| b.monitor.clone());
+            let session = report
+                .sessions
                 .iter()
-                .any(|entry| entry["unit"] == *unit && entry["role"] == role);
-            let ran = report
-                .units
-                .iter()
-                .any(|record| record.unit == *unit && record.outcome.attempts > 0);
-            if ran && !found {
-                problems.push(format!("{unit}: no {role} registration"));
+                .find(|session| session.attempt == attempt.session);
+            let folder = reports.join(format!("attempt-{}", attempt.session));
+            let correlation = CleanupCorrelation::read(&folder).ok();
+            let output = jobs
+                .join(format!("{}-{}", record.unit, attempt.attempt))
+                .join("output/piece.txt");
+            let first_write = fs::metadata(&output).and_then(|m| m.modified()).ok();
+            let worker_is_session = worker
+                .as_ref()
+                .zip(session.and_then(|s| s.worker.as_ref()))
+                .is_some_and(|((registered, _), ran)| registered == ran);
+            let monitor_is_session = monitor
+                .as_ref()
+                .zip(correlation.as_ref())
+                .is_some_and(|((registered, _), c)| *registered == c.monitor);
+            let before = |verified: &Option<Verified>| {
+                verified
+                    .as_ref()
+                    .zip(first_write)
+                    .is_some_and(|((_, at), written)| *at < written)
+            };
+            let ordered = before(&worker) && before(&monitor);
+            if !(worker_is_session && monitor_is_session && ordered) {
+                problems.push(format!(
+                    "{} attempt {}: registrations not bound to session {} before its Run \
+                     (worker {worker_is_session}, monitor {monitor_is_session}, ordered {ordered})",
+                    record.unit, attempt.attempt, attempt.session
+                ));
             }
+            bindings.push(json!({
+                "unit": record.unit, "attempt": attempt.attempt, "session": attempt.session,
+                "worker": worker.as_ref().map(|(w, _)| identity_json(w)),
+                "worker_verified_at": worker.as_ref().and_then(|(_, at)| epoch(*at)),
+                "monitor": monitor.as_ref().map(|(m, _)| identity_json(m)),
+                "monitor_verified_at": monitor.as_ref().and_then(|(_, at)| epoch(*at)),
+                "first_output_write_at": first_write.and_then(epoch),
+                "worker_is_session_worker": worker_is_session,
+                "monitor_is_session_monitor": monitor_is_session,
+                "both_verified_before_first_write": ordered,
+            }));
         }
     }
 
@@ -844,6 +947,8 @@ fn run_case(world: &World, case: &Case, root: &Path) -> (bool, Value) {
     evidence["units"] = json!(units_evidence);
     evidence["sessions"] = json!(sessions_evidence);
     evidence["registrations"] = json!(registrations);
+    evidence["prepare_checks"] = json!(prepare_checks);
+    evidence["attempt_bindings"] = json!(bindings);
     evidence["installer_admitted_after_settlement"] = json!(installer_after);
     evidence["lock_files"] = json!(lock_files);
     if case.kind == Kind::DropOriginals {
@@ -931,6 +1036,13 @@ fn main() -> ExitCode {
         "schema": 1,
         "certifies": "resident session reuse, Q3 retention on real leases and the B3 custody seam \
                       only; not MAC1, orphan or GC behaviour, nor the production A9 constructor",
+        "not_covered": [
+            "crash-retry: NOT COVERED (no existing identity-bound primitive may end the guard's \
+             worker from this controller, and a sandboxed job cannot end its loop); no resident \
+             retry acceptance is claimed",
+            "a real Held case",
+            "MAC1, orphan or GC behaviour, M1, the production A9 constructor",
+        ],
         "worker": {"version": worker.version, "digest": worker.digest},
         "memory_gib": MEMORY_GIB,
         "limits": {
