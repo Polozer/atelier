@@ -504,11 +504,10 @@ fn whole_item_retirement_requires_exact_current_namespaced_receipt_authority() {
     publish(&workspace, &new, b"replacement", None, 0o644);
     let mut stale = removal.clone();
     stale.expected_receipt_id = "0".repeat(64);
-    let mut plan = installer
-        .prepare_restore(&guard, &new, identity(), &after_view, vec![stale])
-        .unwrap()
-        .unwrap();
-    assert!(plan.commit(&guard, |_| Ok(())).is_err());
+    assert!(matches!(
+        installer.prepare_restore(&guard, &new, identity(), &after_view, vec![stale]),
+        Err(InstallError::Invalid(_))
+    ));
     assert!(
         installer
             .prepare_restore(

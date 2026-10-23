@@ -6,7 +6,7 @@ sys.path[:0]=[str(Path(__file__).resolve().parents[2]),str(Path(__file__).resolv
 import yori  # noqa: E402,F401
 from atelier.atomic_files import atomic_json
 from atelier.export_manifest import real_directory
-from atelier.model_files import regular_files
+from atelier.model_files import flat_files
 from region_mesh_parts import plan,capture_collision
 from treehouse.prop_geometry import fit
 from hidamari.prop_parameters import load
@@ -26,7 +26,7 @@ def produce(args,value,*,make_lod=None):
     real_directory(args.source.parent)
     if args.source.is_symlink() or not args.source.is_file():raise ValueError('Missing/linked committed prop model')
     root=real_directory(args.data)
-    if root.exists() and regular_files(root)-{parent+'.png','record.json'}:raise ValueError('Foreign selected prop data')
+    if root.exists() and flat_files(root)-{parent+'.png','record.json'}:raise ValueError('Foreign selected prop data')
     captured={}
     def capture(obj,hulls):captured.update(obj=obj,hulls=hulls)
     _,info=fit(value['slug'],args.source,parent,value['size'],value['turn'],value['target'],value['solid'],root,

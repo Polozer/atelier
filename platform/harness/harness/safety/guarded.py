@@ -248,7 +248,7 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None, pass_fds=(), aggregate_tree=False,
         on_poll=None, admission=None, performance=False, invocation_id=None, worker_binding=None,
         completion_path=None, compile_memory_gib=None, script_memory_gib=None, launch_context=None,
-        queue_seconds=None):
+        queue_seconds=None, custody_fds=()):
     """@cc [owner:fontanierh,label:correctness] diagnostic-execution-timings
     Timing diagnostics MUST NOT certify outputs or guess command execution duration. Publication
     MUST require clearing the prior report; failure to clear MUST suppress publication without
@@ -310,7 +310,7 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
                     code = _run(command, folder, timeout, purpose, lock, env, limit_gib, small_gib, kind,
                                 on_slot, watch, progress, track_tree, fitting_gib, pass_fds, aggregate_tree,
                                 on_poll, admission, performance, worker_binding=worker_binding, _timings=events,
-                                _launch_nonce=launch_nonce,
+                                _launch_nonce=launch_nonce, custody_fds=custody_fds, _invocation=identifier,
                                 _requeue=previous, _queue_deadline=None if queue_seconds is None else entered + queue_seconds,
                                 **({'compile_memory_gib': compile_memory_gib} if compile_memory_gib is not None else {}),
                                 **({'script_memory_gib': script_memory_gib} if script_memory_gib is not None else {}),
@@ -390,7 +390,8 @@ def run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gi
 def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_gib=10., small_gib=None, kind='job',
         on_slot=None, watch=(), progress=0., track_tree=False, fitting_gib=None, pass_fds=(), aggregate_tree=False,
         on_poll=None, admission=None, performance=False, *, worker_binding=None, _timings, _completion=None,
-        _requeue=None, _queue_deadline=None, compile_memory_gib=None, script_memory_gib=None, _launch_nonce=None):
+        _requeue=None, _queue_deadline=None, compile_memory_gib=None, script_memory_gib=None, _launch_nonce=None,
+        custody_fds=(), _invocation=None):
     """@cc [owner:fontanierh,label:safety] compile-tree-monitor-lifecycle
     Aggregate mode MUST release the command only after a matching monitor readiness receipt, and MUST
     require a successful matching terminal receipt proving observed tree exit before returning success.
@@ -425,6 +426,8 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     Explicit sessions MUST retain and cover the caller's actual requested ceiling.
     An opted-in legacy worker binding MUST publish only after both guards are ready and actual GO,
     and MUST transfer only the existing held lock context without another admission lock or monitor.
+    Checkout custody descriptors MUST be validated before admission, require the aggregate monitor,
+    and MUST reach only that monitor, never the guarded child; the default is none.
 
     Run `command` to completion and return its exit status. `small_gib` and `kind` go to `render_lock`;
     `on_slot(slot, why)` hears which slot the child runs in. `track_tree` records descendants for cleanup
@@ -449,6 +452,13 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
     if performance and admission is not None and getattr(admission, 'request', {}).get('performance') is not True:
         raise ValueError('explicit capacity admission must request performance exclusion')
     automatic = admission is None
+    custody_fds = tuple(custody_fds)
+    if custody_fds:
+        # Before any admission session: invalid or child-bound custody never queues.
+        from atelier.harness.safety.tree_guard import custody_descriptors
+        custody_descriptors(custody_fds)
+        if set(custody_fds) & set(pass_fds):
+            raise ValueError('checkout custody descriptors never reach the guarded child')
     if script_memory_gib is not None and admission is not None:
         raise ValueError('Script ceiling selection requires an automatic full session')
     if compile_memory_gib is not None and admission is not None:
@@ -480,6 +490,8 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
         from atelier.harness.capacity_runtime import validate_session_profile
         validate_session_profile(admission, kind=kind, command=command, limit_gib=limit_gib)
     aggregate_tree = aggregate_tree or kind == 'compile' or admission is not None
+    if custody_fds and not aggregate_tree:
+        raise ValueError('checkout custody requires the aggregate tree monitor')
     if fitting_gib is not None:
         if (not lock or kind != 'job' or not command or Path(command[0]).name.lower() != 'blender'
                 or not any(arg in ('-b', '--background') for arg in command[1:]) or watch or track_tree or aggregate_tree):
@@ -633,7 +645,9 @@ def _run(command, folder, timeout=0., purpose=None, lock=True, env=None, limit_g
             aggregate = monitors.enter_context(attach_tree(child.pid, folder/'memory-health-tree.json',
                                                            duration=horizon, limit_gib=limit_gib,
                                                            expected_start=root_start,
-                                                           **({'launch_nonce': _launch_nonce} if _launch_nonce is not None else {})))
+                                                           **({'launch_nonce': _launch_nonce} if _launch_nonce is not None else {}),
+                                                           **({'custody_fds': custody_fds, 'invocation': _invocation}
+                                                              if custody_fds else {})))
             aggregate.ready()
             if _completion is not None:
                 monitor_pins = dict(process=[monitor.pid, process_tree.started(monitor.pid)],

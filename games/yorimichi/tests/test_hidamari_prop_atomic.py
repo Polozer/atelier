@@ -134,7 +134,8 @@ def test_complete_assembly_preserves_names_lod_policy_and_unchanged_files(tmp_pa
     assert {p:p.stat().st_mtime_ns for p in before}==before
 
 
-@pytest.mark.parametrize('bad',['missing','texture','lod','foreign','link','stale_source'])
+@pytest.mark.parametrize('bad',['missing','texture','lod','foreign','link','stale_source',
+    'directory_png','directory_fbx','directory_json','foreign_empty_directory','source_empty_directory','source_parent_link'])
 def test_incomplete_or_foreign_library_refuses_before_first_copy(tmp_path,bad):
     out=tmp_path.resolve();source_fixture(out)
     root=out/'hidamari/props';root.mkdir(parents=True);prior=root/'HD_P_postbox.fbx';prior.write_bytes(b'old owned primary')
@@ -144,12 +145,19 @@ def test_incomplete_or_foreign_library_refuses_before_first_copy(tmp_path,bad):
     if bad=='lod':
         path=data/'record.json';value=json.loads(path.read_text());value['level'][1]=1;atomic_json(path,value)
     if bad=='foreign':(root/'unknown.fbx').write_bytes(b'foreign')
+    if bad.startswith('directory_'):
+        filename={'directory_png':'HD_P_postbox.png','directory_fbx':'HD_P_phone_booth.fbx','directory_json':'props.json'}[bad]
+        (root/filename).mkdir()
+    if bad=='foreign_empty_directory':(root/'unknown').mkdir()
+    if bad=='source_empty_directory':(data/'unknown').mkdir()
+    if bad=='source_parent_link':
+        source=out/'hidamari-prop-data';moved=out/'moved-prop-data';source.rename(moved);source.symlink_to(moved,target_is_directory=True)
     if bad=='stale_source':
         path=out/'exports/world.hidamari_props.export'/name/'export.json'
         value=json.loads(path.read_text());value['metadata']['geometry_sha256']='a'*64;atomic_json(path,value)
     if bad=='link':
         path=data/(TREES[0]+'.png');path.unlink();path.symlink_to(prior)
-    before={p:p.read_bytes() for p in root.iterdir()}
+    before={p:p.read_bytes() if p.is_file() else None for p in root.iterdir()}
     with pytest.raises((ValueError,FileNotFoundError)):assemble(out)
-    assert {p:p.read_bytes() for p in root.iterdir()}==before
+    assert {p:p.read_bytes() if p.is_file() else None for p in root.iterdir()}==before
     assert not (out/'hidamari/assembled-props').exists()
