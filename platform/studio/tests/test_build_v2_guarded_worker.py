@@ -203,7 +203,7 @@ def receipts(**tree):
                 late_reporters=dict(adopted=[], unresolved=[], unresolved_pids=[], scan_failed=False))
     base.update(tree)
     return dict(error=None, child=(7, 70), process=dict(pid=7, process_start=70, time=100., state='running'),
-                tree=base, admitted=True, since=50., invocation=INVOCATION,
+                tree=base, admitted=True, since=50., now=200., invocation=INVOCATION,
                 timings=dict(schema=1, invocation_id=INVOCATION), custody=None)
 
 
@@ -218,15 +218,16 @@ CUSTODY = dict(held=False, released='cleanup_complete', lock_files=[[1, 12], [1,
 
 @pytest.mark.parametrize('evidence', [
     receipts(),
+    receipts(time=201.),  # within the clock skew
     receipts(**STOPPED),
     {**receipts(**STOPPED), 'error': SystemExit('child exceeded 30 s')},
     {**receipts(custody=CUSTODY), 'custody': FILES},
-    dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50.,
+    dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50., now=200.,
          invocation=INVOCATION, timings=None, custody=None),
     # The real guard publishes its diagnostic timings even for a run cancelled in the queue.
-    dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50.,
+    dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50., now=200.,
          invocation=INVOCATION, timings=dict(schema=1, invocation_id=INVOCATION), custody=None),
-], ids=['exited', 'stopped', 'deadline', 'custody', 'queued-cancel', 'queued-cancel-timings'])
+], ids=['exited', 'skew', 'stopped', 'deadline', 'custody', 'queued-cancel', 'queued-cancel-timings'])
 def test_cleanup_confirms_only_consistent_affirmative_evidence(evidence):
     assert judge(**evidence) == (True, None)
 
@@ -266,6 +267,10 @@ def mutate(path, value, **tree):
     receipts(time=10.),
     receipts(time='100'),
     receipts(time=float('nan')),
+    receipts(time=float('inf')),
+    receipts(time=203.),  # beyond the clock skew past the bridge's now
+    mutate('process', dict(pid=7, process_start=70, time=float('inf'))),
+    mutate('process', dict(pid=7, process_start=70, time=1e12)),
     mutate('process', dict(pid=7, process_start=70, time=10.)),
     mutate('process', dict(pid=7, process_start=70)),
     mutate('timings', None),
@@ -296,7 +301,7 @@ def test_cleanup_rejects_malformed_contradictory_stale_or_missing_evidence(evide
     dict(timings=[]),
 ])
 def test_no_child_is_confirmed_only_for_an_unwind_before_admission_without_receipts(change):
-    evidence = dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50.,
+    evidence = dict(error=SystemExit(143), child=None, process=None, tree=None, admitted=False, since=50., now=200.,
                     invocation=INVOCATION, timings=None, custody=None)
     evidence.update(change)
     assert judge(**evidence)[0] is False

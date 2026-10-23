@@ -21,6 +21,7 @@ Usage: python -m atelier.build_v2.guarded_worker --report DIR --purpose TEXT --m
 """
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -82,9 +83,14 @@ def _zero(value):
     return type(value) is int and value == 0
 
 
-def _fresh(value, since):
+CLOCK_SKEW_SECONDS = 2.  # a guard receipt may not claim a time later than this past the bridge's clock
+
+
+def _fresh(value, since, now):
+    """Written during this invocation: a finite observation time between `since` and `now`."""
     observed = value.get('time')
-    return type(observed) in (int, float) and observed == observed and observed >= since
+    return (type(observed) in (int, float) and math.isfinite(observed)
+            and since <= observed <= now + CLOCK_SKEW_SECONDS)
 
 
 def _same_files(recorded, expected):
@@ -94,12 +100,13 @@ def _same_files(recorded, expected):
         return False
 
 
-def cleanup(error, child, process, tree, *, admitted, since, invocation, timings, custody):
+def cleanup(error, child, process, tree, *, admitted, since, now, invocation, timings, custody):
     """(confirmed, reason). Only affirmative, mutually consistent evidence confirms.
 
     `admitted` says whether the guard ever reported a slot; the guard spawns only after that, so a
     run that unwound before admission spawned nothing. `since` is this bridge's start time, so a
-    receipt older than it is stale. `invocation` is the id this bridge gave the guarded run.
+    receipt older than it is stale, and `now` bounds it from the future (with a small clock skew);
+    a non-finite time is malformed. `invocation` is the id this bridge gave the guarded run.
     `custody` is None without custody, else the sorted [device, inode] pairs of the bridge's own
     custody descriptors. Everything else, including a malformed receipt, is unconfirmed.
     """
@@ -127,8 +134,8 @@ def cleanup(error, child, process, tree, *, admitted, since, invocation, timings
         return False, 'the process receipt belongs to another identity'
     if not isinstance(timings, dict) or timings.get('invocation_id') != invocation:
         return False, 'no execution receipt for this invocation'
-    if not _fresh(tree, since) or not _fresh(process, since):
-        return False, 'a guard receipt predates this invocation'
+    if not _fresh(tree, since, now) or not _fresh(process, since, now):
+        return False, 'a guard receipt is not from this invocation'
     if tree.get('cleanup_complete') is not True or 'error' in tree or 'termination_reason' in tree:
         return False, 'tree cleanup incomplete'
     state = tree.get('state')
@@ -241,7 +248,8 @@ def main(argv=None, run=None):
     process = _read(args.report / 'memory-health.json')
     tree = _read(args.report / 'memory-health-tree.json')
     child = state['child']
-    if (child is None and tree is not None and process is not None and _fresh(tree, since)
+    now = time.time()
+    if (child is None and tree is not None and process is not None and _fresh(tree, since, now)
             and type(tree.get('owner')) is int and type(tree.get('owner_started')) is int
             and (process.get('pid'), process.get('process_start')) == (tree['owner'], tree['owner_started'])):
         # The child exited before the first poll: only a fresh, corroborated receipt pins it.
@@ -251,7 +259,7 @@ def main(argv=None, run=None):
         emit('child_exited', pid=child[0], started=str(child[1]), boot=boot,
              returncode=returncode if error is None else None,
              stopped_by=classify(error, process, tree, state['cancelled']))
-    confirmed, reason = cleanup(error, child, process, tree, admitted=state['admitted'], since=since,
+    confirmed, reason = cleanup(error, child, process, tree, admitted=state['admitted'], since=since, now=now,
                                 invocation=invocation, timings=_read(args.report / 'execution-timings.json'),
                                 custody=custody)
     state['finished'] = True
