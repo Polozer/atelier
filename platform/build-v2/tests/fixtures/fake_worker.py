@@ -1,5 +1,8 @@
 """Scripted protocol v1 worker for the C1a pipe tests. It stages nothing and launches no tools.
 
+Outside the deliberate fault scenarios it follows the worker rule: `started` for every `run`, then
+exactly one terminal response; a cancel received while idle is ignored.
+
 Usage: fake_worker.py SCENARIO REQUEST_FD RESPONSE_FD. Frames use only the two inherited pipe
 descriptors; stdout and stderr carry log lines, as for a real worker. Only the standard library and
 the Python protocol module (loaded by path, without the atelier package) are used.
@@ -55,8 +58,7 @@ def main(scenario, request_fd, response_fd):
             send({'type': 'stopped'})
             return
         if request['type'] != 'run':
-            send({'type': 'failed', 'job_id': request['job_id'],
-                  'failure': {'kind': 'protocol', 'message': 'cancel without an active job'}})
+            # A cancel that raced the job's terminal response gets no reply.
             continue
         job = request['job']
         job_id = job['job_id']

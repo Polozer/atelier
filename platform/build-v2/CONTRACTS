@@ -38,4 +38,6 @@ A controller session MUST accept work only after a hello with the expected worke
 keep at most one active job, and MUST require `started` then exactly one terminal response with
 the active job ID. Wrong IDs, duplicate or out-of-order responses, malformed frames and early end
 of stream MUST break the session. Sending `cancel` MUST NOT count as cancellation; only a worker's
-`cancelled` failure confirms it. Job requests MUST pass through unchanged. See tests/worker_session.rs.
+`cancelled` failure confirms it. A worker MUST send `started` for every `run` before its single
+terminal response, including a job it rejects at once and a `cancel` that arrives before it started.
+Job requests MUST pass through unchanged. See tests/worker_session.rs.

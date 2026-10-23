@@ -284,6 +284,33 @@ fn cancellation_is_a_request_until_the_worker_confirms_it() {
 }
 
 #[test]
+fn cancel_before_started_still_requires_started_then_one_terminal() {
+    let mut session = ready();
+    session.run(job("job-1")).unwrap();
+    session.cancel().unwrap();
+    // Even a job cancelled before it began owes `started` first.
+    protocol_error(
+        session
+            .clone()
+            .receive(failed("job-1", FailureKind::Cancelled)),
+        "before started",
+    );
+    protocol_error(
+        session.clone().receive(failed("job-1", FailureKind::Job)),
+        "before started",
+    );
+    session.receive(started("job-1")).unwrap();
+    let Event::Finished(finished) = session
+        .receive(failed("job-1", FailureKind::Cancelled))
+        .unwrap()
+    else {
+        panic!("expected a terminal event")
+    };
+    assert!(finished.cancel_requested && finished.cancelled());
+    assert_eq!(session.state(), &State::Idle);
+}
+
+#[test]
 fn one_active_job_and_controller_misuse_leave_the_session_unchanged() {
     let mut session = ready();
     session.run(job("job-1")).unwrap();
