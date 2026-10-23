@@ -47,3 +47,7 @@ tests = ["atelier-build-v2::scheduler/incompatible_profiles_split_batches_and_pu
 [[scenarios]]
 id = "a9a.missing-terminal"
 tests = ["atelier-build-v2::scheduler/missing_executor_terminal_is_failure_and_never_unlocks_dependents"]
+
+[[scenarios]]
+id = "a9a.refresh-between-batches"
+tests = ["atelier-build-v2::scheduler/completed_batch_refreshes_new_ready_hit_before_unrelated_dispatch"]

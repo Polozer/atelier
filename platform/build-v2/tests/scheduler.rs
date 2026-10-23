@@ -508,3 +508,31 @@ fn missing_executor_terminal_is_failure_and_never_unlocks_dependents() {
     assert!(!report.keys.contains_key("b"));
     assert!(fake.cache.is_empty());
 }
+
+#[test]
+fn completed_batch_refreshes_new_ready_hit_before_unrelated_dispatch() {
+    let mut f = fixture(false);
+    f.runtimes.get_mut("c").unwrap().profile = "zzz-unrelated".into();
+    f.runtimes.get_mut("c").unwrap().worker.version = "2".into();
+    let trace = Trace::default();
+    let mut fake = Fake::new(trace.clone());
+    let mut jobs = Jobs::new(trace.clone());
+    let warm = BTreeMap::from([("b".into(), Demand::Checkout)]);
+    let before = build(&f, &["b"], &warm, &mut fake, &mut jobs, &Never);
+    trace.borrow_mut().clear();
+    f.runtimes.get_mut("a").unwrap().worker.version = "2".into();
+    let demands = BTreeMap::from([("b".into(), Demand::Checkout), ("c".into(), Demand::Stored)]);
+    let next = build(&f, &["b", "c"], &demands, &mut fake, &mut jobs, &Never);
+    assert_ne!(before.keys["a"], next.keys["a"]);
+    assert_eq!(before.keys["b"], next.keys["b"]);
+    assert_eq!(next.states["b"], State::Hit);
+    let events = trace.borrow();
+    let ready_hit = events
+        .iter()
+        .position(|s| s == "lookup:b:Checkout")
+        .unwrap();
+    let unrelated_job = events.iter().position(|s| s == "execute:c").unwrap();
+    assert!(ready_hit < unrelated_job, "{events:?}");
+    assert_eq!(events.iter().filter(|s| *s == "lookup:c:Stored").count(), 1);
+    assert_eq!(next.batches, vec![vec!["a"], vec!["c"]]);
+}

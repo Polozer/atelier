@@ -343,8 +343,9 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
     };
     let mut items = ProducedItems::new();
     let mut groups = ProducedGroups::new();
+    // Undispatched misses keep their original lookup tickets while new ready hits resolve.
+    let mut pending = Vec::new();
     loop {
-        let mut pending = Vec::new();
         // Follow hit-unlocked frontiers to a fixed point before dispatching accumulated misses.
         loop {
             let mut progress = false;
@@ -459,13 +460,16 @@ pub fn run<B: Backend, E: Executor<B::Ticket, B::Completion>>(
             break;
         }
         let mut batches: BTreeMap<Compatibility, Vec<Work<B::Ticket>>> = BTreeMap::new();
-        for work in pending {
+        for work in pending.drain(..) {
             batches
                 .entry(work.compatibility.clone())
                 .or_default()
                 .push(work);
         }
-        for (_, batch) in batches {
+        // Submit one compatibility batch, then refresh the ready frontier before the next.
+        // A completed producer may unlock a hit that must not wait behind unrelated work.
+        if let Some((_, batch)) = batches.pop_first() {
+            pending.extend(batches.into_values().flatten());
             if control.cancelled() {
                 for work in batch {
                     report.states.insert(work.unit, State::Cancelled);
