@@ -54,12 +54,16 @@ pinned cargo-nextest 0.9.149 with profile `ci`: a ten-second global test timeout
 ignored tests. Compile time is reported in its own step. The job retains collection JSON and JUnit
 execution/timing artifacts; neither a cached binary nor an empty test run can provide success.
 
-`tests/registry.toml` maps each active scenario to nextest IDs (`binary-id/test-name`). The hook
+`tests/registry/<task>.toml` holds one fragment per task, each with `schema_version = 1` and its
+`scenarios` and `pending` rows. The loader discovers the fragments from the explicit directory,
+merges them in filename order and refuses any other directory entry, unknown key, malformed row or
+empty fragment. Active rows map each scenario to nextest IDs (`binary-id/test-name`). The hook
 checks that collection and execution cover exactly those tests once, with no ignored, filtered,
-skipped, failing or unmapped tests. Add an active row with each new T0 scenario; use the named
-scenario IDs in future engine tests. Future required scenarios remain explicit `pending` rows with
-their implementation tasks. A pending row is a gap, not a pass. A8/H5 will activate those rows as the
-engine/reference model is implemented; A1 does not claim the full TESTING scenario suite exists.
+skipped, failing or unmapped tests. Add an active row to your task's fragment with each new T0
+scenario; use the named scenario IDs in future engine tests. Future required scenarios remain
+explicit `pending` rows in the fragment of the task that will implement them. A pending row is a
+gap, not a pass. A8/H5 will activate those rows as the engine/reference model is implemented; A1 does
+not claim the full TESTING scenario suite exists.
 
 The registry checker is a read-only Python tool. Its focused tests run in ordinary Python CI:
 `uv run pytest platform/studio/tests/test_build_v2_registry.py -q`. A local nextest compile/run must
