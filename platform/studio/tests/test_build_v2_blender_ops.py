@@ -320,3 +320,19 @@ def test_declared_piece_options_refuse_before_exporter_and_have_finite_typed_bou
             ops.run_export_piece(context)
     assert calls == []
     assert ops.export_options(dict(global_scale=1), dict(global_scale=0.001))['global_scale'] == 0.001
+
+
+def test_frozen_job_world_color_reaches_the_real_shared_validator_as_a_list():
+    from atelier.build_v2.python_job import JobContext
+    from atelier.blender.fbx import validate_world_color
+
+    context = JobContext({}, (), {'options': {'scene_world_color': [0, 0.25, 1]}}, 0)
+    frozen = context.params['options']['scene_world_color']
+    assert isinstance(frozen, tuple)
+    with pytest.raises(ValueError):
+        validate_world_color(frozen)
+    actual = ops.export_options({}, context.params['options'])
+    assert actual['scene_world_color'] == [0, 0.25, 1]
+    assert type(actual['scene_world_color']) is list
+    assert validate_world_color(actual['scene_world_color']) == [0, 0.25, 1]
+    assert context.params['options']['scene_world_color'] == frozen

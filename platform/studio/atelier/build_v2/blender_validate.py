@@ -55,6 +55,9 @@ def validate_mesh_options(options):
             valid = False
         if not valid:
             raise ValueError('Unsupported, mistyped or nonfinite export option: ' + str(key))
+        if key == 'scene_world_color':
+            # JobContext makes JSON arrays immutable tuples; the shared exporter expects a list.
+            result[key] = list(value)
     if 'axis_forward' in result and 'axis_up' in result and result['axis_forward'][-1] == result['axis_up'][-1]:
         raise ValueError('Export forward/up axes must be independent')
     return result
