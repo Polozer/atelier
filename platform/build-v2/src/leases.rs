@@ -68,6 +68,14 @@ fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
+fn occupied(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 pub(crate) fn directory(path: &Path) -> io::Result<()> {
     match fs::create_dir(path) {
         Ok(()) => {}
@@ -161,7 +169,7 @@ impl LeaseStore {
     /// may release it while an owner/worker is alive or unknown. See tests/results.rs.
     pub(crate) fn begin(
         &self,
-        key: &str,
+        result_keys: BTreeSet<String>,
         owner: ProcessIdentity,
         workers: Vec<ProcessIdentity>,
     ) -> io::Result<LeaseRecord> {
@@ -169,7 +177,7 @@ impl LeaseStore {
         let id = loop {
             let serial = NEXT.fetch_add(1, Ordering::Relaxed);
             let id = format!("{}-{serial}", std::process::id());
-            if !guard.path(&id).exists() && !self.root.join("staging").join(&id).exists() {
+            if !occupied(&guard.path(&id))? && !occupied(&self.root.join("staging").join(&id))? {
                 break id;
             }
         };
@@ -179,7 +187,7 @@ impl LeaseStore {
             id,
             owner,
             workers,
-            result_keys: BTreeSet::from([key.into()]),
+            result_keys,
             object_digests: BTreeSet::new(),
             rooted: false,
         };
@@ -243,5 +251,42 @@ impl MetadataGuard {
         }
         records.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(records)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dangling_lease_and_staging_names_remain_occupied() {
+        use std::os::unix::fs::symlink;
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "atelier-v2-lease-names-{}-{serial}",
+            std::process::id()
+        ));
+        let objects = crate::store::ObjectStore::open(&root).unwrap();
+        let leases = LeaseStore::open(objects.root()).unwrap();
+        let candidate = format!("{}-{}", std::process::id(), NEXT.load(Ordering::Relaxed));
+        let lease_path = root.join("leases").join(format!("{candidate}.json"));
+        let staging_path = root.join("staging").join(&candidate);
+        let missing = root.join("foreign-missing-target");
+        symlink(&missing, &lease_path).unwrap();
+        symlink(&missing, &staging_path).unwrap();
+        assert!(occupied(&lease_path).unwrap());
+        assert!(occupied(&staging_path).unwrap());
+        let owner = ProcessIdentity {
+            pid: 1,
+            boot: "boot".into(),
+            started: "start".into(),
+        };
+        let lease = leases
+            .begin(BTreeSet::from(["a".repeat(64)]), owner, vec![])
+            .unwrap();
+        assert_ne!(lease.id, candidate);
+        assert_eq!(fs::read_link(&lease_path).unwrap(), missing);
+        assert_eq!(fs::read_link(&staging_path).unwrap(), missing);
+        fs::remove_dir_all(root).unwrap();
     }
 }

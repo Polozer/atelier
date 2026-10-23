@@ -39,6 +39,8 @@ under the shared metadata mutex before object publication. The order MUST be obj
 result record, required durable build-root callback, then per-unit claim release. Failure before
 durable rooting MUST retain claims; no failure may erase earlier results. Live or unknown owners/workers MUST prevent reclamation;
 timestamps alone MUST NOT expire leases. See tests/results.rs; B4/B5 implement root/GC policy later.
+Initial leases MUST retain supplied upstream result keys while the consumer record is incomplete.
+Fresh lease/staging names MUST preserve every occupied entry, including dangling symlinks.
 
 @cc [owner:fontanierh,label:correctness] build-v2-frozen-result-validation
 Output validators MUST read the same frozen snapshots hashed and published by B1. Result winner

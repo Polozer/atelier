@@ -135,8 +135,20 @@ fn lease_is_durable_before_staging_and_unknown_liveness_never_expires() {
     let workspace = Workspace::new();
     let store = workspace.store();
     let unit = prepared("unit");
-    let transaction = begin(&store, &unit);
+    let upstream = "b".repeat(64);
+    let mut transaction = store
+        .begin(
+            &unit,
+            provenance("first"),
+            process(1),
+            vec![process(2)],
+            BTreeSet::from([upstream.clone()]),
+        )
+        .unwrap();
+    transaction.add_worker(process(3)).unwrap();
+    transaction.add_worker(process(3)).unwrap();
     let lease = transaction.lease().clone();
+    assert_eq!(lease.workers, [process(2), process(3)]);
     assert!(workspace.path("store").join(&lease.staging).is_dir());
     assert!(
         fs::read_dir(workspace.path("store").join(&lease.staging))
@@ -146,11 +158,17 @@ fn lease_is_durable_before_staging_and_unknown_liveness_never_expires() {
     );
     assert!(lease.object_digests.is_empty());
     assert!(lease.result_keys.contains(unit.key()));
+    assert!(lease.result_keys.contains(&upstream));
     drop(transaction);
     let records = store.leases().lock().unwrap().leases().unwrap();
     assert_eq!(records, [lease.clone()]);
     assert!(!lease.may_reclaim(|_| Liveness::Unknown));
     assert!(!lease.may_reclaim(|identity| if identity.pid == 2 {
+        Liveness::Alive
+    } else {
+        Liveness::Dead
+    }));
+    assert!(!lease.may_reclaim(|identity| if identity.pid == 3 {
         Liveness::Alive
     } else {
         Liveness::Dead
@@ -352,9 +370,13 @@ fn faults_at_each_publication_boundary_preserve_claims_and_prior_results() {
         let unit = prepared("unit");
         let transaction = begin(&store, &unit);
         let id = transaction.lease().id.clone();
-        let staged = transaction
-            .stage(sources(&workspace, b"payload"), |_| Ok(()))
-            .unwrap();
+        let mut outputs = sources(&workspace, b"payload");
+        fs::write(workspace.path("sidecar"), b"sidecar").unwrap();
+        outputs.insert(
+            ("data".into(), "optional.bin".into()),
+            workspace.path("sidecar"),
+        );
+        let staged = transaction.stage(outputs, |_| Ok(())).unwrap();
         let mut rooted = false;
         let result = staged.publish_observed(
             |_| {
@@ -382,6 +404,7 @@ fn faults_at_each_publication_boundary_preserve_claims_and_prior_results() {
         );
         if !matches!(stop, PublicationStep::Prepared | PublicationStep::Released) {
             assert!(lease.object_digests.contains(&sha256(b"payload")));
+            assert!(lease.object_digests.contains(&sha256(b"sidecar")));
         }
         let record_exists = workspace
             .path("store/results")
@@ -478,12 +501,33 @@ fn concurrent_publication_and_gc_observer_share_claim_mutex_without_gap() {
         .unwrap();
     let leases = store.leases().clone();
     let key = unit.key().to_string();
-    let writer = std::thread::spawn(move || one.publish(|_| Ok(())).unwrap());
+    let root_path = workspace.path("root-model");
+    let writer_root = root_path.clone();
+    let writer = std::thread::spawn(move || {
+        one.publish(|result| {
+            fs::write(writer_root, &result.result.key).map_err(|error| error.to_string())
+        })
+        .unwrap()
+    });
+    let object_path = workspace.path("store/objects/sha256").join(sha256(b"same"));
+    let mut removed = 0;
     let second = two
         .publish_observed(
-            |_| Ok(()),
+            |result| fs::write(&root_path, &result.result.key).map_err(|error| error.to_string()),
             |step| {
-                let records = leases.lock().unwrap().leases().unwrap();
+                let guard = leases.lock().unwrap();
+                let records = guard.leases().unwrap();
+                // Minimal future-GC observer: only unclaimed/unrooted entries are
+                // deletion candidates. No B5 policy or output-directory scan here.
+                let protected = root_path.exists()
+                    || records.iter().any(|lease| {
+                        lease.result_keys.contains(&key)
+                            || lease.object_digests.contains(&sha256(b"same"))
+                    });
+                if object_path.exists() && !protected {
+                    fs::remove_file(&object_path).unwrap();
+                    removed += 1;
+                }
                 if matches!(
                     step,
                     PublicationStep::Claimed
@@ -498,4 +542,6 @@ fn concurrent_publication_and_gc_observer_share_claim_mutex_without_gap() {
         )
         .unwrap();
     assert_eq!(writer.join().unwrap(), second);
+    assert_eq!(removed, 0);
+    assert_eq!(begin(&store, &unit).lookup().unwrap().unwrap(), second);
 }

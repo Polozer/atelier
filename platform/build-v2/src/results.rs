@@ -137,7 +137,11 @@ impl ResultStore {
                 return Err(invalid("complete process identity is required"));
             }
         }
-        let lease = self.leases.begin(unit.key(), owner, workers)?;
+        // The incomplete consumer record cannot yet retain its producers by traversal.
+        // Protect upstream records before work starts, not just after record publication.
+        let mut claimed_results = upstream_result_keys.clone();
+        claimed_results.insert(unit.key().into());
+        let lease = self.leases.begin(claimed_results, owner, workers)?;
         Ok(WriteTransaction {
             store: self.clone(),
             lease,
@@ -224,6 +228,22 @@ fn check_manifest(unit: &PreparedUnit, outputs: &[StoredItem]) -> Result<(), Res
 impl WriteTransaction {
     pub fn lease(&self) -> &LeaseRecord {
         &self.lease
+    }
+
+    /// A lifecycle adapter must persist a newly launched worker's full identity
+    /// before allowing that worker to write. Startup barriers/process probing are C5b/C7.
+    pub fn add_worker(&mut self, worker: ProcessIdentity) -> Result<(), ResultError> {
+        if worker.pid == 0 || worker.boot.is_empty() || worker.started.is_empty() {
+            return Err(invalid("complete worker identity is required"));
+        }
+        if !self.lease.workers.contains(&worker) {
+            let guard = self.store.leases.lock()?;
+            let mut updated = self.lease.clone();
+            updated.workers.push(worker);
+            guard.save(&updated)?;
+            self.lease = updated;
+        }
+        Ok(())
     }
 
     /// Pin every named object under the GC mutex before returning a hit.

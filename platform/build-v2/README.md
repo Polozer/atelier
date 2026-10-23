@@ -209,6 +209,10 @@ these pure tests do not claim A4/A6/A9 end-to-end execution behavior.
 staging-scope lease before creating that scope. Process identities bind PID, boot and start identity;
 the lifecycle adapter must probe that same identity. Unknown liveness is conservative. No clock-only
 expiry or process signaling is provided here.
+Warm workers may be listed at begin; `add_worker(identity)` durably registers a newly launched worker
+before the lifecycle adapter allows it to write. The startup barrier and OS probes remain C5b/C7 work.
+The initial lease claims both the consumer key and supplied upstream result keys, so producer records
+remain protected before a complete consumer record exists for retention traversal.
 
 `WriteTransaction::stage(OutputSources, validator)` consumes the complete authoritative worker output
 manifest keyed by `(item_id, output_relative_path)`. Unknown paths and missing required members refuse;

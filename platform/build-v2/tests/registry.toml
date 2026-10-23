@@ -341,6 +341,10 @@ id = "b2.results.unsupported_result_versions_and_dynamic_group_fields_refuse"
 tests = ["atelier-build-v2::results/unsupported_result_versions_and_dynamic_group_fields_refuse"]
 
 [[scenarios]]
+id = "b2.leases.dangling_lease_and_staging_names_remain_occupied"
+tests = ["atelier-build-v2/leases::tests::dangling_lease_and_staging_names_remain_occupied"]
+
+[[scenarios]]
 id = "b2.results.metadata_mutex_serializes_independent_handles_and_corrupt_leases_fail_closed"
 tests = ["atelier-build-v2::results/metadata_mutex_serializes_independent_handles_and_corrupt_leases_fail_closed"]
 
