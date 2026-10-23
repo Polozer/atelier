@@ -20,6 +20,24 @@ from atelier import mesh_ir
 PACKAGE='/Game/AtelierValidation/Foliage_0123456789ab'
 
 
+def test_camera_policy_uses_exported_enum_not_same_named_response_struct():
+    ignored=object()
+    unreal=types.SimpleNamespace(CollisionResponse=types.SimpleNamespace(),
+        CollisionResponseType=types.SimpleNamespace(ECR_IGNORE=ignored))
+    assert proof.camera_ignore(unreal) is ignored
+
+
+def test_missing_camera_enum_refuses_before_spec_read_or_asset_mutation(monkeypatch):
+    monkeypatch.delenv('ATELIER_BUILD_TASK',raising=False)
+    monkeypatch.delenv('ATELIER_MESH_REUSE_NONCE',raising=False)
+    monkeypatch.setitem(sys.modules,'unreal',types.SimpleNamespace(
+        CollisionResponse=types.SimpleNamespace(IGNORE=0)))
+    def forbidden(*args,**kwargs):raise AssertionError('Spec/assets accessed before API preflight')
+    monkeypatch.setattr(proof,'artifact',forbidden)
+    with pytest.raises(ValueError,match='CollisionResponseType.ECR_IGNORE'):
+        proof.run_native('unread-spec.json','0'*64)
+
+
 def manifests():
     result={}
     for name in proof.owner_names():

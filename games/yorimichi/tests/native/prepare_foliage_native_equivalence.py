@@ -217,6 +217,7 @@ def prepare(args):
         source_binding(dict(revision='913d39edd3b00f015755e3b34762fe20c2af3692',path='games/yorimichi/'+relative,sha256=digest),repo=REPO)
         proof.mapped_tree(name,GAME,package)
     engine_root=engine.unreal_root();bind(engine_root/'Engine/Config/BaseEngine.ini')
+    bind(engine_root/'Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h')
     function=engine_root/'Engine/Content/Functions/Engine_MaterialFunctions02/Utility/DitherTemporalAA.uasset'
     bind(function);absent=[]
     for suffix in SIDECARS:

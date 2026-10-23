@@ -234,9 +234,17 @@ def require_fixture_context(environment):
             'Fixture cannot inherit a normal task/receipt publication context')
 
 
+def camera_ignore(U):
+    """ECollisionResponse exports as CollisionResponseType, not the response struct."""
+    response=getattr(getattr(U,'CollisionResponseType',None),'ECR_IGNORE',None)
+    require(response is not None,'Installed Unreal CollisionResponseType.ECR_IGNORE is unavailable')
+    return response
+
+
 def run_native(spec_path, digest):
     import unreal as U
     require_fixture_context(os.environ)
+    ignored_camera=camera_ignore(U)  # Refuse unsupported reflection before any asset mutation.
     spec_path = Path(spec_path).absolute(); spec = json.loads(artifact(dict(path=str(spec_path),sha256=digest)))
     bound_inputs(spec); startup = receiving_startup(spec,U); output = real_directory(spec['output'])
     atomic_json(output / 'startup-ddc.json', startup)
@@ -288,7 +296,7 @@ def run_native(spec_path, digest):
                 U.CollisionEnabled.QUERY_ONLY if item['query_only'] else U.CollisionEnabled.NO_COLLISION)
             component.set_editor_property('can_ever_affect_navigation',False)
             require(component.get_editor_property('can_ever_affect_navigation') is False,'Navigation fixture flag differs')
-            if item['placed']: component.set_collision_response_to_channel(U.CollisionChannel.ECC_CAMERA,U.CollisionResponse.IGNORE)
+            if item['placed']: component.set_collision_response_to_channel(U.CollisionChannel.ECC_CAMERA,ignored_camera)
             controls=[dict(row,target=component.get_path_name()) for row in spec['controls'][name]]
             descriptor=capture.capture([component],name,output/'captures'/name,controls=controls,inputs=[spec_path],policy_scope='fixture')
             component_collision(descriptor,item)
