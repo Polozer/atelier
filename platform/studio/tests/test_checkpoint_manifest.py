@@ -462,7 +462,11 @@ def test_an_oversized_manifest_with_late_corruption_is_refused_not_skipped(
 
 
 def build_project(tmp_path, monkeypatch):
-    """A real build with checkpoints enabled and its commands replaced: nothing native runs."""
+    """A real build with checkpoints enabled and its commands replaced: nothing native runs.
+
+    ``steady`` is never edited, so its up-to-date pass supplies the retention record that keeps a
+    publication attempted when another step fails and its own stamp is dropped.
+    """
     repo = tmp_path.resolve(); (repo / 'uv.lock').write_text('lock')
     monkeypatch.setattr(paths, 'REPO', repo)
     monkeypatch.setattr(paths, 'ENGINE_PLUGINS', repo / 'plugins')
@@ -471,7 +475,7 @@ def build_project(tmp_path, monkeypatch):
     ctx = SimpleNamespace(game='fixture', out=repo / 'build/fixture', logs=repo / 'build/fixture/logs',
                           stamps=repo / 'build/fixture/stamps', cook_mode=build.CookMode.DEFAULT)
     steps = []
-    for name in ('mesh', 'extra'):
+    for name in ('mesh', 'extra', 'steady'):
         source = repo / (name + '.txt'); source.write_text(name)
         script = repo / (name + '.py'); script.write_text('# ' + name)
         steps.append(build.Step(name, [build.Python(script)], inputs=[source],
