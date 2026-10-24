@@ -23,6 +23,14 @@ class CheckpointError(RuntimeError):
     pass
 
 
+class ManifestTooLarge(CheckpointError):
+    """The producer's manifest bytes, not the member total, exceed the wire limit."""
+
+    def __init__(self, size, limit):
+        super().__init__('Checkpoint exceeds its size limit')
+        self.size, self.limit = size, limit
+
+
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
 
@@ -139,8 +147,13 @@ def validate(manifest, game):
     for name in aliases:
         if any(str(p) in leaves for p in PurePosixPath(name).parents if str(p) != '.'):
             raise CheckpointError('Checkpoint file is another member\'s parent')
-    if total > MAX_BYTES or len(canonical(manifest)) > MAX_MANIFEST:
+    # The producer's own manifest bytes are the one size refusal a publisher may skip; the member
+    # total stays a plain error, because it describes the payload its receivers would have to fetch.
+    if total > MAX_BYTES:
         raise CheckpointError('Checkpoint exceeds its size limit')
+    size = len(canonical(manifest))
+    if size > MAX_MANIFEST:
+        raise ManifestTooLarge(size, MAX_MANIFEST)
     incremental = manifest.get('incremental_stamps', {})
     if type(incremental) is not dict or set(incremental) & set(manifest['stamps']):
         raise CheckpointError('Invalid incremental checkpoint state')

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import paths
 from .atomic_files import atomic_json
-from .checkpoint_store import (CheckpointError, Store, context, identity,
+from .checkpoint_store import (CheckpointError, ManifestTooLarge, Store, context, identity,
                                read_json, roots, safe_destination, validate)
 from .build_hashes import digest_file, signature
 
@@ -180,7 +180,14 @@ def record(ctx, step, stamp, *, store=None):
 
 
 def finish(ctx, steps):
-    """Finalize build-time workspace deltas and completed task records before retention."""
+    """@cc [owner:fontanierh,label:correctness] checkpoint-oversize-skip
+    Finalize build-time workspace deltas and completed task records before retention.
+
+    A build MUST NOT fail because its own producer manifest exceeds the manifest wire limit. That one
+    typed refusal MUST skip the new publication, leave ``ready.json`` byte-for-byte untouched and keep
+    every published action, stamp and store object, so receivers keep their previous checkpoint. Every
+    other checkpoint refusal, including the member byte total, MUST still propagate.
+    """
     if getattr(ctx, 'checkpoint_settings', None) is None:
         return
     from . import checkpoint_actions as actions
@@ -234,7 +241,12 @@ def finish(ctx, steps):
         manifest = dict(workspace, workspace_only=False, stamps=records, incremental_stamps=incremental,
                         steps=sorted({*records, *incremental}), actions=entries, files=files,
                         blob_observations={d: v for d, v in workspace['blob_observations'].items() if d in digests})
-        key = store.save(manifest)
+        try:
+            key = store.save(manifest)
+        except ManifestTooLarge as error:
+            print('checkpoint not published; receivers keep the previous checkpoint: manifest '
+                  f'{error.size} bytes, limit {error.limit} bytes', flush=True)
+            return
         atomic_json(folder(ctx.out) / 'ready.json', dict(schema=1, game=ctx.game,
                     checkout=manifest['checkout'], key=key,
                     stamps=_stamp_identities(ctx.out), observations=observations))
