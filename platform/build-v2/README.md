@@ -993,3 +993,7 @@ The engine-wide writes the T2 probes measured are named proof gaps in `build-v2-
 - the shared filesystem DDC, which a session refused for its graph may already have written at startup.
 
 D2 unused Blender op definitions and in-job bodies support the initial schema-2 MeshIR → FBX route. See [Blender op contracts](../../docs/build-v2/BLENDER_OPS.md) for ownership, frozen validation and pending native acceptance.
+
+The dormant [legacy operational epoch](../../docs/build-v2/LEGACY_EPOCH.md) adds strict control-state
+fencing and private same-scope repair demands. It has no production plan issuer, caller, repair CLI
+or bootstrap; it does not activate mixed/default builds or qualify arbitrary legacy/native work.
