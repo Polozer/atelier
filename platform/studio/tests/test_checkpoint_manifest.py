@@ -303,7 +303,8 @@ def test_unconfigured_build_does_not_acquire_checkpoint_metadata_lock(tmp_path, 
 
 def publication_limit(store, ctx, manifest_size):
     """A limit below the assembled manifest, above every file the publication re-reads."""
-    directories = (ctx.stamps, manifests.folder(ctx.out) / 'tasks', store.directory / 'actions')
+    directories = (ctx.stamps, manifests.folder(ctx.out) / 'tasks', store.directory / 'actions',
+                   store.directory / 'workspaces')
     reread = max(path.stat().st_size for directory in directories for path in directory.glob('*.json'))
     limit = (reread + manifest_size) // 2
     assert reread < limit < manifest_size, (reread, limit, manifest_size)
@@ -403,6 +404,58 @@ def test_an_oversized_manifest_that_is_also_corrupt_is_refused_not_skipped(fixtu
         manifests.finish(ctx, steps)
     assert not isinstance(caught.value, cp.ManifestTooLarge)
     assert 'certificate' in str(caught.value)
+    assert 'checkpoint not published' not in capsys.readouterr().out
+    assert sorted(fixture.store.manifests.glob('*.json')) == manifests_before
+    assert ready.read_bytes() == before
+
+
+class LateCorruption(cp.Store):
+    """A stored manifest carrying corruption that the producer's own finish cannot construct.
+
+    finish puts a finished step in exactly one of ``stamps`` and ``incremental_stamps``, and never
+    writes ``historical_stamps``, so these two manifests exist only when they come back from a store.
+    """
+
+    def __init__(self, game, directory, corruption):
+        super().__init__(game, directory)
+        self.corruption = corruption
+
+    def save(self, manifest):
+        doctored = dict(manifest)
+        name = sorted(doctored['stamps'])[0]
+        stamp = doctored['stamps'][name]
+        if self.corruption == 'incremental':
+            doctored['incremental_stamps'] = {name: stamp}
+        elif self.corruption == 'historical':
+            doctored['historical_stamps'] = {name: stamp}
+        elif self.corruption == 'certificate':
+            doctored['stamps'] = {**doctored['stamps'], name: dict(stamp, fingerprint='not-hex')}
+        else:
+            raise AssertionError(self.corruption)
+        return super().save(doctored)
+
+
+@pytest.mark.parametrize('corruption, message', [
+    ('certificate', 'invalid or touched certificate'),
+    ('incremental', 'Invalid incremental checkpoint state'),
+    ('historical', 'Invalid historical candidate evidence'),
+])
+def test_an_oversized_manifest_with_late_corruption_is_refused_not_skipped(
+        fixture, monkeypatch, capsys, corruption, message):
+    ctx, steps = prepared(fixture, monkeypatch)
+    with manifests.writer(ctx.out):
+        manifests.finish(ctx, steps)
+    ready = manifests.folder(ctx.out) / 'ready.json'
+    before = ready.read_bytes()
+    size = len(native_protocol.canonical(fixture.store.load(json.loads(before)['key'])))
+    manifests_before = sorted(fixture.store.manifests.glob('*.json'))
+    monkeypatch.setattr(manifests, 'Store',
+                        lambda game: LateCorruption(game, fixture.store.directory, corruption))
+    monkeypatch.setattr(native_protocol, 'MAX_MANIFEST', publication_limit(fixture.store, ctx, size))
+    capsys.readouterr()
+    with pytest.raises(cp.CheckpointError, match=message) as caught:
+        manifests.finish(ctx, steps)
+    assert not isinstance(caught.value, cp.ManifestTooLarge)
     assert 'checkpoint not published' not in capsys.readouterr().out
     assert sorted(fixture.store.manifests.glob('*.json')) == manifests_before
     assert ready.read_bytes() == before
