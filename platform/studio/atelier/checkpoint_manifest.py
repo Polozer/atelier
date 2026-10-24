@@ -186,7 +186,8 @@ def finish(ctx, steps):
     A build MUST NOT fail because its own producer manifest exceeds the manifest wire limit. That one
     typed refusal MUST skip the new publication, leave ``ready.json`` byte-for-byte untouched and keep
     every published action, stamp and store object, so receivers keep their previous checkpoint. Every
-    other checkpoint refusal, including the member byte total, MUST still propagate.
+    other checkpoint refusal, including the member byte total, MUST still propagate, and an oversized
+    manifest that is also corrupt MUST be refused as corruption instead of being skipped.
     """
     if getattr(ctx, 'checkpoint_settings', None) is None:
         return

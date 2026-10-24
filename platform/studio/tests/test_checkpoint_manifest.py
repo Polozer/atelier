@@ -383,6 +383,31 @@ def test_a_corrupt_certificate_is_not_a_skip(fixture, monkeypatch):
     assert not list(fixture.store.manifests.glob('*.json'))
 
 
+def test_an_oversized_manifest_that_is_also_corrupt_is_refused_not_skipped(fixture, monkeypatch, capsys):
+    ctx, steps = prepared(fixture, monkeypatch)
+    manifests.finish(ctx, steps)
+    ready = manifests.folder(ctx.out) / 'ready.json'
+    before = ready.read_bytes()
+    size = len(native_protocol.canonical(fixture.store.load(json.loads(before)['key'])))
+    # A keyless record carries its stamp straight into the manifest, so the corrupt certificate is
+    # the one `validate` sees last, after the size gate would have fired in the old ordering.
+    stamp = cp.read_json(ctx.stamps / 'tree.json'); stamp['fingerprint'] = 'not-hex'
+    atomic_json(ctx.stamps / 'tree.json', stamp)
+    record_path = manifests.folder(ctx.out) / 'tasks/tree.json'
+    record = cp.read_json(record_path); record['stamp'] = stamp; record['action'] = None
+    atomic_json(record_path, record)
+    monkeypatch.setattr(native_protocol, 'MAX_MANIFEST', publication_limit(fixture.store, ctx, size))
+    manifests_before = sorted(fixture.store.manifests.glob('*.json'))
+    capsys.readouterr()
+    with pytest.raises(cp.CheckpointError) as caught:
+        manifests.finish(ctx, steps)
+    assert not isinstance(caught.value, cp.ManifestTooLarge)
+    assert 'certificate' in str(caught.value)
+    assert 'checkpoint not published' not in capsys.readouterr().out
+    assert sorted(fixture.store.manifests.glob('*.json')) == manifests_before
+    assert ready.read_bytes() == before
+
+
 def build_project(tmp_path, monkeypatch):
     """A real build with checkpoints enabled and its commands replaced: nothing native runs."""
     repo = tmp_path.resolve(); (repo / 'uv.lock').write_text('lock')

@@ -147,13 +147,6 @@ def validate(manifest, game):
     for name in aliases:
         if any(str(p) in leaves for p in PurePosixPath(name).parents if str(p) != '.'):
             raise CheckpointError('Checkpoint file is another member\'s parent')
-    # The producer's own manifest bytes are the one size refusal a publisher may skip; the member
-    # total stays a plain error, because it describes the payload its receivers would have to fetch.
-    if total > MAX_BYTES:
-        raise CheckpointError('Checkpoint exceeds its size limit')
-    size = len(canonical(manifest))
-    if size > MAX_MANIFEST:
-        raise ManifestTooLarge(size, MAX_MANIFEST)
     incremental = manifest.get('incremental_stamps', {})
     if type(incremental) is not dict or set(incremental) & set(manifest['stamps']):
         raise CheckpointError('Invalid incremental checkpoint state')
@@ -164,6 +157,14 @@ def validate(manifest, game):
         if (not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]*', name) or type(stamp) is not dict
                 or not HEX.fullmatch(stamp.get('fingerprint', '')) or stamp.get('touched')):
             raise CheckpointError('Checkpoint contains an invalid or touched certificate')
+    # Size comes last. The producer's own manifest bytes are the one size refusal a publisher may
+    # skip, so an oversized manifest that is also corrupt MUST still be refused as corruption; the
+    # member total stays a plain error, because it describes the payload receivers would have to fetch.
+    if total > MAX_BYTES:
+        raise CheckpointError('Checkpoint exceeds its size limit')
+    size = len(canonical(manifest))
+    if size > MAX_MANIFEST:
+        raise ManifestTooLarge(size, MAX_MANIFEST)
 
 
 
