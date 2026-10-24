@@ -53,7 +53,8 @@ def main(argv=None):
     captured=capture(obj.data)
     faces=[captured['vertex_indices'][start:start+count].tolist() for start,count in zip(captured['starts'],captured['counts'])]
     groups=pieces.groups(name,captured['positions'],faces) if name in source.PARK else None
-    value=plan(obj,args.output,options=OPTIONS,face_groups=groups)
+    # Park parents carry authored face groups; the small board parts are declared whole.
+    value=plan(obj,args.output,options=OPTIONS,face_groups=groups,partition=None if groups is not None else 'whole')
     atomic_json(args.record,dict(name=name,triangles=mesh.triangles,vertices=len(mesh.verts),
         min=np.asarray(mesh.verts).min(0).round(3).tolist(),max=np.asarray(mesh.verts).max(0).round(3).tolist(),
         material_slots=[slot.name for slot in obj.data.materials],geometry_sha256=source.geometry_sha(mesh),
