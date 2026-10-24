@@ -14,6 +14,9 @@ pending/settled membership and attempt intents. These are operational bindings; 
 not task keys, content identities, installed-platform fingerprints or result authority.
 Records reject duplicate/unknown fields, positional records, aliases, invalid paths,
 inconsistent task membership and unsupported versions. The decoder is never a qualifier.
+Qualification requires at least one fresh source witness; an empty witness set cannot validate
+even a fixture plan. This unit adds Rust admission fences only. Python/v1 reader and producer
+admission integration remains an activation gate.
 
 Begin holds real same-checkout build and exclusive content guards and publishes all pending
 tasks without replacing an existing name, with file and parent fsync. Every transition checks
@@ -45,6 +48,11 @@ both SAME open file descriptions with atomic CLOEXEC. It never changes inheritab
 adopts FDs, unlocks or launches. Existing public build-guard duplication stays monitor-only.
 The future bootstrap, checkpoint writer's third SAME-OFD handle, child/external-reader coverage
 and source-update rules are separate integration obligations.
+The guards retain their original directory anchor across `CheckoutLocks` clones. Pair issuance
+checks that anchor and both current named lock inodes against the original held descriptors;
+same-path root or lock replacement cannot supply new authority.
+The pair's file fields are private and it exposes no raw-FD/pass-fd conversion. A future
+bootstrap/custodian consumer requires separate review; ordinary worker dispatch cannot extract it.
 
 Hosted portable scenarios exercise real control files, fsync transitions, record replacement,
 source/output drift, drop/resume cuts and actual flock description custody. The test-only

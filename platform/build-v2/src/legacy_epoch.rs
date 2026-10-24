@@ -115,6 +115,8 @@ impl Plan {
         }
         let mut ids = BTreeSet::new();
         let mut writes = Claims::new();
+        claim(&mut writes, "build/build-v2", "protected control metadata")
+            .map_err(|_| EpochError::Invalid)?;
         for task in &self.tasks {
             if !label(&task.id)
                 || !ids.insert(&task.id)
@@ -129,7 +131,6 @@ impl Plan {
                     .roots
                     .iter()
                     .any(|r| path.starts_with(&(r.clone() + "/")))
-                    || path.starts_with("build/build-v2/")
                 {
                     return Err(EpochError::Invalid);
                 }
@@ -264,8 +265,10 @@ fn validate_record(r: &Record) -> Result<()> {
         }
     }
     let mut attempts = BTreeSet::new();
+    let mut reports = Claims::new();
     for attempt in &r.attempts {
         safe_path(&attempt.report)?;
+        claim(&mut reports, &attempt.report, &attempt.id).map_err(|_| EpochError::Invalid)?;
         if !task_ids.contains(attempt.task.as_str())
             || !label(&attempt.id)
             || !attempts.insert(&attempt.id)
@@ -323,13 +326,14 @@ enum Cut {
     Begun,
     AttemptRecorded,
     Settled,
+    Requeued,
     CompleteRecorded,
     BarrierRemoved,
 }
 
 /// Only this module constructs permits; their lifetime retains real build AND EX guards.
-pub(crate) struct EpochPermit<'a> {
-    epoch: &'a Epoch<'a>,
+pub(crate) struct EpochPermit<'permit, 'guards> {
+    epoch: &'permit Epoch<'guards>,
 }
 pub(crate) struct Epoch<'a> {
     build: &'a BuildGuard,
@@ -360,7 +364,8 @@ impl<'a> Epoch<'a> {
     /// @cc [owner:fontanierh,label:correctness;safety] legacy-epoch-durable-state
     /// An epoch MUST publish all pending tasks before mutation under real same-root build+EX.
     /// Every durable transition MUST verify the exact previous record and assign memory only
-    /// after persistence. Faults MUST retain a reader fence; no old stamp or boolean issues proof.
+    /// after persistence. Faults BEFORE verified barrier removal MUST retain a reader fence;
+    /// no old stamp or boolean issues proof.
     /// See tests beginning with durable_cuts and strict_records in this module.
     fn begin(
         build: &'a BuildGuard,
@@ -531,7 +536,11 @@ impl<'a> Epoch<'a> {
             })
             .collect()
     }
-    fn requeue_failed(&mut self, proof: ValidatedRevalidation) -> Result<()> {
+    fn requeue_failed(
+        &mut self,
+        proof: ValidatedRevalidation,
+        mut cut: impl FnMut(Cut) -> io::Result<()>,
+    ) -> Result<()> {
         self.check_fresh(&proof.fresh)?;
         if proof.failed_tasks.is_empty()
             || proof
@@ -546,7 +555,9 @@ impl<'a> Epoch<'a> {
         next.settled
             .retain(|v| !proof.failed_tasks.contains(&v.task));
         next.pending.extend(proof.failed_tasks);
-        self.save(next)
+        self.save(next)?;
+        cut(Cut::Requeued)?;
+        Ok(())
     }
     fn finish(
         &mut self,
@@ -570,11 +581,11 @@ impl<'a> Epoch<'a> {
         cut(Cut::BarrierRemoved)?;
         Ok(())
     }
-    fn permit(&'a self) -> EpochPermit<'a> {
+    fn permit(&self) -> EpochPermit<'_, 'a> {
         EpochPermit { epoch: self }
     }
 }
-impl EpochPermit<'_> {
+impl EpochPermit<'_, '_> {
     pub(crate) fn verify(&self, build: &BuildGuard, write: &ContentWriteGuard) -> Result<()> {
         if !std::ptr::eq(build, self.epoch.build) || !std::ptr::eq(write, self.epoch.write) {
             return Err(EpochError::Changed);
@@ -1011,7 +1022,9 @@ mod tests {
             fresh: f.fresh(&e.record).unwrap(),
             failed_tasks: BTreeSet::from(["a".into()]),
         };
-        e.requeue_failed(proof).unwrap();
+        assert!(e.requeue_failed(proof, fault(Cut::Requeued)).is_err());
+        drop(e);
+        let mut e = Epoch::resume(&build, &write, &plan, &f.repair_proof().unwrap()).unwrap();
         assert_eq!(
             e.demands(),
             [
@@ -1038,6 +1051,12 @@ mod tests {
         let build = locks.try_build_exclusive().unwrap();
         let write = build.try_legacy_write_content().unwrap();
         let plan = f.qualify();
+        let mut empty = f.qualify();
+        empty.sources.clear();
+        assert!(matches!(
+            Epoch::begin(&build, &write, &empty, "empty", ok),
+            Err(EpochError::Invalid)
+        ));
         let e = Epoch::begin(&build, &write, &plan, "epoch", ok).unwrap();
         let raw = encoded(&e.record).unwrap();
         assert!(decode(&raw).is_ok());
@@ -1066,6 +1085,31 @@ mod tests {
         assert!(validate_record(&bad).is_err());
         let mut bad = e.record.clone();
         bad.plan.tasks[0].writes = vec!["../escape".into()];
+        assert!(validate_record(&bad).is_err());
+        for path in [
+            "build/build-v2",
+            "build/BUILD-V2",
+            "build/build-v2/install/journal.json",
+        ] {
+            let mut bad = e.record.clone();
+            bad.plan.roots = vec!["build".into()];
+            bad.plan.tasks[0].writes = vec![path.into()];
+            bad.plan.tasks[1].writes = vec!["build/other".into()];
+            assert!(validate_record(&bad).is_err());
+        }
+        let mut bad = e.record.clone();
+        bad.attempts = vec![
+            Attempt {
+                task: "a".into(),
+                id: "first".into(),
+                report: "reports/A.json".into(),
+            },
+            Attempt {
+                task: "b".into(),
+                id: "second".into(),
+                report: "reports/a.json".into(),
+            },
+        ];
         assert!(validate_record(&bad).is_err());
     }
 
@@ -1143,33 +1187,41 @@ mod tests {
         let build = locks.try_build_exclusive().unwrap();
         let write = build.try_legacy_write_content().unwrap();
         let plan = f.qualify();
-        let e = Epoch::begin(&build, &write, &plan, "epoch", ok).unwrap();
+        let mut e = Epoch::begin(&build, &write, &plan, "epoch", ok).unwrap();
         let unit = prepared();
-        let permit = e.permit();
         assert!(matches!(
             reader.receipt_status(&build, &unit),
             Err(InstallError::Lock(LockError::LegacyEpochIncomplete))
-        ));
-        assert!(matches!(
-            reader.receipt_status_exclusive(&build, &write, &permit, &unit),
-            Ok(CurrentStatus::NotMaterialized)
         ));
         let other = Fixture::new();
         let other_locks = other.locks();
         let other_build = other_locks.try_build_exclusive().unwrap();
         let other_write = other_build.try_legacy_write_content().unwrap();
-        assert!(permit.verify(&other_build, &other_write).is_err());
-        f.fs()
-            .replace_metadata(INSTALL_JOURNAL, b"damaged install journal")
-            .unwrap();
-        assert!(
-            reader
-                .receipt_status_exclusive(&build, &write, &permit, &unit)
-                .is_err()
-        );
+        {
+            let permit = e.permit();
+            assert!(matches!(
+                reader.receipt_status_exclusive(&build, &write, &permit, &unit),
+                Ok(CurrentStatus::NotMaterialized)
+            ));
+            assert!(permit.verify(&other_build, &other_write).is_err());
+            f.fs()
+                .replace_metadata(INSTALL_JOURNAL, b"damaged install journal")
+                .unwrap();
+            assert!(
+                reader
+                    .receipt_status_exclusive(&build, &write, &permit, &unit)
+                    .is_err()
+            );
+        }
         assert_eq!(
             f.fs().read(INSTALL_JOURNAL).unwrap(),
             b"damaged install journal"
         );
+        // Fixture-only removal of its own injected journal; production never bypasses it.
+        let own = f.fs().observe(INSTALL_JOURNAL).unwrap().unwrap();
+        f.fs().remove_owned(INSTALL_JOURNAL, &own).unwrap();
+        settle_both(&f, &mut e);
+        let proof = f.final_proof(&e.record);
+        e.finish(proof, ok).unwrap();
     }
 }

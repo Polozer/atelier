@@ -612,7 +612,9 @@ impl ReceiptReader {
         Ok(())
     }
     fn guard_root(&self, guard: &BuildGuard) -> Result<(), InstallError> {
-        if guard.root() != self.locks.root() {
+        if guard.root() != self.locks.root()
+            || !guard.matches_current_root(&self.fs.root_metadata()?)
+        {
             return Err(invalid("build guard belongs to another checkout"));
         }
         Ok(())
@@ -800,7 +802,7 @@ impl ReceiptReader {
         &self,
         guard: &BuildGuard,
         writer: &crate::checkout_locks::ContentWriteGuard,
-        permit: &crate::legacy_epoch::EpochPermit<'_>,
+        permit: &crate::legacy_epoch::EpochPermit<'_, '_>,
         unit: &PreparedUnit,
     ) -> Result<CurrentStatus, InstallError> {
         self.guard_root(guard)?;
