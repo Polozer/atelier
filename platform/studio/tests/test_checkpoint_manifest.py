@@ -311,6 +311,23 @@ def publication_limit(store, ctx, manifest_size):
     return limit
 
 
+class CapBelow(cp.Store):
+    """Set the limit one byte below the manifest the run actually assembles.
+
+    A run that drops a step assembles a smaller candidate than the store's previous manifest, so a
+    cap derived from that older, bigger manifest can sit above the candidate and let it publish.
+    """
+
+    def __init__(self, game, directory, monkeypatch):
+        super().__init__(game, directory)
+        self.monkeypatch, self.sizes = monkeypatch, []
+
+    def save(self, manifest):
+        self.sizes.append(len(native_protocol.canonical(manifest)))
+        self.monkeypatch.setattr(native_protocol, 'MAX_MANIFEST', self.sizes[-1] - 1)
+        return super().save(manifest)
+
+
 def test_a_manifest_that_fits_is_published(fixture, monkeypatch):
     ctx, _ = published(fixture, monkeypatch)
     ready = json.loads((manifests.folder(ctx.out) / 'ready.json').read_text())
@@ -462,11 +479,7 @@ def test_an_oversized_manifest_with_late_corruption_is_refused_not_skipped(
 
 
 def build_project(tmp_path, monkeypatch):
-    """A real build with checkpoints enabled and its commands replaced: nothing native runs.
-
-    ``steady`` is never edited, so its up-to-date pass supplies the retention record that keeps a
-    publication attempted when another step fails and its own stamp is dropped.
-    """
+    """A real build with checkpoints enabled and its commands replaced: nothing native runs."""
     repo = tmp_path.resolve(); (repo / 'uv.lock').write_text('lock')
     monkeypatch.setattr(paths, 'REPO', repo)
     monkeypatch.setattr(paths, 'ENGINE_PLUGINS', repo / 'plugins')
@@ -475,7 +488,7 @@ def build_project(tmp_path, monkeypatch):
     ctx = SimpleNamespace(game='fixture', out=repo / 'build/fixture', logs=repo / 'build/fixture/logs',
                           stamps=repo / 'build/fixture/stamps', cook_mode=build.CookMode.DEFAULT)
     steps = []
-    for name in ('mesh', 'extra', 'steady'):
+    for name in ('mesh', 'extra'):
         source = repo / (name + '.txt'); source.write_text(name)
         script = repo / (name + '.py'); script.write_text('# ' + name)
         steps.append(build.Step(name, [build.Python(script)], inputs=[source],
@@ -524,8 +537,9 @@ def test_a_skipped_publication_never_turns_a_failure_into_success(tmp_path, monk
     ready = manifests.folder(p.ctx.out) / 'ready.json'
     before = ready.read_bytes()
     store = cp.Store('fixture')
-    size = len(native_protocol.canonical(store.load(json.loads(before)['key'])))
-    monkeypatch.setattr(native_protocol, 'MAX_MANIFEST', publication_limit(store, p.ctx, size))
+    manifests_before = sorted(store.manifests.glob('*.json'))
+    capped = CapBelow('fixture', store.directory, monkeypatch)
+    monkeypatch.setattr(manifests, 'Store', lambda game: capped)
     p.behaviour['extra'] = RuntimeError('fixture failure')
     (p.repo / 'mesh.txt').write_text('changed mesh')
     (p.repo / 'extra.txt').write_text('changed extra')
@@ -533,4 +547,6 @@ def test_a_skipped_publication_never_turns_a_failure_into_success(tmp_path, monk
     assert p.run() == 1, p.messages
     out = capsys.readouterr().out
     assert 'checkpoint not published; receivers keep the previous checkpoint' in out, p.messages
+    assert capped.sizes, 'the failing run must still assemble a candidate manifest'
+    assert sorted(store.manifests.glob('*.json')) == manifests_before
     assert ready.read_bytes() == before
