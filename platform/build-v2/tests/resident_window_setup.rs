@@ -9,14 +9,17 @@
 #[path = "support/resident_setup.rs"]
 mod setup;
 
+use atelier_build_v2::failure_policy::Limits;
 use atelier_build_v2::launch::PYTHON_JOB_LOOP_VERSION;
 use atelier_build_v2::leases::{LeaseStore, ProcessIdentity};
 use atelier_build_v2::python_backend::register_python_worker;
+use atelier_build_v2::session_lifecycle::{Refusal, UnitPlan};
 use atelier_build_v2::worker_lifecycle::{JobSandbox, LockScope};
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 struct Scratch(PathBuf);
 impl Scratch {
@@ -41,15 +44,6 @@ fn on_disk(store: &LeaseStore, id: &str) -> bool {
         .and_then(|guard| guard.leases())
         .is_ok_and(|records| records.iter().any(|record| record.id == id))
 }
-
-/// The example's cases, as (unit id, declared unit) pairs.
-const CASES: [(&str, &[(&str, &str)]); 5] = [
-    ("s1-single", &[("a", "a")]),
-    ("s2-reuse", &[("b", "b"), ("a", "a")]),
-    ("s3-aba", &[("a1", "a"), ("b", "b"), ("a2", "a")]),
-    ("s5-cancel", &[("spin", "spin")]),
-    ("s6-originals", &[("a", "a")]),
-];
 
 #[test]
 fn the_resident_window_setup_binds_every_input_without_launching() {
@@ -97,7 +91,7 @@ fn the_resident_window_setup_binds_every_input_without_launching() {
         boot: "setup-test".into(),
         started: "setup-test-monitor".into(),
     };
-    for (case, units) in CASES {
+    for (case, units) in setup::CASE_UNITS {
         let root = scratch.0.join(case);
         fs::create_dir(&root).unwrap();
         let mut bound = setup::case_setup(&world, &owner, &root, units)
@@ -150,4 +144,38 @@ fn the_resident_window_setup_binds_every_input_without_launching() {
         drop(bound);
         assert!(!setup::installer_busy(&checkout), "{case}");
     }
+}
+
+#[test]
+fn the_session_lifecycle_accepts_every_resident_window_case() {
+    // The exact limits the example runs with, then every case's exact plans in order through the
+    // production refusal path (the same preflight the example runs before each case): no refusal
+    // of any kind (closed, duplicate, cleanup below quiescence, never fits). Run 2 refused its
+    // first unit here.
+    assert_eq!(setup::UNIT_LIMITS.cleanup, Duration::from_secs(80));
+    assert_eq!(setup::SESSION_CLEANUP, Duration::from_secs(60));
+    assert_eq!(setup::QUIESCENCE, Duration::from_secs(10));
+    for (case, units) in setup::CASE_UNITS {
+        assert_eq!(
+            setup::preflight(setup::session_config(), &setup::case_plans(units)),
+            Ok(()),
+            "{case}"
+        );
+    }
+    // The inverse: run 2's unit cleanup (60 s, equal to the session's own cleanup limit) is
+    // refused by the same path, with its typed reason and text.
+    let plan = UnitPlan {
+        id: "a".into(),
+        limits: Limits {
+            cleanup: Duration::from_secs(60),
+            ..setup::UNIT_LIMITS
+        },
+    };
+    let refused = setup::preflight(setup::session_config(), &[plan]).unwrap_err();
+    assert!(
+        refused.iter().any(|refused| refused.unit == "a"
+            && refused.reason == Some(Refusal::CleanupBelowQuiescence)
+            && refused.text == Refusal::CleanupBelowQuiescence.reason()),
+        "{refused:?}"
+    );
 }

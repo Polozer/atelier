@@ -46,24 +46,30 @@
 //! The cases run in order and stop at the first failing case. DIR/evidence.json is rewritten
 //! after every case and on any setup failure (`passed: false` with its problems); every attempt
 //! folder is kept. The 1800 s sequence deadline below is this program's own limit; the caller's
-//! outer cleanup timeout (2400 s) is a separate limit. The result certifies only the resident
+//! outer cleanup timeout (2400 s) is a separate limit. The limits are shared with the hosted test
+//! (`tests/support/resident_setup.rs`): per unit, job 120 s, cleanup 80 s and overall 300 s; per
+//! session, cleanup 60 s, quiescence 10 s, lifetime 600 s and idle 3 s; 10 GiB per admission.
+//! Before each case folder or launch, every plan goes through the pure session lifecycle's own
+//! refusal path (the preflight the hosted test also runs); any refusal fails the case verbatim. The result certifies only the resident
 //! session, Q3 retention and the B3 custody seam: not MAC1, orphan or GC behaviour, nor the
 //! production A9 constructor.
 #[path = "../tests/support/resident_setup.rs"]
 mod setup;
 
-use atelier_build_v2::failure_policy::{End, Limits, Stop};
+use atelier_build_v2::failure_policy::{End, Stop};
 use atelier_build_v2::guard_adapter::GuardedLauncher;
 use atelier_build_v2::leases::ProcessIdentity;
 use atelier_build_v2::python_backend::register_python_worker;
-use atelier_build_v2::session_lifecycle::{SessionConfig, UnitPlan, UnitRecord};
+use atelier_build_v2::session_lifecycle::UnitRecord;
 use atelier_build_v2::worker_lifecycle::{
     CleanupCorrelation, Custody, SessionSpec, SessionUnit, SystemClock, cleanup_confirmed,
     run_session_prepared, session_channel,
 };
 use serde_json::{Value, json};
 use setup::{
-    CaseSetup, MEMORY_GIB, World, case_setup, installer_busy, lease_holds, reader_admitted,
+    CASE_UNITS, CaseSetup, IDLE, MEMORY_GIB, QUIESCENCE, SESSION_CLEANUP, SESSION_LIFETIME,
+    UNIT_LIMITS, World, case_setup, installer_busy, lease_holds, preflight, reader_admitted,
+    session_config, unit_plan,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -77,17 +83,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// One enclosing deadline over the whole sequence of cases (the caller's outer cleanup timeout,
 /// 2400 s, is separate).
 const SEQUENCE_DEADLINE: Duration = Duration::from_secs(1800);
-/// Per-unit limits: work, cleanup, and the unit's own deadline from submission (its queue wait
-/// included).
-const UNIT_LIMITS: Limits = Limits {
-    job: Duration::from_secs(120),
-    cleanup: Duration::from_secs(60),
-    overall: Some(Duration::from_secs(300)),
-};
-/// How long an idle, open session keeps its worker.
-const IDLE: Duration = Duration::from_secs(3);
-/// Quiescence evidence must arrive within this bound of a unit's terminal reply.
-const QUIESCENCE: Duration = Duration::from_secs(10);
 /// S5 waits at most this long, after the spinning unit's monitor registration, for the job's
 /// running marker.
 const MARKER_WAIT: Duration = Duration::from_secs(30);
@@ -220,40 +215,28 @@ struct Case {
     sessions: usize,
 }
 
+/// The cases, with their units and order from the setup shared with
+/// `tests/resident_window_setup.rs`, which submits the same plans to the session lifecycle.
 fn cases() -> Vec<Case> {
-    let done = || End::Completed;
-    vec![
-        Case {
-            name: "s1-single",
-            kind: Kind::Batch,
-            units: vec![("a", "a", done())],
-            sessions: 1,
-        },
-        Case {
-            name: "s2-reuse",
-            kind: Kind::Batch,
-            units: vec![("b", "b", done()), ("a", "a", done())],
-            sessions: 1,
-        },
-        Case {
-            name: "s3-aba",
-            kind: Kind::Batch,
-            units: vec![("a1", "a", done()), ("b", "b", done()), ("a2", "a", done())],
-            sessions: 1,
-        },
-        Case {
-            name: "s5-cancel",
-            kind: Kind::Cancel,
-            units: vec![("spin", "spin", End::Failed(Stop::Cancelled))],
-            sessions: 1,
-        },
-        Case {
-            name: "s6-originals",
-            kind: Kind::DropOriginals,
-            units: vec![("a", "a", done())],
-            sessions: 1,
-        },
-    ]
+    CASE_UNITS
+        .iter()
+        .map(|(name, units)| {
+            let (kind, end) = match *name {
+                "s5-cancel" => (Kind::Cancel, End::Failed(Stop::Cancelled)),
+                "s6-originals" => (Kind::DropOriginals, End::Completed),
+                _ => (Kind::Batch, End::Completed),
+            };
+            Case {
+                name,
+                kind,
+                units: units
+                    .iter()
+                    .map(|(unit, declared)| (*unit, *declared, end.clone()))
+                    .collect(),
+                sessions: 1,
+            }
+        })
+        .collect()
 }
 
 /// What every case shares: the setup's world, plus this controller's interpreter and identity.
@@ -323,13 +306,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
     let spec = SessionSpec {
         key: key.clone(),
         purpose: format!("build-v2 C5c resident window: {}", case.name),
-        config: SessionConfig {
-            cleanup: UNIT_LIMITS.cleanup,
-            lifetime: Duration::from_secs(600),
-            idle: IDLE,
-            quiescence: Some(QUIESCENCE),
-            custodian: true,
-        },
+        config: session_config(),
         report_root: reports.clone(),
         custody,
     };
@@ -342,10 +319,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
         .units
         .iter()
         .map(|(unit, declared, _)| SessionUnit {
-            plan: UnitPlan {
-                id: unit.to_string(),
-                limits: UNIT_LIMITS,
-            },
+            plan: unit_plan(unit),
             job: world.prepared[*declared].request(unit, &format!("/jobs/{unit}")),
             key: key.clone(),
         })
@@ -683,6 +657,24 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
         }
     };
 
+    // A refused unit never runs: each refusal is evidence, and fails the case with its reason.
+    let refusals: Vec<Value> = report
+        .refused
+        .iter()
+        .map(|record| {
+            json!({"unit": record.unit, "refusal": record.refused.map(|r| format!("{r:?}")),
+                   "reason": record.abort})
+        })
+        .collect();
+    for record in &report.refused {
+        problems.push(format!(
+            "{}: refused: {:?} ({})",
+            record.unit,
+            record.refused,
+            record.abort.as_deref().unwrap_or("")
+        ));
+    }
+
     // Per-unit expected outcomes, each settled by its own receipt or quiescence evidence.
     let mut units_evidence = vec![];
     for (unit, _, expected) in &case.units {
@@ -915,6 +907,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
     if children {
         problems.push("this controller still has children".into());
     }
+    evidence["refused"] = json!(refusals);
     evidence["units"] = json!(units_evidence);
     evidence["sessions"] = json!(sessions_evidence);
     evidence["registrations"] = json!(registrations);
@@ -983,7 +976,8 @@ fn summary(proof: Option<&Proof>, problems: &[String], cases: &[Value], complete
             "unit_job_seconds": UNIT_LIMITS.job.as_secs(),
             "unit_cleanup_seconds": UNIT_LIMITS.cleanup.as_secs(),
             "unit_overall_seconds": UNIT_LIMITS.overall.map(|d| d.as_secs()),
-            "session_lifetime_seconds": 600, "idle_seconds": IDLE.as_secs(),
+            "session_cleanup_seconds": SESSION_CLEANUP.as_secs(),
+            "session_lifetime_seconds": SESSION_LIFETIME.as_secs(), "idle_seconds": IDLE.as_secs(),
             "quiescence_seconds": QUIESCENCE.as_secs(),
             "sequence_deadline_seconds": SEQUENCE_DEADLINE.as_secs(),
         },
@@ -1062,6 +1056,40 @@ fn main() -> ExitCode {
             continue;
         }
         let root = out.join(case.name);
+        // The same pure preflight the hosted test runs, before any case folder or launch: a
+        // unit the session would refuse fails the case at once, with every refusal verbatim.
+        let plans: Vec<_> = case
+            .units
+            .iter()
+            .map(|(unit, _, _)| unit_plan(unit))
+            .collect();
+        if let Err(refused) = preflight(session_config(), &plans) {
+            let refusals: Vec<Value> = refused
+                .iter()
+                .map(|r| {
+                    json!({"unit": r.unit, "refusal": r.reason.map(|x| format!("{x:?}")),
+                           "reason": r.text})
+                })
+                .collect();
+            let case_problems: Vec<String> = refused
+                .iter()
+                .map(|r| {
+                    format!(
+                        "preflight: {}: refused: {:?} ({})",
+                        r.unit, r.reason, r.text
+                    )
+                })
+                .collect();
+            problems.push(format!("{}: failed", case.name));
+            println!("{}: FAIL (preflight)", case.name);
+            cases_evidence.push(json!({"case": case.name, "preflight_refused": refusals,
+                                       "problems": case_problems}));
+            write_evidence(
+                &out,
+                &summary(Some(&proof), &problems, &cases_evidence, false),
+            );
+            continue;
+        }
         let result = fs::create_dir(&root)
             .map_err(|error| format!("cannot create the case folder: {error}"))
             .and_then(|()| {

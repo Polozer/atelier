@@ -6,6 +6,7 @@
 
 use atelier_build_v2::checkout_locks::{BuildGuard, CheckoutLocks, ContentReadGuard};
 use atelier_build_v2::completion::CompletionWork;
+use atelier_build_v2::failure_policy::{Limits, MonoTime};
 use atelier_build_v2::guard_adapter::WorkerCommand;
 use atelier_build_v2::install::{InstallPolicy, LeaseIdentity, ProjectNamespace, ReceiptReader};
 use atelier_build_v2::keys::{ImplementationIdentity, KeyContext, PreparedUnit, prepare};
@@ -16,6 +17,9 @@ use atelier_build_v2::results::{ResultStore, WriteTransaction};
 use atelier_build_v2::schema::{
     Declaration, Destination, Item, Op, OutputFile, Provenance, SCHEMA_VERSION, Unit,
 };
+use atelier_build_v2::session_lifecycle::{
+    Refusal, SessionCommand, SessionConfig, SessionInput, SessionLifecycle, UnitPlan, UnitRecord,
+};
 use atelier_build_v2::source_hashes::SourceHashCache;
 use atelier_build_v2::validate::{OpDefinition, SnapshotEntry, SourceSnapshot, validate};
 use atelier_build_v2::worker_lifecycle::{CustodyIdentity, JobSandbox, LockScope, SessionKey};
@@ -24,6 +28,123 @@ use std::fs::{self, File};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// Per-unit limits: work, cleanup, and the unit's own deadline from submission (its queue wait
+/// included). The cleanup limit covers the quiescence bound plus the session's own cleanup limit,
+/// as the session lifecycle requires (`Refusal::CleanupBelowQuiescence`).
+pub const UNIT_LIMITS: Limits = Limits {
+    job: Duration::from_secs(120),
+    cleanup: Duration::from_secs(80),
+    overall: Some(Duration::from_secs(300)),
+};
+/// The session's own cleanup limit, after it stops or shuts down.
+pub const SESSION_CLEANUP: Duration = Duration::from_secs(60);
+/// How long one session may live.
+pub const SESSION_LIFETIME: Duration = Duration::from_secs(600);
+/// How long an idle, open session keeps its worker.
+pub const IDLE: Duration = Duration::from_secs(3);
+/// Quiescence evidence must arrive within this bound of a unit's terminal reply.
+pub const QUIESCENCE: Duration = Duration::from_secs(10);
+/// Each case's name and its units in submission order, as (unit id, declared unit).
+pub const CASE_UNITS: [(&str, &[(&str, &str)]); 5] = [
+    ("s1-single", &[("a", "a")]),
+    ("s2-reuse", &[("b", "b"), ("a", "a")]),
+    ("s3-aba", &[("a1", "a"), ("b", "b"), ("a2", "a")]),
+    ("s5-cancel", &[("spin", "spin")]),
+    ("s6-originals", &[("a", "a")]),
+];
+
+/// The session configuration every case runs with.
+pub fn session_config() -> SessionConfig {
+    SessionConfig {
+        cleanup: SESSION_CLEANUP,
+        lifetime: SESSION_LIFETIME,
+        idle: IDLE,
+        quiescence: Some(QUIESCENCE),
+        custodian: true,
+    }
+}
+
+/// The plan every case submits for `unit`.
+pub fn unit_plan(unit: &str) -> UnitPlan {
+    UnitPlan {
+        id: unit.to_string(),
+        limits: UNIT_LIMITS,
+    }
+}
+
+/// Every case's plans, in submission order.
+pub fn case_plans(units: &[(&str, &str)]) -> Vec<UnitPlan> {
+    units.iter().map(|(unit, _)| unit_plan(unit)).collect()
+}
+
+/// One unit the session lifecycle would refuse, as the session reports it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Refused {
+    pub unit: String,
+    /// The typed reason; `None` when the lifecycle failed instead of refusing.
+    pub reason: Option<Refusal>,
+    /// The refusal's own text (the record's `abort`), or the lifecycle error.
+    pub text: String,
+}
+
+/// The preflight both the example (before any case folder or launch) and the hosted test run:
+/// the exact limits (unit cleanup 80 s, session cleanup 60 s, quiescence 10 s), then every plan
+/// submitted in order to the pure production session lifecycle with `config`, through its own
+/// refusal path. Returns every refusal, verbatim.
+pub fn preflight(config: SessionConfig, plans: &[UnitPlan]) -> Result<(), Vec<Refused>> {
+    let mut refused = vec![];
+    let tuple = |text: String| Refused {
+        unit: String::new(),
+        reason: None,
+        text,
+    };
+    if config.cleanup != Duration::from_secs(60)
+        || config.quiescence != Some(Duration::from_secs(10))
+    {
+        refused.push(tuple(format!(
+            "session limits are not cleanup 60 s and quiescence 10 s: {config:?}"
+        )));
+    }
+    for plan in plans {
+        if plan.limits.cleanup != Duration::from_secs(80) {
+            refused.push(Refused {
+                unit: plan.id.clone(),
+                reason: None,
+                text: format!("unit cleanup is not 80 s: {:?}", plan.limits),
+            });
+        }
+    }
+    let at = MonoTime::from_elapsed(Duration::ZERO);
+    let mut lifecycle = SessionLifecycle::new(config);
+    for plan in plans {
+        match lifecycle.on(at, SessionInput::Submit(plan.clone())) {
+            Ok(commands) => {
+                for command in commands {
+                    if let SessionCommand::Refused { unit, reason } = command {
+                        let record = UnitRecord::refused(unit.clone(), reason);
+                        refused.push(Refused {
+                            unit,
+                            reason: Some(reason),
+                            text: record.abort.unwrap_or_default(),
+                        });
+                    }
+                }
+            }
+            Err(error) => refused.push(Refused {
+                unit: plan.id.clone(),
+                reason: None,
+                text: format!("{error:?}"),
+            }),
+        }
+    }
+    if refused.is_empty() {
+        Ok(())
+    } else {
+        Err(refused)
+    }
+}
 
 /// The admission ceiling of one session: the full job profile, as in the C5b/C7 window.
 pub const MEMORY_GIB: u32 = 10;
