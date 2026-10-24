@@ -183,11 +183,14 @@ def finish(ctx, steps):
     """@cc [owner:fontanierh,label:correctness] checkpoint-oversize-skip
     Finalize build-time workspace deltas and completed task records before retention.
 
-    A build MUST NOT fail because its own producer manifest exceeds the manifest wire limit. That one
-    typed refusal MUST skip the new publication, leave ``ready.json`` byte-for-byte untouched and keep
-    every published action, stamp and store object, so receivers keep their previous checkpoint. Every
-    other checkpoint refusal, including the member byte total, MUST still propagate, and an oversized
-    manifest that is also corrupt MUST be refused as corruption instead of being skipped.
+    The final aggregate publication manifest, assembled only after the workspace manifest has been
+    validated, MUST NOT fail the task because its own bytes exceed the manifest wire limit. That one
+    typed refusal MUST skip this publication, leave ``ready.json`` byte-for-byte untouched and keep
+    every published action, stamp and store object, so receivers keep their previous checkpoint.
+    Workspace manifests are NOT covered by that skip: they remain subject to the existing fatal
+    64 MiB limit, in both ``record`` and here. Every other checkpoint refusal, including the member
+    byte total, MUST still propagate, and an oversized manifest that is also corrupt MUST be refused
+    as corruption instead of being skipped.
     """
     if getattr(ctx, 'checkpoint_settings', None) is None:
         return
