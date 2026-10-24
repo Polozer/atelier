@@ -74,6 +74,31 @@ pub fn unit_plan(unit: &str) -> UnitPlan {
     }
 }
 
+/// The job's output root inside its attempt folder (`jobs/<unit>-<attempt>`): the Python job
+/// loop writes every declared output path relative to it.
+pub const OUTPUT_ROOT: &str = "output";
+/// Every unit's one declared output, relative to the job's output root. The spin op writes it as
+/// its first action, so it is also the running marker.
+pub const MARKER_PATH: &str = "output/piece.txt";
+
+/// Where the attempt staged in `job` (a `jobs/<unit>-<attempt>` folder) writes its declared
+/// output.
+pub fn job_output(job: &Path) -> PathBuf {
+    job.join(OUTPUT_ROOT).join(MARKER_PATH)
+}
+
+/// The running marker of `unit`'s job in `jobs`: its declared output, once it starts with
+/// `started`.
+pub fn running_marker(jobs: &Path, unit: &str) -> Option<PathBuf> {
+    let prefix = format!("{unit}-");
+    fs::read_dir(jobs)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|entry| job_output(&entry.path()))
+        .find(|path| fs::read(path).is_ok_and(|bytes| bytes.starts_with(b"started")))
+}
+
 /// Every case's plans, in submission order.
 pub fn case_plans(units: &[(&str, &str)]) -> Vec<UnitPlan> {
     units.iter().map(|(unit, _)| unit_plan(unit)).collect()
@@ -196,7 +221,7 @@ pub fn declaration() -> Declaration {
             class: "Blob".into(),
             destination: Destination::Store,
             files: vec![OutputFile {
-                path: "output/piece.txt".into(),
+                path: MARKER_PATH.into(),
                 install_path: None,
                 required: true,
             }],

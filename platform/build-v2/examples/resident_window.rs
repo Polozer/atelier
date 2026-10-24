@@ -67,9 +67,9 @@ use atelier_build_v2::worker_lifecycle::{
 };
 use serde_json::{Value, json};
 use setup::{
-    CASE_UNITS, CaseSetup, IDLE, MEMORY_GIB, QUIESCENCE, SESSION_CLEANUP, SESSION_LIFETIME,
-    UNIT_LIMITS, World, case_setup, installer_busy, lease_holds, preflight, reader_admitted,
-    session_config, unit_plan,
+    CASE_UNITS, CaseSetup, IDLE, MEMORY_GIB, OUTPUT_ROOT, QUIESCENCE, SESSION_CLEANUP,
+    SESSION_LIFETIME, UNIT_LIMITS, World, case_setup, installer_busy, job_output, lease_holds,
+    preflight, reader_admitted, running_marker, session_config, unit_plan,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -173,18 +173,6 @@ fn no_children() -> bool {
     let flags = libc::WEXITED | libc::WNOHANG | libc::WNOWAIT;
     let found = unsafe { libc::waitid(libc::P_ALL, 0, &mut info, flags) };
     found == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ECHILD)
-}
-
-/// The running marker of `unit`'s job: its declared output, which the spin op writes as its
-/// first action, inside the attempt folder `prepare` staged (`jobs/<unit>-<attempt>`).
-fn running_marker(jobs: &Path, unit: &str) -> Option<PathBuf> {
-    let prefix = format!("{unit}-");
-    fs::read_dir(jobs)
-        .ok()?
-        .flatten()
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
-        .map(|entry| entry.path().join("output/piece.txt"))
-        .find(|path| fs::read(path).is_ok_and(|bytes| bytes.starts_with(b"started")))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -515,7 +503,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                 let prepared = &world.prepared[*declared];
                 let folder = jobs.join(format!("{unit}-{attempt}"));
                 fs::create_dir(&folder).map_err(|error| error.to_string())?;
-                fs::create_dir(folder.join("output")).map_err(|error| error.to_string())?;
+                fs::create_dir(folder.join(OUTPUT_ROOT)).map_err(|error| error.to_string())?;
                 let request = prepared.request(unit, &folder.display().to_string());
                 for code in &request.code {
                     let bytes = world
@@ -824,9 +812,7 @@ fn run_case(proof: &Proof, case: &Case, root: &Path) -> Result<Value, String> {
                 .find(|session| session.attempt == attempt.session);
             let folder = reports.join(format!("attempt-{}", attempt.session));
             let correlation = CleanupCorrelation::read(&folder).ok();
-            let output = jobs
-                .join(format!("{}-{}", record.unit, attempt.attempt))
-                .join("output/piece.txt");
+            let output = job_output(&jobs.join(format!("{}-{}", record.unit, attempt.attempt)));
             let first_write = fs::metadata(&output).and_then(|m| m.modified()).ok();
             let worker_is_session = worker
                 .as_ref()

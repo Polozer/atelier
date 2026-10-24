@@ -179,3 +179,32 @@ fn the_session_lifecycle_accepts_every_resident_window_case() {
         "{refused:?}"
     );
 }
+
+#[test]
+fn the_running_marker_is_found_only_where_the_job_writes_its_output() {
+    // The resolver the example uses, on the layout run 3 retained:
+    // jobs/<unit>-<attempt>/<OUTPUT_ROOT>/<MARKER_PATH>. Files only: no runner or process. Its
+    // own folder, since the setup test's scratch folder is named by this process.
+    let path =
+        std::env::temp_dir().join(format!("atelier-v2-resident-marker-{}", std::process::id()));
+    fs::create_dir(&path).unwrap();
+    let scratch = Scratch(path.canonicalize().unwrap());
+    let jobs = scratch.0.join("jobs");
+    let marker = jobs
+        .join("spin-1")
+        .join(setup::OUTPUT_ROOT)
+        .join(setup::MARKER_PATH);
+    assert_eq!(marker, setup::job_output(&jobs.join("spin-1")));
+    assert!(marker.ends_with("spin-1/output/output/piece.txt"));
+    // The layout run 3 looked for, one level short, is never taken for the marker.
+    let short = jobs.join("spin-1/output/piece.txt");
+    fs::create_dir_all(short.parent().unwrap()).unwrap();
+    fs::write(&short, b"started").unwrap();
+    assert_eq!(setup::running_marker(&jobs, "spin"), None);
+    // Nor is a marker that has not started.
+    fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    fs::write(&marker, b"").unwrap();
+    assert_eq!(setup::running_marker(&jobs, "spin"), None);
+    fs::write(&marker, b"started\n").unwrap();
+    assert_eq!(setup::running_marker(&jobs, "spin"), Some(marker));
+}
