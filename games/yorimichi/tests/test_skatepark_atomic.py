@@ -157,3 +157,21 @@ def test_roundtrip_counts_exact_shared_index_opposite_faces_without_changing_exp
     assert piece['faces']==faces and piece['triangles']==5
     # Coordinate-coincident but independently indexed faces remain independent.
     assert source.imported_triangle_count(dict(faces=[[0,1,2],[3,4,5]]))==2
+
+
+def test_every_logical_plan_call_declares_its_partition_policy():
+    # region_mesh_parts.plan refuses a planner without face groups unless it declares 'whole' or 'spatial',
+    # and that refusal only surfaces when the planner runs under Blender, so check every call site here.
+    import ast
+    missing=[]
+    for path in sorted((GAME/'world').rglob('*.py')):
+        tree=ast.parse(path.read_text())
+        if not any(isinstance(n,ast.ImportFrom) and n.module and n.module.endswith('region_mesh_parts')
+                   and any(a.name=='plan' for a in n.names) for n in ast.walk(tree)):continue
+        for call in ast.walk(tree):
+            if isinstance(call,ast.Call) and isinstance(call.func,ast.Name) and call.func.id=='plan':
+                keys={k.arg:k.value for k in call.keywords}
+                # Literal or computed groups are always present; a bare variable may be None.
+                if 'partition' not in keys and not isinstance(keys.get('face_groups'),(ast.List,ast.Call)):
+                    missing.append(f'{path.relative_to(GAME)}:{call.lineno}')
+    assert not missing,missing

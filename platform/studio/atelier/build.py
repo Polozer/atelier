@@ -312,6 +312,9 @@ class UnrealScript:
     def _argv(self, ctx, project, script):
         command = [str(ctx.unreal_cmd), str(project), '-run=pythonscript', f'-script={script}',
                    '-unattended', '-nop4', '-nosplash', '-stdout', '-AllowStdOutLogVerbosity']   # unreal.log lines reach stdout
+        # A fresh FBX create opens the MessageLog tab on warnings; a commandlet has no Slate application and asserts on Mac.
+        # The warnings stay in the log.
+        command.append('-ini:Engine:[ConsoleVariables]:MessageLog.DisablePopup=1')
         return command + (['-NullRHI'] if self.null_rhi else []) + list(self.args)
 
 
