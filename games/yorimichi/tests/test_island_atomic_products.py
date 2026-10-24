@@ -28,7 +28,7 @@ def fixture(out):
         receipts.append(dict(schema=1, asset=key, primary=path.name, sha256=sha(path), triangles=1,
             bounds=[tile['min'], tile['max']], metadata=dict(slots=slots, collision_hulls=0, polygons=1,
                                                           uv_channels=['UVMap'], geometry_sha256='a'*64)))
-        sources[key] = dict(used_slots=slots, export_slots=slots, geometry_sha256='a'*64)
+        sources[key] = dict(used_slots=slots, export_slots=slots, geometry_sha256='a'*64, uv_channels=['UVMap'])
     logical = dict(schema=1, parents=parents, ownership=owners, exports=roster)
     manifest = dict(schema=1, complete=True, exports=receipts)
     terrain = out / 'terrain'; terrain.mkdir()
@@ -51,6 +51,20 @@ def test_complete_roster_keeps_native_pieces_separate_and_ocean_nonblocking(tmp_
     assert all(row['asset'].startswith(products.DESTINATION + '/')
                for group in groups.values() for row in group['pieces'])
     assert products.native_bounds(dict(min=[-1., -2., -3.], max=[4., 5., 6.])) == ([-100., -500., -300.], [400., 200., 600.])
+
+
+def test_uv_less_source_pieces_are_received_as_built(tmp_path):
+    """Guardrail and Wires are built without UVs, as in their immutable predecessor: the receipt must say the same."""
+    logical, manifest, write = fixture(tmp_path)
+    receiving = tmp_path / 'terrain/island-receiving.json'
+    data = json.loads(receiving.read_text()); data['pieces']['Road']['uv_channels'] = []
+    receiving.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match='receipt'):          # a receipt claiming a UVMap the source never had
+        products.read(tmp_path)
+    next(row for row in manifest['exports'] if row['asset'] == 'Road')['metadata']['uv_channels'] = []
+    write()
+    road = products.read(tmp_path)['Road']['pieces'][0]
+    assert road['uv_channels'] == []
 
 
 @pytest.mark.parametrize('kind', ['missing', 'extra', 'linked', 'changed', 'slots', 'count', 'uv',

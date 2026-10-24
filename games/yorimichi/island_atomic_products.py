@@ -66,7 +66,8 @@ def source_metadata(out):
             meta, piece = mesh_ir.decode((root / row['payload']).read_bytes())
             used = {int(index) for index in piece['materials']}
             records[row['name']] = dict(geometry_sha256=row['sha256'], export_slots=meta['slots'],
-                used_slots=[slot for i, slot in enumerate(meta['slots']) if i in used])
+                used_slots=[slot for i, slot in enumerate(meta['slots']) if i in used],
+                uv_channels=[name for name, _ in piece['uvs']])
     return dict(schema=1, complete=True, pieces=records)
 
 
@@ -136,7 +137,8 @@ def read(out):
             if (receipt.get('schema') != 1 or receipt.get('primary') != key + '.fbx'
                     or receipt.get('triangles') != triangles or receipt.get('bounds') != bounds
                     or metadata.get('slots') != source.get('export_slots') or metadata.get('collision_hulls') != 0
-                    or metadata.get('polygons') != piece['polygons'] or metadata.get('uv_channels') != ['UVMap']
+                    or metadata.get('polygons') != piece['polygons']
+                    or metadata.get('uv_channels') != source.get('uv_channels') or source['uv_channels'] not in ([], ['UVMap'])
                     or metadata.get('geometry_sha256') != source.get('geometry_sha256')
                     or not isinstance(source.get('geometry_sha256'), str)
                     or not re.fullmatch('[0-9a-f]{64}', source['geometry_sha256'])

@@ -90,7 +90,8 @@ def receive(out=None):
             bounds = mesh.get_bounding_box(); lower, upper = native_bounds(row)
             for axis, low, high in zip(('x', 'y', 'z'), lower, upper):
                 assert abs(getattr(bounds.min, axis)-low) < .2 and abs(getattr(bounds.max, axis)-high) < .2, (row['name'], axis, 'bounds')
-            assert editor.get_num_uv_channels(mesh, 0) == len(row['uv_channels']) == 1, (row['name'], 'UV channels')
+            # Guardrail and Wires were built without UVs, as their immutable predecessor was; the import gives every mesh one.
+            assert editor.get_num_uv_channels(mesh, 0) == max(1, len(row['uv_channels'])) == 1, (row['name'], 'UV channels')
             assert not editor.get_lod_build_settings(mesh, 0).get_editor_property('use_full_precision_u_vs')
             assert unreal.CitySurfaceValidation.validate_collision(mesh, row['triangles'], False), (row['name'], 'current cooked LOD0 surface')
             assert library.save_loaded_asset(mesh, True), (row['name'], 'native save failed')

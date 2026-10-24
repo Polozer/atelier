@@ -13,7 +13,7 @@ def functions():
     return ast.Module(body=[node for node in tree.body if isinstance(node, ast.FunctionDef)], type_ignores=[])
 
 
-def fixture(*, hit, hulls=0, cooked=True, save=True, precision=False):
+def fixture(*, hit, hulls=0, cooked=True, save=True, precision=False, uvs=('UVMap',)):
     state = dict(removes=0, imports=0, saves=0, hulls=hulls, callback_hulls=None)
     precision_state = {'value': precision}
     settings = SimpleNamespace(get_editor_property=lambda key: precision_state['value'],
@@ -44,7 +44,7 @@ def fixture(*, hit, hulls=0, cooked=True, save=True, precision=False):
         log=lambda msg: None)
     groups = dict(Terrain=dict(slots=['Ground', 'Coast'], source_triangles=12,
         pieces=[dict(name='Terrain_cell_0_0', path='piece.fbx', triangles=12, used_slots=['Ground'],
-                     uv_channels=['UVMap'], asset='/Game/IslandChild', min=[0., 0., 0.], max=[1., 1., 0.])]))
+                     uv_channels=list(uvs), asset='/Game/IslandChild', min=[0., 0., 0.], max=[1., 1., 0.])]))
     def import_mesh(*a, **kw):
         state['imports'] += 1
         if not hit:
@@ -112,3 +112,10 @@ def test_warm_hit_restores_original_legacy_half_precision_uv_policy():
     scope, state = fixture(hit=True, precision=True)
     scope['receive'](Path('output'))
     assert scope['precision_state']['value'] is False
+
+
+def test_uv_less_source_piece_takes_the_one_channel_the_import_gives_every_mesh():
+    """Guardrail and Wires are built without UVs; Unreal still gives the imported mesh one UV channel."""
+    scope, state = fixture(hit=False, uvs=())
+    scope['receive'](Path('output'))
+    assert state['saves'] == 1
