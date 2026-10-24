@@ -488,7 +488,7 @@ def build_project(tmp_path, monkeypatch):
         if failure is not None:
             raise failure
         ran.append(step.name)
-        (ctx.out / step.name).mkdir(parents=True)
+        (ctx.out / step.name).mkdir(parents=True, exist_ok=True)
         (ctx.out / step.name / 'data').write_text(step.name)
 
     monkeypatch.setattr(build, 'run_command', run)
@@ -508,8 +508,9 @@ def test_a_skipped_publication_leaves_a_successful_build_successful(tmp_path, mo
     monkeypatch.setattr(native_protocol, 'MAX_MANIFEST', publication_limit(store, p.ctx, size))
     (p.repo / 'mesh.txt').write_text('changed mesh')
     capsys.readouterr()
-    assert p.run() == 0
-    assert 'checkpoint not published; receivers keep the previous checkpoint' in capsys.readouterr().out
+    assert p.run() == 0, p.messages
+    out = capsys.readouterr().out
+    assert 'checkpoint not published; receivers keep the previous checkpoint' in out, p.messages
     assert ready.read_bytes() == before
 
 
@@ -522,8 +523,10 @@ def test_a_skipped_publication_never_turns_a_failure_into_success(tmp_path, monk
     size = len(native_protocol.canonical(store.load(json.loads(before)['key'])))
     monkeypatch.setattr(native_protocol, 'MAX_MANIFEST', publication_limit(store, p.ctx, size))
     p.behaviour['extra'] = RuntimeError('fixture failure')
+    (p.repo / 'mesh.txt').write_text('changed mesh')
     (p.repo / 'extra.txt').write_text('changed extra')
     capsys.readouterr()
-    assert p.run() == 1
-    assert 'checkpoint not published; receivers keep the previous checkpoint' in capsys.readouterr().out
+    assert p.run() == 1, p.messages
+    out = capsys.readouterr().out
+    assert 'checkpoint not published; receivers keep the previous checkpoint' in out, p.messages
     assert ready.read_bytes() == before
