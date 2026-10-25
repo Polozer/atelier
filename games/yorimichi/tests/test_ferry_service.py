@@ -134,7 +134,8 @@ def test_normal_build_includes_the_whole_ferry_pipeline():
     from types import SimpleNamespace
     recipe = build.load_recipe('yorimichi')
     rows = {s.name: s for s in recipe.steps(SimpleNamespace(out=Path('/build'), uproject=None))}
-    assert {'world.ferry_terminals', 'world.hidamari_ferry_cut'} <= set(rows['world.ferry_service'].needs)
+    # preflight() reads the ship's ferry/manifest.json, so a fresh build must assemble the ship first.
+    assert {'world.ferry_ship', 'world.ferry_terminals', 'world.hidamari_ferry_cut'} <= set(rows['world.ferry_service'].needs)
     assert 'world.ferry_service' in rows['data.stage'].needs
     assert 'world.ferry_service' in rows['unreal.ferry'].needs
     assert 'world.hidamari_ferry_cut' in rows['unreal.world'].needs

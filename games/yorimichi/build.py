@@ -1966,7 +1966,7 @@ def ferry_steps(ctx):
              about='validate the final source-data opening; no whole Harbor re-export'),
         Step('world.ferry_service', [Python(region / 'service.py')],
              inputs=[*service_code, terminal / 'walkcheck.py', kit / 'walk.py', WORLD/'walk_raster.py', *site_code],
-             needs=['world.ferry_terminals', 'world.hidamari_ferry_cut'],
+             needs=['world.ferry_ship', 'world.ferry_terminals', 'world.hidamari_ferry_cut'],
              outputs=[out / 'ferry/service/service.json'],
              about='one passenger ferry, a shared-clock two-way timetable, audited boarding walks and sounds'),
         Step('unreal.ferry', [UnrealScript(SCRIPTS / 'import_ferry.py', 'FERRY IMPORT COMPLETE', null_rhi=True)],
