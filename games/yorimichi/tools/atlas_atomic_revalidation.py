@@ -24,8 +24,12 @@ def dump(node):
     return ast.dump(node, include_attributes=False).replace(', type_params=[]', '')
 
 
-def restore_record(rel, record, game=GAME):
-    """Reconstruct the exact older record before this source-only carry."""
+def restore_record(rel, record, game=GAME, *, superseded=False):
+    """Reconstruct the exact older record before this source-only carry.
+
+    With superseded=True (every painting's verified_geography already binds a later measured geography),
+    the carry is historical: its binding must still be present, but the record's attestations and its
+    whole-record digest are no longer the carried ones."""
     witness_path = Path(game) / 'world/map/atlas' / WITNESS
     witness = json.loads(witness_path.read_text())
     expected = dict(witness=WITNESS, sha256=sha(witness_path.read_bytes()))
@@ -38,10 +42,10 @@ def restore_record(rel, record, game=GAME):
         for name in field.split('.')[:-1]:
             owner = owner[name]
         key = field.split('.')[-1]
-        if owner[key] != witness['current_geography']:
+        if not superseded and owner[key] != witness['current_geography']:
             raise ValueError('Atlas current source attestation differs')
         owner[key] = previous
-    if sha((json.dumps(value, indent=2) + '\n').encode()) != row['previous_record_sha256']:
+    if not superseded and sha((json.dumps(value, indent=2) + '\n').encode()) != row['previous_record_sha256']:
         raise ValueError('Atlas paid/history record changed during atomic carry')
     return value
 

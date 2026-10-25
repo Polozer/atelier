@@ -29,7 +29,7 @@ EAL = unreal.EditorAssetLibrary
 
 def import_fbx(path, dest, name, skeletal=False, materials=False, animations=False):
     task = unreal.AssetImportTask()
-    task.filename = path; task.destination_path = dest; task.destination_name = name
+    task.filename = str(path); task.destination_path = dest; task.destination_name = name  # world_props yields Paths
     task.automated = True; task.replace_existing = True; task.save = True
     ui = unreal.FbxImportUI()
     ui.import_mesh = True; ui.import_materials = materials; ui.import_textures = materials

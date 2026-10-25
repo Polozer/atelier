@@ -271,7 +271,9 @@ def test_natural_kernel_revalidation_preserves_art_and_generation_provenance():
         carry_spec = importlib.util.spec_from_file_location('atlas_atomic_carry_history', GAME / 'tools/atlas_atomic_revalidation.py')
         carry = importlib.util.module_from_spec(carry_spec)
         carry_spec.loader.exec_module(carry)
-        record = before_recut(carry.restore_record(f'{key}.json', json.loads((atlas.ASSETS / f'{key}.json').read_text())))
+        carried = json.loads((atlas.ASSETS / carry.WITNESS).read_text())['current_geography'] != current
+        record = before_recut(carry.restore_record(f'{key}.json', json.loads((atlas.ASSETS / f'{key}.json').read_text()),
+                                                   superseded=carried))
         assert record.pop('natural_kernel_revalidation') == pin
         record.pop('verified_geography', None)
         if key == 'world':

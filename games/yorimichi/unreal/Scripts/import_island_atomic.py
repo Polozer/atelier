@@ -11,7 +11,7 @@ sys.path.insert(0, str(yori.GAME))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from atelier import native_membership  # noqa: E402
 from atelier.export_manifest import real_directory  # noqa: E402
-from island_atomic_products import DESTINATION, PARENTS, material_paths, native_bounds, read  # noqa: E402
+from island_atomic_products import DESTINATION, PARENTS, bound_matches, material_paths, native_bounds, read  # noqa: E402
 from mesh_import import import_mesh  # noqa: E402
 
 
@@ -89,7 +89,7 @@ def receive(out=None):
             _empty_collision(mesh, editor)
             bounds = mesh.get_bounding_box(); lower, upper = native_bounds(row)
             for axis, low, high in zip(('x', 'y', 'z'), lower, upper):
-                assert abs(getattr(bounds.min, axis)-low) < .2 and abs(getattr(bounds.max, axis)-high) < .2, (row['name'], axis, 'bounds')
+                assert bound_matches(getattr(bounds.min, axis), low) and bound_matches(getattr(bounds.max, axis), high), (row['name'], axis, 'bounds')
             assert editor.get_num_uv_channels(mesh, 0) == len(row['uv_channels']) == 1, (row['name'], 'UV channels')
             assert not editor.get_lod_build_settings(mesh, 0).get_editor_property('use_full_precision_u_vs')
             assert unreal.CitySurfaceValidation.validate_collision(mesh, row['triangles'], False), (row['name'], 'current cooked LOD0 surface')

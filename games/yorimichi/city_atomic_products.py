@@ -91,7 +91,7 @@ def source_record(root, receipts):
         if (receipt['triangles'] != piece['triangles'] or receipt['metadata']['geometry_sha256'] != piece['sha256']
                 or receipt['primary'] != piece['name'] + '.fbx'
                 or receipt['bounds'] != [piece['min'], piece['max']]
-                or receipt['metadata']['slots'] != value['slots']
+                or receipt['metadata']['slots'] != piece.get('slots', value['slots'])
                 or receipt['metadata']['polygons'] != piece['polygons']
                 or receipt['metadata']['collision_hulls'] != piece['collision_hulls']):
             raise ValueError('City export differs from its current geometry input')

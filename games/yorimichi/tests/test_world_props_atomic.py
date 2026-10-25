@@ -148,3 +148,29 @@ def test_actual_proof_host_freezes_complete_inputs_before_native_admission(tmp_p
     monkeypatch.setattr(__import__('sys'),'argv',['proof-host','--donor',str(donor),'--output',str(root/'proof')])
     with pytest.raises(AdmissionBoundary):host.main()
     assert len(observed)==1
+
+
+def test_setup_project_hands_unreal_a_string_filename_for_path_props():
+    # world_props.read yields Path objects; Unreal's AssetImportTask.filename is a StrProperty and refuses a Path.
+    import ast
+    from types import SimpleNamespace
+    tree = ast.parse((Path(__file__).resolve().parents[1] / 'unreal/Scripts/setup_project.py').read_text())
+    node, = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'import_fbx']
+
+    class Task:
+        def __setattr__(self, key, value):
+            if key == 'filename' and type(value) is not str:
+                raise TypeError('Cannot nativize ' + type(value).__name__ + " as 'Filename' (StrProperty)")
+            object.__setattr__(self, key, value)
+    tasks = []
+    unreal = SimpleNamespace(AssetImportTask=Task, FbxImportUI=lambda: SimpleNamespace(static_mesh_import_data=None),
+                             FBXImportType=SimpleNamespace(FBXIT_SKELETAL_MESH=1, FBXIT_STATIC_MESH=0),
+                             FBXNormalImportMethod=SimpleNamespace(FBXNIM_IMPORT_NORMALS=0),
+                             VertexColorImportOption=SimpleNamespace(REPLACE=0))
+    scope = dict(unreal=unreal, os=__import__('os'), opt=lambda *a: None, LOG=lambda *a: None,
+                 AT=SimpleNamespace(import_asset_tasks=tasks.extend))
+    exec(compile(ast.Module(body=[node], type_ignores=[]), '<setup-import-fbx>', 'exec'), scope)
+    task = Task(); task.imported_object_paths = []
+    unreal.AssetImportTask = lambda: task
+    scope['import_fbx'](Path('/build/props/Pole.fbx'), '/Game/Japan/Assets', 'Pole')
+    assert tasks == [task] and task.filename == '/build/props/Pole.fbx'

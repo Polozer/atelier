@@ -1,6 +1,7 @@
 """City exports leave Zeppelin current; its actual terrain, layout and canopy inputs do not."""
 from dataclasses import replace
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -102,3 +103,15 @@ def test_builder_rechecks_actual_dependencies_after_layout_cutoff(tmp_path, monk
     assert world.read_bytes() == before and airship.read_text() == '12'
     sources['layout'].write_text('2')
     assert run() == ['city','zeppelin'] and airship.read_text() == '22'
+
+
+def test_zeppelin_region_product_leaves_the_layout_and_import_report_to_their_owners():
+    # world.layout writes zeppelin/layout.json and unreal.world zeppelin/import-report.json; a product that owned the
+    # whole folder was reported "changed after its owner completed" on every build that ran either of them.
+    recipe = build.load_recipe('yorimichi')
+    out = Path('/build')
+    step, = [s for s in recipe.steps(SimpleNamespace(out=out, uproject=None)) if s.name == 'world.zeppelin']
+    paths = {p for product in step.products for p in product.paths}
+    assert out / 'zeppelin' not in paths
+    assert {out / 'zeppelin' / 'layout.json', out / 'zeppelin' / 'import-report.json'}.isdisjoint(paths)
+    assert out / 'zeppelin' / 'manifest.json' in paths and out / 'zeppelin' / 'assets' in paths

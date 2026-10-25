@@ -1,11 +1,14 @@
 """Actual native receiver owns miss preparation, current finishing and saved membership."""
 import ast
+import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 GAME = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('island_atomic_native_products', GAME / 'island_atomic_products.py')
+products = importlib.util.module_from_spec(spec); spec.loader.exec_module(products)
 
 
 def functions():
@@ -52,7 +55,8 @@ def fixture(*, hit, hulls=0, cooked=True, save=True, precision=False):
         return mesh
     scope = dict(Path=Path, unreal=unreal, read=lambda root: groups, DESTINATION='/Game/Island',
                  material_paths=lambda parent, slots: {slot: slot for slot in slots},
-                 native_bounds=lambda row: ([0., -100., 0.], [100., 0., 0.]))
+                 native_bounds=lambda row: ([0., -100., 0.], [100., 0., 0.]),
+                 bound_matches=products.bound_matches)
     exec(compile(functions(), '<actual-island-receiver>', 'exec'), scope)
     scope['owned_packages'] = lambda paths: set(paths)
     scope['import_mesh'] = import_mesh
