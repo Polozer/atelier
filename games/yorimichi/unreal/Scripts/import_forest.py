@@ -17,6 +17,7 @@ from asset_catalog import check_material_namespace
 def main():
     E=U.EditorAssetLibrary;M=U.MaterialEditingLibrary;AT=U.AssetToolsHelpers.get_asset_tools()
     U.SystemLibrary.execute_console_command(None,'Interchange.FeatureFlags.Import.FBX 0')
+    U.load_module('StaticMeshEditor')  # forest_native's admission and miss hooks read its subsystem
     previous=forest_native.inventory(E)
     output=yori.OUT/'forest/assembled'
     source_textures=yori.OUT/'forest/textures'

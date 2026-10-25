@@ -66,3 +66,16 @@ def test_forest_current_import_keeps_source_products_immutable_and_uniform_polic
     assert "output/'import-report.json'" not in text and "output/'import.json'" not in text
     assert text.count('reuse_validator=forest_native.reusable_collision')==2
     assert 'before_import=lambda' in text and 'mesh.set_num_source_models(1)' in text
+
+
+def test_forest_import_loads_the_static_mesh_editor_before_its_first_mesh():
+    # The isolated import editor does not load StaticMeshEditor; forest_native's admission and miss hooks need it.
+    import ast
+    tree = ast.parse((Path(__file__).resolve().parents[1] / 'unreal/Scripts/import_forest.py').read_text())
+    main, = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main']
+    calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)]
+    line = lambda pred: min((n.lineno for n in calls if pred(n)), default=None)
+    loaded = line(lambda n: isinstance(n.func, ast.Attribute) and n.func.attr == 'load_module'
+                  and [a.value for a in n.args if isinstance(a, ast.Constant)] == ['StaticMeshEditor'])
+    first = line(lambda n: isinstance(n.func, ast.Name) and n.func.id == 'import_mesh')
+    assert loaded is not None and first is not None and loaded < first
