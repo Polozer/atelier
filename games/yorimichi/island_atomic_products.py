@@ -41,6 +41,11 @@ def native_bounds(piece):
             [piece['max'][0]*100., -piece['min'][1]*100., piece['max'][2]*100.])
 
 
+def bound_matches(actual, expected):
+    """Unreal stores mesh bounds in float32: 2 mm, or two float32 steps where those are coarser (the 48 km Sea)."""
+    return abs(actual - expected) <= max(.2, 2. * 2. ** (math.frexp(abs(expected))[1] - 24))
+
+
 def source_metadata(out):
     """Project used material identities from complete bounded inputs before receiving.
 

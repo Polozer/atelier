@@ -77,3 +77,10 @@ def test_incomplete_or_changed_native_membership_refuses(tmp_path, kind):
     write()
     with pytest.raises((ValueError, FileNotFoundError)):
         products.read(tmp_path)
+
+
+def test_native_bounds_allow_float32_steps_on_the_whole_sea_but_not_more():
+    # The 48 km Sea imports at +-2400000.25 cm: one float32 step past its authored +-2400000.
+    assert products.bound_matches(-2400000.25, -2400000.) and products.bound_matches(2400000.25, 2400000.)
+    assert not products.bound_matches(2400001., 2400000.)
+    assert products.bound_matches(1000.19, 1000.) and not products.bound_matches(1000.3, 1000.)
