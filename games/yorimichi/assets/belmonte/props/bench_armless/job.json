@@ -1,0 +1,15 @@
+{
+  "stage": "belmonte_prop",
+  "slug": "bench_armless",
+  "made_by": "the project owner, in Tripo Studio",
+  "generator": "Tripo",
+  "input": "wooden bench 3d model.glb",
+  "input_sha256": "e4cf8021d92fc09010106c4de4b4624a40eba1a9f6f658d08bb78513af0e64c4",
+  "views": {
+    "bench-armless.png": "a55a43455d692e6d77512e75a130c6b37a3c45b49ea6530fcada82f387ebea88",
+    "Image ChatGPT 22 oct. 2026, 19_01_35-1.png": "ff534bf31c89b94c3c0ba35dc1bef23b8561af152637a7f81dd90a23b4a2e5dd",
+    "Image ChatGPT 22 oct. 2026, 19_02_30.png": "8b915cb70f7b319363dfeaeb5dd37f72987e8e975af772312871c573e10cabeb"
+  },
+  "imported_at": "2026-10-22T17:08:40.969209+00:00",
+  "execution": "games/yorimichi/tools/belmonte_props.py import"
+}
