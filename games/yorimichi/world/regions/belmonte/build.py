@@ -10,7 +10,7 @@ import shutil
 import numpy as np
 from PIL import Image
 from atelier.model_files import source_records, retain_files
-from belmonte import layout as L, source, planting, terrain, appearance, model_pieces, ground_pieces, runtime_layout
+from belmonte import layout as L, source, planting, terrain, appearance, model_pieces, ground_pieces, runtime_layout, collision
 
 OUT = yori.OUT / 'belmonte'
 
@@ -74,6 +74,45 @@ def map_zones(town_z):
     return runtime_layout.map_zones(town_z,source.manifest())
 
 
+def outward_hulls(hulls):
+    """A committed hull file written to glb/ with its faces turned out of their solids (the library's wind inward), as
+    the drawn meshes and the generated shells face: the skate surface keeps a face's side."""
+    path = OUT / 'glb' / hulls.name
+    collision.write_glb(path, collision.mirror(source.triangles(hulls)))
+    return {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
+            'source': hulls.relative_to(source.LIBRARY).as_posix()}
+
+
+def building_collision(data):
+    """Buildings collide with shells generated from what is drawn (belmonte/collision.py): the committed hulls plus
+    the drawn storeys, roofs and stand tiers they miss, and plugs in the openings to unfurnished interiors. Writes each
+    <mesh>_Collision.glb and fails if a walker could still get inside: ({mesh name: collision record}, report). A
+    record replaces the mesh's committed hull before model_pieces bounds it, so the piece owning the hull owns it."""
+    records, report = {}, {}
+    for name, (transform, entries) in collision.buildings(data).items():
+        building = collision.load(name, transform, entries)
+        shell = collision.generate(building)
+        result = collision.audit(building, shell.faces, stats=False)
+        if result.intrusion_m3 or result.uncovered_wall > collision.MAX_UNCOVERED or result.uncovered_roof > collision.MAX_UNCOVERED:
+            raise ValueError(f'{name}: generated collision leaves the building open: {result.row()}')
+        triangles = {}
+        for entry in entries:
+            if 'collision' not in entry:
+                continue
+            path = OUT / 'glb' / (entry['name'] + '_Collision.glb')
+            collision.write_glb(path, shell.faces[entry['name']])
+            triangles[entry['name']] = len(shell.faces[entry['name']])
+            records[entry['name']] = {'path': path.relative_to(OUT).as_posix(), 'sha256': source.sha(path),
+                                      'triangles': triangles[entry['name']], 'generated': True}
+        report[name] = {'triangles': triangles, 'kept_drawn_triangles': shell.skin_triangles, 'plugs': shell.plugs,
+                        'reachable_m3': result.intrusion_m3, 'uncovered_wall': round(result.uncovered_wall, 4),
+                        'uncovered_roof': round(result.uncovered_roof, 4)}
+        print(f'BELMONTE COLLISION {name}: {sum(triangles.values())} triangles, {shell.plugs} plugs', flush=True)
+    print(f'BELMONTE COLLISION: {sum(sum(r["triangles"].values()) for r in report.values())} triangles '
+          f'for {len(report)} buildings', flush=True)
+    return records, report
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'glb').mkdir(exist_ok=True)
@@ -82,6 +121,7 @@ def main():
     ground_pieces.placements(data)
     materials = finish_surfaces(data)
     by_asset, meshes, surfaces = {}, [], []
+    shell_records, shells = building_collision(data)
     for entry in data['meshes']:
         path = source.LIBRARY / entry['path']
         assert source.sha(path) == entry['sha256'], path
@@ -93,6 +133,10 @@ def main():
         else:
             shutil.copy2(path, destination)
             entry = dict(entry, path=destination.relative_to(OUT).as_posix())
+        if 'collision' in entry:
+            hulls = source.LIBRARY / entry['collision']['path']
+            assert source.sha(hulls) == entry['collision']['sha256'], hulls
+            entry['collision'] = shell_records[entry['name']] if collision.is_building(entry['name']) else outward_hulls(hulls)
         if ground_pieces.is_ground(entry['name']):
             surface, prepared = ground_pieces.prepare(entry, destination, OUT)
             surfaces.append(surface)
@@ -100,10 +144,6 @@ def main():
             prepared = model_pieces.prepare(entry, destination)
         meshes.extend(row[0] for row in prepared)
         by_asset[entry['source_asset']] = prepared
-        if 'collision' in entry:
-            collision = source.LIBRARY / entry['collision']['path']
-            assert source.sha(collision) == entry['collision']['sha256'], collision
-            shutil.copy2(collision, OUT / 'glb' / collision.name)
     extra, seam = surroundings()
     pieces = []
     for entry in extra:
@@ -173,7 +213,8 @@ def main():
         print(f'BELMONTE retired {len(retired)} superseded generated model files', flush=True)
     (OUT / 'runtime.json').write_text(json.dumps(runtime, separators=(',', ':')) + '\n')
     (OUT / 'build-report.json').write_text(json.dumps({'meshes': meshes, 'materials': materials,
-                                                     'planting': plant_report, 'seam': seam}, indent=1) + '\n')
+                                                     'planting': plant_report, 'seam': seam,
+                                                     'building_collision': shells}, indent=1) + '\n')
     print(f'BELMONTE BUILD COMPLETE: {len(meshes)} meshes, {len(groups)} groups, {sum(len(v) for v in plants.values())} plants', flush=True)
 
 

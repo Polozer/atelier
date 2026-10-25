@@ -139,7 +139,14 @@ def test_actual_region_main_preserves_shared_instances_materials_parent_cull_and
             result.append(dict(name=name,path='glb/'+path.name,sha256=hashlib.sha256(raw).hexdigest(),
                                triangles=4,bounds_m=[[0.,0.,0.],[20.,20.,0.]],slots=['Ground']))
         return result,{}
+    # The skate collision steps (generated shells, outward hulls, furniture) have their own tests
+    # (test_belmonte_collision.py): here a hull is published as committed.
+    def outward_hulls(hulls):
+        shutil.copy2(hulls, out / 'glb' / hulls.name)
+        return {'path': 'glb/' + hulls.name, 'sha256': source.sha(hulls)}
     namespace = dict(OUT=out, source=source, finish_surfaces=lambda data: deepcopy(material_values),
+                     building_collision=lambda data: ({}, {}), outward_hulls=outward_hulls,
+                     collision=SimpleNamespace(is_building=lambda name: False),
                      terrain=SimpleNamespace(VALLEY_CARVED_TILES=set(), OUTER=[0., 0., 10., 10.]),
                      model_pieces=PIECES, ground_pieces=GROUND, surroundings=surroundings,
                      planting=SimpleNamespace(replacements=lambda *a: ({}, {}), woodland=lambda *a: {}),
