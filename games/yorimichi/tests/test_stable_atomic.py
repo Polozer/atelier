@@ -175,3 +175,35 @@ def test_actual_recipe_uses_atomic_stable_and_complete_native_owner(tmp_path):
     review = stable['world.hidamari_stable_review']
     assert len([key for key in review.reads if key.startswith('hidamari_stable.geometry.')])==24
     assert not any(path.suffix=='.blend' for path in review.inputs)
+
+
+def test_render_only_stable_parts_are_finished_even_when_their_zero_boxes_already_match():
+    # SM_HS_BarnRoof has no boxes: a fresh import matches them, but only the finisher creates the nonblocking
+    # SimpleAsComplex body that validate_simple_boxes requires.
+    source = GAME / 'unreal/Scripts/import_stable_atomic.py'
+    tree = ast.parse(source.read_text())
+    finish, = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'finish']
+    def calls(node):
+        return {n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, 'id', None)
+                for n in ast.walk(node) if isinstance(n, ast.Call)}
+    branch, = [node for node in ast.walk(finish) if isinstance(node, ast.If) and 'boxes_match' in calls(node.test)
+               and 'set_simple_boxes' in calls(ast.Module(body=node.body, type_ignores=[]))]
+    assert 'validate_simple_boxes' in calls(branch.test)
+
+
+def test_complex_stable_parts_accept_only_chaos_dropping_a_few_degenerate_slivers():
+    source = GAME / 'unreal/Scripts/import_stable_atomic.py'
+    tree = ast.parse(source.read_text())
+    helper, = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'cooked_surface_matches']
+    namespace = {}
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), str(source), 'exec'), namespace)
+    matches = namespace['cooked_surface_matches']
+    cooked = lambda count: (lambda mesh, expected, hulls: expected == count and hulls is False)
+    assert matches(cooked(2306), None, 2306)
+    assert matches(cooked(2300), None, 2306)  # SM_HS_RoadSign
+    assert matches(cooked(2283), None, 2306)
+    assert not matches(cooked(2282), None, 2306)
+    assert not matches(cooked(2307), None, 2306)
+    assert not matches(cooked(0), None, 2306)
+    finish, = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'finish']
+    assert 'cooked_surface_matches' in ast.unparse(finish) and 'validate_collision(mesh' not in ast.unparse(finish)
