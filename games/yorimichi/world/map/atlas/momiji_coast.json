@@ -236,7 +236,7 @@
       "world/city_terrain_surface.py": "0da9fe701db9f11a7eefc02f199bd2fe05789d5c936c04f835f195944bae6656",
       "world/regions/hidamari/build.py": "e570d190a616fdef6f20b646e22147d3e8854efdf159e74f3d6fa570f4435d20",
       "world/regions/hidamari/layout.py": "3dfe3ed560dc4ca08e012b9f50738bb36ca59729b55a2411f91d70ece0d8e0de",
-      "world/regions/hidamari_stable/layout.py": "d30b9b12b09c2e3cad3ab2d21db8d5ca8e83c7fe6daad0bf309bc50180cea97c",
+      "world/regions/hidamari_stable/layout.py": "ce54874e66619ac5abf07ea4549f73cbdc81320a98872cf0655942981bd2fc5b",
       "world/regions/hidamari/mountains.py": "7060bf6ae296bf0a5a1e7dd7e30703591198ad91a833439c0329865546787b76",
       "world/regions/hidamari/natural_terrain.py": "bca99462123604c90670b2082872f921aed96eb750df1f25ebd03a48d0ce29e0",
       "world/regions/craterpark/v2/v4_config.py": "ee6e94c6212e02aa2c92bf27a555d73f5be5efa8c84160ef6c37ca617316fdbd",
