@@ -30,6 +30,12 @@ def reachable(script):
     return seen
 
 
+def called(text):
+    """Attribute names read from the unreal module, under its own name or an `import unreal as X` alias."""
+    names = {'unreal', *re.findall(r'\bimport\s+unreal\s+as\s+(\w+)', text)}
+    return set(re.findall(r'\b(?:' + '|'.join(sorted(names)) + r')\.(\w+)\b', text))
+
+
 def test_isolated_import_scripts_declare_every_game_module_they_call():
     from atelier import build
     recipe = build.load_recipe('yorimichi')
@@ -40,8 +46,7 @@ def test_isolated_import_scripts_declare_every_game_module_they_call():
         for action in step.commands:
             if not isinstance(action, build.UnrealScript) or not action.modules:
                 continue  # an undeclared script runs on the whole project
-            used = {owner[name] for path in reachable(action.script)
-                    for name in re.findall(r'\bunreal\.(\w+)\b', path.read_text()) if name in owner}
+            used = {owner[name] for path in reachable(action.script) for name in called(path.read_text()) if name in owner}
             if not used <= set(action.modules):
                 missing.append((step.name, sorted(used - set(action.modules))))
     assert not missing, missing

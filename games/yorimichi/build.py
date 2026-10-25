@@ -1696,10 +1696,10 @@ def unreal_steps(ctx):
              candidate_scope=CandidateScope(directories=(GAME/'unreal/Content/Japan/Lake/Pieces',)),
              heavy=True, about='the woodland lake and cabin'),
         Step('unreal.forest', [UnrealScript(SCRIPTS / 'import_forest.py', 'FOREST IMPORT COMPLETE', null_rhi=True,
-                                           modules=IMPORT_CODE)],
+                                           modules=SURFACE_CHECK_CODE)],
              inputs=[SCRIPTS / 'import_forest.py', SCRIPTS / 'forest_impostor_material.py', SCRIPTS / 'import_foliage_lods.py', SCRIPTS / 'foliage_material.py', SCRIPTS / 'import_village.py', SCRIPTS / 'atmosphere.py',
                      SCRIPTS / 'foliage_slots.py'],
-             needs=['unreal.world', *unreal_modules.needs(IMPORT_CODE)],reads=['forest.library','forest.textures'],heavy=True,
+             needs=['unreal.world', *unreal_modules.needs(SURFACE_CHECK_CODE)],reads=['forest.library','forest.textures'],heavy=True,
              products=_load_helper_module('yorimichi_forest_products',GAME/'forest_atomic_build.py').native_products(ctx),
              # The legacy owner assembles source LOD packages outside Assets.
              # These are staging hints only; each requested mesh still needs native proof.
