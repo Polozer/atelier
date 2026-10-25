@@ -504,3 +504,20 @@ def test_base_and_lod_share_the_real_common_pending_receipt_packet(importer, mon
     assert len(native._COMMON_FBX) == 1
     assert set(packet['entries']) == {'/Game/Owned/Mesh','/Game/Owned/Mesh_LOD1'}
     assert packet['counts']['imported'] == 2
+
+
+def test_callers_with_and_without_an_owner_requirement_share_one_reuse_policy(importer, monkeypatch):
+    # One task (unreal.world runs Hidamari props, the sailboat and the zeppelin in one editor) shares one pending
+    # evidence file per invocation, whose header binds a single import policy.
+    p = importer
+    seen = []
+    def admit(*args, **kwargs):
+        seen.append(kwargs)
+        return None, None
+    monkeypatch.setattr(p.module, 'common_fbx_mesh', admit)
+    p.module.import_mesh(p.source, '/Game/Owned', 'Mesh', seed=p.seed)
+    p.module.import_mesh(p.source, '/Game/Owned', 'Mesh', seed=p.seed, reuse_validator=lambda mesh: False)
+    policy = [{k: v for k, v in kw.items() if k not in ('validator',)} for kw in seen]
+    assert policy[0] == policy[1]
+    mesh = p.module._source_mesh(p.source, '/Game/Owned', 'Mesh')
+    assert seen[0]['validator'](mesh) and not seen[1]['validator'](mesh)

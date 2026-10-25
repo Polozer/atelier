@@ -22,8 +22,9 @@ def import_mesh(path, dest, name, *, seed=None, fresh_slots=False, before_import
     That first pass must establish FBX data so the final pass can synchronize unit settings.
     """
     from city_parent_transition import excluded_packages
-    validator = legacy_options_match if reuse_validator is None else lambda mesh: _reuse_matches(mesh, reuse_validator)
-    validation_functions = ('legacy_options_match',) if reuse_validator is None else ('legacy_options_match', '_reuse_matches')
+    # One import policy per script: callers with and without an owner requirement can share one task's evidence.
+    validator = lambda mesh: _reuse_matches(mesh, reuse_validator)  # noqa: E731
+    validation_functions = ('legacy_options_match', '_reuse_matches')
     mesh, reuse = common_fbx_mesh(path, dest, name, fresh_slots=fresh_slots,
                                   script=__file__, functions=('_source_mesh',), validator=validator,
                                   validation_functions=validation_functions, owner_transition=excluded_packages,
@@ -72,7 +73,7 @@ def legacy_options_match(mesh):
 
 def _reuse_matches(mesh, owner_check):
     """The full owner source closure binds its current read-only requirement."""
-    return legacy_options_match(mesh) and owner_check(mesh)
+    return legacy_options_match(mesh) and (owner_check is None or owner_check(mesh))
 
 
 def _import_mesh(path, dest, name, fresh_slots=False):
