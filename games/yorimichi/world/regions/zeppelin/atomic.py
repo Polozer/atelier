@@ -68,5 +68,7 @@ def steps(ctx,*,query_inputs=(),query_reads=(),query_needs=(),**kwargs):
         log.write('Complete Zeppelin file-only assembly\n')
     result.append(Step('world.zeppelin',[Call('assemble Zeppelin',assemble)],
         inputs=[Path(__file__),*export_assembly.runtime_inputs()],reads=['zeppelin.atomic','zeppelin.rotor_clearance'],
-        products=[Product('zeppelin.region',(ctx.out/'zeppelin',))]))
+        # Only what this step writes: world.layout writes zeppelin/layout.json and unreal.world its import report there.
+        products=[Product('zeppelin.region',tuple(ctx.out/'zeppelin'/name for name in
+                  ('assets','manifest.json','logical-pieces.json','rotor-clearance.json')))]))
     return result
