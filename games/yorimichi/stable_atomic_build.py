@@ -1,4 +1,4 @@
-"""Explicit-only independent Stable semantics/LODs, atomic exports and data assembly."""
+"""Independent Stable semantics/LODs, atomic exports and data assembly; explicit while the committed switch is off."""
 import importlib.util
 from pathlib import Path
 
@@ -65,5 +65,6 @@ def steps(ctx):
         products=[Product('stable.meshes', (ctx.out / 'hidamari-stable/atomic-manifest.json',)),
                   Product('stable.runtime', (ctx.out / 'hidamari-stable/placements.json',))],
         about='complete file-only Stable assembly; no rendered export depends on another export'))
-    for step in result: step.explicit = True
+    enabled = load('stable_atomic_layout', REGION / 'layout.py').is_enabled()
+    for step in result: step.explicit = not enabled
     return result
