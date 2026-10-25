@@ -112,6 +112,11 @@ def assembly_fixture(tmp_path):
     atomic_json(tmp_path / 'atomic_regions/belmonte_track/assets/manifest.json', dict(exports=[receipt]))
     atomic_json(tmp_path / 'atomic_regions/belmonte_track/logical-pieces.json', dict(parents={key: [key]},
         ownership={key: dict(source_triangles=10)}))
+    mapping = {}
+    for material, (name, tile) in T.TEXTURED.items():          # stand-ins for track_texture_files.py's PNGs
+        texture = root / 'textures' / (name + '.png'); texture.parent.mkdir(exist_ok=True); texture.write_bytes(name.encode())
+        mapping[material] = dict(file='textures/' + texture.name, tile_m=tile, sha256=hashlib.sha256(texture.read_bytes()).hexdigest())
+    atomic_json(root / 'textures/textures.json', mapping)
     return load('track_assembly_test', GAME / 'train_track_atomic_products.py'), folder
 
 
@@ -124,6 +129,42 @@ def test_complete_railway_assembly_copies_only_independent_files(tmp_path):
     assert path.read_bytes() == b'geometry fixture'
     before = path.stat().st_mtime_ns;module.assemble(tmp_path)
     assert path.stat().st_mtime_ns == before
+
+
+def test_assembled_track_names_both_ballast_textures_and_refuses_a_changed_one(tmp_path):
+    module, _ = assembly_fixture(tmp_path);module.assemble(tmp_path)
+    doc = json.loads((tmp_path / 'belmonte-track/atomic/track.json').read_text())
+    assert set(doc['textures']) == {'MI_TK_Ballast', 'MI_TK_Cess'} == set(T.TEXTURED)
+    for material, (name, tile) in T.TEXTURED.items():
+        assert doc['textures'][material]['file'] == f'textures/{name}.png' and doc['textures'][material]['tile_m'] == tile
+    (tmp_path / 'belmonte-track/textures/T_TK_Cess.png').write_bytes(b'repainted')
+    with pytest.raises(ValueError, match='texture differs'): module.assemble(tmp_path)
+
+
+def test_texture_step_declares_its_code_and_product_and_the_assembly_reads_it(tmp_path):
+    recipe = load('train_track_recipe_textures', GAME / 'train_atomic_build.py')
+    cold = {step.name: step for step in recipe.track_steps(SimpleNamespace(out=tmp_path), source_inputs=())}
+    path = tmp_path / 'belmonte-track/source-data/inventory.json'; path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(dict(schema=1, mesh_order=['SM_TK_Sleeper'], meshes=dict(SM_TK_Sleeper=dict(levels=1)))))
+    for rows in (cold, {step.name: step for step in recipe.track_steps(SimpleNamespace(out=tmp_path), source_inputs=())}):
+        step = rows['world.belmonte_track.textures']
+        assert step.cache and [p.name for p in step.products] == ['belmonte_track.textures']
+        assert step.products[0].paths == (tmp_path / 'belmonte-track/textures',)
+        names = {Path(p).name for p in step.inputs}
+        assert {'track_texture_files.py', 'track_textures.py', 'textures.py'} <= names and 'route.py' not in names
+    assert 'belmonte_track.textures' in rows['world.belmonte_track'].reads
+
+
+def test_texture_files_write_both_textures_and_their_mapping(tmp_path):
+    files = load('track_texture_files_test', GAME / 'world/train/track_texture_files.py')
+    from PIL import Image
+    folder = tmp_path / 'textures'; folder.mkdir(); (folder / 'T_TK_Old.png').write_bytes(b'stale')
+    mapping = files.write(folder)
+    assert set(mapping) == set(T.TEXTURED) and json.loads((folder / 'textures.json').read_text()) == mapping
+    assert sorted(p.name for p in folder.iterdir()) == ['T_TK_Ballast.png', 'T_TK_Cess.png', 'textures.json']
+    for spec in mapping.values():
+        with Image.open(tmp_path / spec['file']) as image:
+            assert image.mode == 'RGB' and image.size == (1024, 1024)
 
 
 @pytest.mark.parametrize('defect', ['corrupt', 'missing', 'foreign', 'stale-receipt'])

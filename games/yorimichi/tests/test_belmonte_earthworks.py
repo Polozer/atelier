@@ -76,6 +76,53 @@ class Design(unittest.TestCase):
         far = np.abs(v[:, 1]) > E.REACH + 25
         self.assertTrue(np.allclose(out[:len(v)][far, 2], 115.))
 
+    def test_hidden_ground_stays_out_of_the_tunnel_bore(self):
+        """Ground under another terrain (refine's hidden) is not carved, but nothing of it may stand inside a tunnel's
+        bore (grass seen from the train): over the tunnel it is lifted under the hood by HIDDEN_CLEARANCE, across the
+        mouth it opens like the shown ground, and elsewhere it is left as it is."""
+        xs, ys = np.arange(100., 301., 8.), np.arange(-40., 41., 8.)
+        x, y = np.meshgrid(xs, ys)
+        # A hillside under the foothills, rising across the line: inside the bore height on one side.
+        z = 101. + .12 * (y + 40.)
+        v = np.stack([x, y, z], -1).reshape(-1, 3)
+        w = len(xs)
+        faces = [(j * w + i, j * w + i + 1, (j + 1) * w + i + 1) for j in range(len(ys) - 1) for i in range(w - 1)]
+        faces += [(j * w + i, (j + 1) * w + i + 1, (j + 1) * w + i) for j in range(len(ys) - 1) for i in range(w - 1)]
+        out, f, _, _ = E.refine(v, faces, 2.5, ln=self.ln, hidden=lambda x, y: np.ones(np.shape(x), bool))
+        from belmonte.source import Surface
+        ground = Surface(out[f])
+        top = 100. + C.PORTAL_HEIGHT[1]          # over the lining's crown
+        for s in np.arange(147., 244., 3.):     # the tunnel runs 145-245
+            for u in (-2.6, 0., 2.6):           # the lining's half width
+                h = float(ground.height(np.array([s]), np.array([u]))[0])
+                if np.isfinite(h):
+                    self.assertTrue(h >= top - 1e-6 or h <= 100. + C.PORTAL_HEIGHT[0], (s, u, h))
+                    # layered under the shown ground's hood, never on it
+                    self.assertLessEqual(h, 100. + E.HOOD - E.HIDDEN_CLEARANCE + 1e-6)
+        # Along the open line it stays under the cutting (never over the formation), never raised; away from the
+        # line and the tunnel it is not moved.
+        for s in np.arange(102., 140., 3.):
+            for u in (-6., -2.6, 0., 2.6, 6.):
+                h = float(ground.height(np.array([s]), np.array([u]))[0])
+                up, _, _ = E.design(np.array([s]), np.array([u]), self.ln)
+                self.assertLessEqual(h, float(up[0]) - E.HIDDEN_CLEARANCE + .05, (s, u))
+        # Round the portal's face (over the tunnel's first metres) it stays under the face standing back too.
+        for s in np.arange(146., 152., 1.):
+            for u in (-14., -10., 10., 14.):
+                h = float(ground.height(np.array([s]), np.array([u]))[0])
+                up, _, info = E.design(np.array([s]), np.array([u]), self.ln)
+                top = max(float(up[0]), float(info['hood'][0]))
+                if np.isfinite(h):
+                    self.assertLessEqual(h, top - E.HIDDEN_CLEARANCE + .15, (s, u))   # linear between vertices
+        moved = out[:len(v), 2] - v[:, 2]
+        _, _, info = E.design(v[:, 0], v[:, 1], self.ln)
+        self.assertTrue(np.all(moved[info['tunnel'] <= 0] <= 1e-9))
+        far = ~np.isfinite(self.ln.project(v[:, 0], v[:, 1])[0])
+        np.testing.assert_allclose(out[:len(v)][far, 2], v[far, 2])
+        self.assertEqual(E.hidden_ground(np.array([60.]), np.array([0.]), np.array([95.]), self.ln).tolist(), [95.])
+        self.assertLess(float(E.hidden_ground(np.array([60.]), np.array([0.]), np.array([101.]), self.ln)[0]),
+                        100. - E.FORMATION_DROP - E.HIDDEN_CLEARANCE + 1e-6)
+
     def test_committed_line_is_loaded_unconditionally(self):
         E.line.cache_clear()
         self.assertIsNotNone(E.line())
@@ -170,6 +217,106 @@ class Built(unittest.TestCase):
         self.assertLess(float(off.max()), TOLERANCE)
 
 
+
+SUPPORT_STEP = 2.               # metres between the whole-line support checks
+BED = (-2.6, -2.45, -1.7, 0., 1.7, 2.45, 2.6)    # across the ballast bed: skirts, toes, shoulders, centre (track.py)
+UNDER = 1.5 + .1                # the ground may lie this far under the rail top, no further: the skirts' foot
+OVER = .70 - .1                 # ... and must stay this far under it inside the toes: under the ballast
+
+
+def built_ground():
+    """Every built terrain the line crosses, as one top surface: the far hills, Hidamari, the foothills, Belmonte's
+    tiles, apron and country, and the track's own banks. None when they are not all built."""
+    from terrain_product import load
+    from belmonte import layout as BM, source
+    from train import track as T
+    out = yori.OUT
+    owners = ('FarHills', 'HD_Terrain', 'HD_NorthMountains')
+    glb = out / 'belmonte' / 'glb'
+    names = ['SM_BM_NorthApron', 'SM_BM_NorthCountry']
+    if not all((out / 'terrain' / o / 'final.npz').exists() for o in owners) or not glb.is_dir() or \
+            not all((glb / f'{n}.glb').exists() for n in names) or not T.ROUTE.exists():
+        return None
+    faces = []
+    for owner in owners:
+        m = load(out / 'terrain' / owner / 'final.npz', owner=owner, stage='final', city=True)
+        faces.append(m.vertices[m.triangles()])
+    tiles = sorted(p for p in glb.glob('SM_BM_BT_Terrain_*.glb') if 'Collision' not in p.name)
+    faces.append(np.concatenate([source.triangles(p) for p in tiles + [glb / f'{n}.glb' for n in names]]) + BM.ORIGIN)
+    meshes, doc = T.layout()
+    for row in doc['banks']:
+        mesh = meshes[row['name']][0]
+        v = np.asarray(mesh.verts) + row['origin']
+        faces.append(np.asarray([(v[f[0]], v[f[k]], v[f[k + 1]]) for f in mesh.faces for k in range(1, len(f) - 1)]))
+    return source.Surface(np.concatenate(faces))
+
+
+@unittest.skipUnless(C.ROUTE.exists() and (yori.OUT / 'terrain' / 'FarHills' / 'final.npz').exists(),
+                     'route or terrain products not built')
+class Supported(unittest.TestCase):
+    def test_the_track_neither_floats_nor_sinks_anywhere(self):
+        """Every SUPPORT_STEP metres of open line (not in a tunnel or on a viaduct, outside the portals' holes), the
+        ground the game shows (the top of every built terrain and bank) carries the ballast bed: no void under its
+        skirts or centre (UNDER) and nothing standing over the formation inside its toes (OVER), whichever terrain
+        owns it there; hidden ground (the far hills under the foothills) included."""
+        ground = built_ground()
+        if ground is None:
+            self.skipTest('terrain products not all built')
+        E.line.cache_clear()
+        ln = E.line()
+        s = np.arange(0., ln.length, SUPPORT_STEP)
+        tun, _ = ln.inside(s, ln.tunnels)
+        via, _ = ln.inside(s, ln.viaducts)
+        open_ = (tun < -E.HOLE[0] / 2) & (via < 0.)       # clear of the portals' holes (HOLE) and off the viaducts
+        s = s[open_]
+        u = np.array(BED)
+        x0, y0 = np.interp(s, ln.s, ln.xy[:, 0]), np.interp(s, ln.s, ln.xy[:, 1])
+        rail = np.interp(s, ln.s, ln.rail)
+        tx, ty = ln.tangent(s)
+        z = ground.height(x0[:, None] - ty[:, None] * u, y0[:, None] + tx[:, None] * u) - rail[:, None]
+        inside = np.abs(u) <= 2.45
+        low = ~(z >= -UNDER)                                # NaN (no ground at all) counts as a void
+        high = (z > -OVER) & inside[None]
+
+        def stretches(mask):
+            rows = np.flatnonzero(mask.any(1))
+            if not len(rows):
+                return []
+            cuts = np.flatnonzero(np.diff(s[rows]) > SUPPORT_STEP * 1.5)
+            return [(float(s[rows[a]]), float(s[rows[b]]), float(np.nanmax(np.abs(z[rows[a]:rows[b] + 1]))))
+                    for a, b in zip(np.r_[0, cuts + 1], np.r_[cuts, len(rows) - 1])]
+        self.assertEqual(stretches(low), [], 'the track floats (chainage from, to, worst metres)')
+        self.assertEqual(stretches(high), [], 'ground stands over the formation (chainage from, to, worst metres)')
+
+    def test_hidden_far_hills_never_show_through_the_foothills(self):
+        """Round every portal under the foothills the far hills' ground (hidden there, not carved) stays under the
+        foothills' own: no hillside patch standing out of the cutting's faces or over the portal (the dark green
+        patches Paul saw round the 1705 m portal)."""
+        from terrain_product import load
+        from belmonte import source
+        out = yori.OUT / 'terrain'
+        if not all((out / o / 'final.npz').exists() for o in ('FarHills', 'HD_NorthMountains')):
+            self.skipTest('terrain products not built')
+        surfaces = {o: source.Surface(m.vertices[m.triangles()]) for o in ('FarHills', 'HD_NorthMountains')
+                    for m in [load(out / o / 'final.npz', owner=o, stage='final', city=True)]}
+        E.line.cache_clear()
+        ln = E.line()
+        worst = []
+        for portal in [p for t in ln.tunnels for p in t]:
+            s, u = np.meshgrid(np.arange(portal - 30., portal + 30., 1.), np.arange(-40., 40.1, 1.), indexing='ij')
+            s, u = s.ravel(), u.ravel()
+            tx, ty = ln.tangent(s)
+            x = np.interp(s, ln.s, ln.xy[:, 0]) - ty * u
+            y = np.interp(s, ln.s, ln.xy[:, 1]) + tx * u
+            hidden, shown = surfaces['FarHills'].height(x, y), surfaces['HD_NorthMountains'].height(x, y)
+            # Within a refinement cell of the portal line, beside the face wall and its wing walls, the hood stands as
+            # a vertical step that both terrains only resolve to their own triangles: the portal's masonry stands there.
+            masonry = (np.abs(s - portal) <= 2.5) & (np.abs(u) <= 12.)
+            over = np.isfinite(hidden) & np.isfinite(shown) & (hidden > shown + .02) & ~masonry
+            if over.any():
+                worst.append((portal, int(over.sum()), round(float((hidden - shown)[over].max()), 2)))
+        self.assertEqual(worst, [], 'far hills over the foothills round a portal (portal, points, worst metres)')
+
 if __name__ == '__main__':
     unittest.main()
 
@@ -221,3 +368,17 @@ def test_conforming_neighbor_ownership_rejects_nearby_distinct_endpoints():
     import pytest
     with pytest.raises(ValueError,match='endpoints'):
         E._conform_neighbors(v,np.array([[4,1,2]]),np.array([[0,1,3]]),ids,index,3,shifted)
+
+
+def test_nothing_grows_inside_a_tunnel():
+    """Plants over a tunnel (any kind) whose foot is under the lining's crown would stand in the bore: they go; the
+    forest higher up over the tunnel stays."""
+    E.line.cache_clear()
+    ln = E.line()
+    for a, b in ln.tunnels:
+        s = (a + b) / 2
+        x, y = np.interp(s, ln.s, ln.xy[:, 0]), np.interp(s, ln.s, ln.xy[:, 1])
+        rail = float(np.interp(s, ln.s, ln.rail))
+        for name in ('Grass_A', 'Bush_Green_A', 'Tree_Pine_A', 'Rock_A'):
+            keep, _ = C.settle(name, [x, x], [y, y], [rail + 2., rail + 40.])
+            assert keep.tolist() == [False, True], (name, a, b)

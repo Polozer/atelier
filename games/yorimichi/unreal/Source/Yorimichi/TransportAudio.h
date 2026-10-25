@@ -5,6 +5,10 @@
 #include "TransportAudio.generated.h"
 class UAudioComponent; class USoundWave; class USoundAttenuation;
 
+/** One wave of the transport bank, by its imported name (<cue>_<nn>, e.g. train_roll_01), or null when it is not
+ *  imported. Every vehicle loads its sounds through this, the Belmonte train's service (BelmonteTrainSound.cpp) too. */
+YORIMICHI_API USoundWave* LoadTransportWave(const FString& Name);
+
 /** The sounds of a passenger vehicle: the ferry, a gondola cabin or station, the zeppelin (/Game/Audio/Transport, built
  *  by assets/audio/transport/make.py; the calls each vehicle makes are in that folder's README). Presentation only:
  *  every machine drives it from the vehicle's replicated or deterministic state, so clients hear what the host hears
