@@ -10,7 +10,7 @@
     "world/city_terrain_surface.py": "0da9fe701db9f11a7eefc02f199bd2fe05789d5c936c04f835f195944bae6656",
     "world/regions/hidamari/build.py": "e570d190a616fdef6f20b646e22147d3e8854efdf159e74f3d6fa570f4435d20",
     "world/regions/hidamari/layout.py": "3dfe3ed560dc4ca08e012b9f50738bb36ca59729b55a2411f91d70ece0d8e0de",
-    "world/regions/hidamari_stable/layout.py": "d30b9b12b09c2e3cad3ab2d21db8d5ca8e83c7fe6daad0bf309bc50180cea97c",
+    "world/regions/hidamari_stable/layout.py": "ce54874e66619ac5abf07ea4549f73cbdc81320a98872cf0655942981bd2fc5b",
     "world/regions/hidamari/mountains.py": "7060bf6ae296bf0a5a1e7dd7e30703591198ad91a833439c0329865546787b76",
     "world/regions/hidamari/natural_terrain.py": "bca99462123604c90670b2082872f921aed96eb750df1f25ebd03a48d0ce29e0",
     "world/regions/craterpark/v2/v4_config.py": "ee6e94c6212e02aa2c92bf27a555d73f5be5efa8c84160ef6c37ca617316fdbd",
@@ -54,8 +54,8 @@
         4200.0,
         7200.0
       ],
-      "sha256": "05045b82112f57e459a7970850f9cef0cffe13c54f85cc796e04cdef13966feb",
-      "reference_sha256": "e6bfff116cbc2d6383b84559c8b3ef023e2ec9e7e94bbb757798e64b771734fc"
+      "sha256": "1da0f6fe5314e72ace61d8a77ff7b66dbccbcdca48904bc5173e94384d400150",
+      "reference_sha256": "c954388f10950cb33a40ffc9ef79efbbbaaae8d263e5ac532dfa1d73b65af695"
     },
     "momiji_coast": {
       "bounds": [
@@ -85,7 +85,7 @@
         460.0
       ],
       "sha256": "d9a96627e03cb89fb12f3d3dd16ba73b512756fc8845a158a3b5edb6fe948c9e",
-      "reference_sha256": "36cb22060ac68f6ce14f19aa98523fb0fb0eb09ba863ef1960f58e8ed774f6b4"
+      "reference_sha256": "51ed7200f7762dda3d32b109f187fdda5c711180b6ed94ff04fa443a2fd229b2"
     },
     "temple_island": {
       "bounds": [
@@ -105,7 +105,7 @@
         2200.0
       ],
       "sha256": "dc43d462e41f266e17598b61ba8c5dc9ce63516e3b0b6870a7d936c6961c76b0",
-      "reference_sha256": "cf40e88d8eedd9644940b4a8a44cbda976953b1ad60bf6d512589c025382e34f"
+      "reference_sha256": "c393f634acbe212b2368cad876f27d383b38aac2f4f2aba6b50aaec9d94c36b5"
     },
     "volcanic_highlands": {
       "bounds": [
@@ -115,7 +115,7 @@
         3650.0
       ],
       "sha256": "782b2b2f1197346db8f4946ecfab2bd120a7e4dd909cf27e35c84c70c71e4584",
-      "reference_sha256": "611cda0ca990b03f253928c41e4b8fa06dd0eb67b215975ddda77aa634923ab0"
+      "reference_sha256": "e7e86771e8c99e7d331331a2e11474fc3963019dc2bcf11a22fe4d8796699baa"
     },
     "haras_valley": {
       "bounds": [
@@ -135,11 +135,7 @@
         600.0
       ],
       "sha256": "90677bf0db07cb30c7a95f18b7812aad97fb25619242f36c630a34c64d21bdeb",
-      "reference_sha256": "716781feba8601ee44a9919d784c30404c0e2993fffbad6d1483830a5d8ec62e"
+      "reference_sha256": "029c0eba849f3464f9a75b25abf88f604c7f8e838dda73d3ee2fe6489d20f37a"
     }
-  },
-  "atomic_export_revalidation": {
-    "witness": "coasts/atomic-export-equivalence.json",
-    "sha256": "83451abf3b80a3120a1a2acc663ec57e3e653a7e311b2c2b7ec9993ff5951303"
   }
 }
