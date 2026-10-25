@@ -61,12 +61,18 @@ def test_legacy_belmonte_adapter_retires_superseded_glbs_without_touching_source
     ground = importlib.util.module_from_spec(spec); spec.loader.exec_module(ground)
     main = next(node for node in ast.parse(script.read_text()).body if isinstance(node, ast.FunctionDef) and node.name == 'main')
     # The skate collision steps (generated shells, outward hulls, furniture) have their own tests
-    # (test_belmonte_collision.py): here a hull is published as committed.
-    def outward_hulls(hulls):
+    # (test_belmonte_collision.py, test_belmonte_furniture.py, test_belmonte_skate.py): here a hull is
+    # published as committed and no grind line is found.
+    def outward_hulls(hulls, bars=(), over=()):
         shutil.copy2(hulls, out / 'belmonte/glb' / hulls.name)
         return {'path': 'glb/' + hulls.name, 'sha256': sha(hulls)}
-    scope = dict(OUT=out / 'belmonte', json=json, shutil=shutil, building_collision=lambda data: ({}, {}),
-        outward_hulls=outward_hulls, collision=SimpleNamespace(is_building=lambda name: False), source=SimpleNamespace(
+    scope = dict(OUT=out / 'belmonte', json=json, shutil=shutil, building_collision=lambda data, bars: ({}, {}),
+        props=SimpleNamespace(apply=lambda data, directory: data),
+                     skate=SimpleNamespace(street_query=lambda data: None, bars=lambda data, above: ({}, []),
+                             as_drawn=lambda name: False, over_hull=lambda entry, hulls: (),
+                             rails=lambda *a: ([], {})),
+        outward_hulls=outward_hulls, collision=SimpleNamespace(is_building=lambda name: False),
+        furniture=SimpleNamespace(is_furniture=lambda name: False, placed_rails=lambda data, lines: []), source=SimpleNamespace(
         LIBRARY=library, manifest=manifest, sha=sha, triangles=lambda _: [], Surface=lambda _: None,
         terrain=lambda: SimpleNamespace(height=lambda *a: 0)), terrain=SimpleNamespace(VALLEY_CARVED_TILES=set(), OUTER=[0, 0, 10, 10]),
         finish_surfaces=lambda _: {'paint': {'name': 'Paint', 'texture': None}}, glb_parts=glb_parts,
