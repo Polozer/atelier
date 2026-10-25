@@ -71,6 +71,10 @@ def tv_spots(data=None):
     return runtime_layout.tv_spots(data or source.manifest())
 
 
+def racing_places(data=None):
+    return runtime_layout.racing_places(data or source.manifest())
+
+
 def map_zones(town_z):
     return runtime_layout.map_zones(town_z,source.manifest())
 
@@ -255,7 +259,8 @@ def main():
     town_z = float(source.terrain().height(0., -18.)) + L.ORIGIN[2] + 1.
     runtime = {'version': 1, 'origin_cm': L.native_origin(), 'bounds_m': L.BOUNDS,
                'clearance_m': list(terrain.OUTER), 'groups': groups, 'signs': signs, 'railway_corridor': L.RAILWAY,
-               'zones': map_zones(town_z), 'tv_spots': tv_spots(data), 'rails': rails}
+               'zones': map_zones(town_z), 'tv_spots': tv_spots(data), 'rails': rails,
+               'racing_places': racing_places(data)}
     # Current meshes/hulls are complete now. Retire only this producer's generated
     # model members, so a normal removal/rename cannot strand an invalid inventory.
     expected = [Path(name).relative_to('glb').as_posix()

@@ -156,7 +156,7 @@ def test_actual_region_main_preserves_shared_instances_materials_parent_cull_and
                      terrain=SimpleNamespace(VALLEY_CARVED_TILES=set(), OUTER=[0., 0., 10., 10.]),
                      model_pieces=PIECES, ground_pieces=GROUND, surroundings=surroundings,
                      planting=SimpleNamespace(replacements=lambda *a: ({}, {}), woodland=lambda *a: {}),
-                     clear_railway=lambda *a: {}, map_zones=lambda *a: [], tv_spots=lambda *a: [],
+                     clear_railway=lambda *a: {}, map_zones=lambda *a: [], tv_spots=lambda *a: [], racing_places=lambda *a: {},
                      L=SimpleNamespace(ORIGIN=[0., 0., 0.], BOUNDS=[0., 0., 10., 10.], RAILWAY={}, native_origin=lambda: [0., 0., 0.]),
                      shutil=shutil, json=json, np=np, Path=Path, source_records=source_records, retain_files=retain_files)
     script = REGION / 'build.py'

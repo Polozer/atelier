@@ -178,6 +178,65 @@ class Flora(unittest.TestCase):
         self.assertAlmostEqual(shifted['osteria_front']['pivot_cm'][0], -2350., places=2)
         self.assertAlmostEqual(shifted['osteria_front']['watch_cm'][0], -2790., places=2)
 
+    def test_racing_counter_follows_the_salon_hall(self):
+        from belmonte import build as B
+        counter = B.racing_places()['counter']
+        # The central guichet as Haras Valley placed it, now derived from SM_BM_BHip_SalonHall's committed transform.
+        self.assertEqual(counter['at_cm'], [8760., -30500., 3015.])
+        self.assertEqual(counter['yaw'], 0.)
+        moved = json.loads(json.dumps(source.manifest()))
+        salon = {m['source_asset'] for m in moved['meshes'] if m['name'] == 'SM_BM_BHip_SalonHall'}
+        for p in moved['placements']:
+            if p['asset'] in salon:
+                p['transform']['translation_cm'][1] += 300.
+                p['transform']['rotation_xyzw'] = [0., 0., 0.70710678, 0.70710678]
+        shifted = B.racing_places(moved)['counter']
+        self.assertEqual(shifted['yaw'], -90.)
+        self.assertAlmostEqual(shifted['at_cm'][0], 7000. - 300., places=1)
+        self.assertAlmostEqual(shifted['at_cm'][1], -30200. + 300. - 1760., places=1)
+    def test_belmonte_stable_places_follow_the_estate(self):
+        from belmonte import build as B
+        places = B.racing_places()['belmonte_stable']
+        plates = [p for p in places if p['kind'] == 'plate']
+        self.assertEqual(len(plates), 11)
+        self.assertEqual(sorted(p['kind'] for p in places if p['kind'] != 'plate'), ['jockeys', 'transfers'])
+        # Haras Valley's estates.json stall doors (plan x metres) on the yard front (plan y -313.5 m), 1.52 m over the pad.
+        stall_x = [349.09375, 352.68125, 356.26875, 359.85625, 363.44375, 367.03125, 370.61875,
+                   381.38125, 384.96875, 388.55625, 392.14375]
+        for p, x in zip(plates, stall_x):
+            self.assertAlmostEqual(p['at_cm'][0], x * 100., places=1)
+            self.assertEqual(p['at_cm'][1:], [31353., -848.])
+            self.assertEqual(p['yaw'], 90.)
+        moved = json.loads(json.dumps(source.manifest()))
+        estate = {m['source_asset'] for m in moved['meshes'] if m['name'] == 'SM_BM_BE_0_Stables'}
+        for p in moved['placements']:
+            if p['asset'] in estate:
+                p['transform']['translation_cm'][2] += 120.
+        shifted = B.racing_places(moved)['belmonte_stable']
+        self.assertTrue(all(a['at_cm'][2] == b['at_cm'][2] + 120. for a, b in zip(shifted, places)))
+    def test_records_hall_follows_the_palazzo_comunale(self):
+        from belmonte import build as B
+        hall = B.racing_places()['records_hall']
+        self.assertEqual(hall['centre_cm'], [0., -2690., 263.])
+        self.assertEqual(hall['floor_cm'], 263.)
+        kinds = [o['object'] for o in hall['objects']]
+        self.assertEqual({k: kinds.count(k) for k in set(kinds)},
+                         {'board': 1, 'record': 7, 'plaque': 1, 'honour': 5, 'cabinet': 1, 'archive': 1})
+        board = hall['objects'][0]
+        # Over the middle door on the loggia's back wall, facing the piazza, as Haras Valley placed it.
+        self.assertEqual(board['at_cm'], [0., -2896., 743.])
+        self.assertEqual(board['yaw'], 90.)
+        for o in hall['objects']:
+            self.assertLessEqual(abs(o['at_cm'][0]), 1240.)
+            self.assertTrue(-2900. <= o['at_cm'][1] <= -2480.)
+        moved = json.loads(json.dumps(source.manifest()))
+        palazzo = {m['source_asset'] for m in moved['meshes'] if m['name'] == 'SM_BM_BH_PalazzoComunale'}
+        for p in moved['placements']:
+            if p['asset'] in palazzo:
+                p['transform']['translation_cm'][0] += 500.
+        shifted = B.racing_places(moved)['records_hall']
+        self.assertEqual(shifted['centre_cm'][0], 500.)
+        self.assertEqual(shifted['objects'][0]['at_cm'][0], 500.)
 
 if __name__ == '__main__':
     unittest.main()
