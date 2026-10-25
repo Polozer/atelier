@@ -19,7 +19,7 @@ def owner(monkeypatch):
     return importlib.import_module('city_atomic_products')
 
 
-def prepared(out, key):
+def prepared(out, key, slots=('Palette',), parent_slots=None):
     root = out / 'planned_exports/hidamari' / key
     root.mkdir(parents=True)
     matrix = np.eye(4)
@@ -28,19 +28,21 @@ def prepared(out, key):
                 faces=[[0,1,2], [0,3,1], [0,2,3], [1,3,2]], matrix=hull_matrix.tolist())
     piece = dict(positions=[[0,0,0], [1,0,0], [0,1,0]], faces=[[0,1,2]], normals=[[0,0,1]]*3,
                  materials=[0], smooth=[False], uvs=[('UVMap', [[0,0], [1,0], [0,1]])], colours=[])
-    payload = mesh_ir.encode(piece, key=key, slots=['Palette'], matrix=matrix.tolist(), options={}, collisions=[hull])
+    payload = mesh_ir.encode(piece, key=key, slots=list(slots), matrix=matrix.tolist(), options={}, collisions=[hull])
     path = root / (key + '.npz'); mesh_ir.write(path, payload)
     row = dict(name=key, payload=path.name, sha256=sha(path), triangles=1, polygons=1,
                min=[0,0,0], max=[1,1,0], collision_hulls=1)
+    if parent_slots is not None:
+        row |= dict(slots=list(slots), source_material_indices=[parent_slots.index(slot) for slot in slots])
     value = dict(schema=1, parent=key, complete=True, triangle_limit=32768, source_triangles=1,
                  partition='explicit', collision_owner=key,
-                 source_polygons=1, source_collision_hulls=1, slots=['Palette'], matrix=matrix.tolist(), pieces=[row])
+                 source_polygons=1, source_collision_hulls=1, slots=list(parent_slots or slots), matrix=matrix.tolist(), pieces=[row])
     (root / 'plan.json').write_text(json.dumps(value))
     export = out / 'individual' / key; export.mkdir(parents=True)
     (export / (key + '.fbx')).write_bytes(('mesh-' + key).encode())
     receipt = publish_receipt(export, key=key, primary=key + '.fbx', triangles=1,
                               bounds=[[0,0,0], [1,1,0]], metadata=dict(geometry_sha256=row['sha256'],
-                              slots=['Palette'], polygons=1, collision_hulls=1, uv_channels=['UVMap']))
+                              slots=list(slots), polygons=1, collision_hulls=1, uv_channels=['UVMap']))
     return root, export, receipt
 
 
@@ -56,6 +58,16 @@ def test_source_metadata_retains_whole_authored_hull_frame_and_logical_bounds(tm
 def test_same_counts_do_not_admit_an_export_of_another_geometry_input(tmp_path, owner):
     root, _, receipt = prepared(tmp_path, 'HD_ClockHall')
     receipt['metadata']['geometry_sha256'] = '0' * 64
+    with pytest.raises(ValueError, match='geometry input'):
+        owner.source_record(root, {'HD_ClockHall': receipt})
+
+
+def test_compacted_piece_slots_match_their_own_export_not_the_whole_parent_table(tmp_path, owner):
+    # Planned pieces keep only the parent slots their faces use; each export receipt records that compact table.
+    root, _, receipt = prepared(tmp_path, 'HD_ClockHall', slots=('HDS_stone',), parent_slots=['HDS_stone', 'HDS_timber'])
+    row = owner.source_record(root, {'HD_ClockHall': receipt})
+    assert row['source_material_slots'] == ['HDS_stone', 'HDS_timber']
+    receipt['metadata']['slots'] = ['HDS_stone', 'HDS_timber']
     with pytest.raises(ValueError, match='geometry input'):
         owner.source_record(root, {'HD_ClockHall': receipt})
 
