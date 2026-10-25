@@ -53,11 +53,19 @@ bool FTrainVehicleAdmissionTest::RunTest(const FString&)
         TestEqual(FString(Action) + TEXT(" preserves the activity epoch"), Rider->GetActivityEpoch(), 31u);
         TestTrue(FString(Action) + TEXT(" preserves the foot activity"), Rider->GetNetworkActivity() == EJapanActivity::OnFoot);
     };
-    for (const FIntPoint Flags : {FIntPoint(1,0), FIntPoint(0,1), FIntPoint(1,1)})
+    // Aboard with the ticket, stepping through a door or seated, and in or on a vehicle without the ticket (walked in at
+    // a platform, ridden in, a roof or the tender, standing up from a seat taken without boarding).
+    const FIntVector OnTrain[] = {FIntVector(1,0,0), FIntVector(0,1,0), FIntVector(1,1,0), FIntVector(0,0,1), FIntVector(1,0,1)};
+    for (const FIntVector Flags : OnTrain)
     {
         Rider->bTrainAboard = Flags.X != 0;
         Rider->bTrainDriving = Flags.Y != 0;
+        Rider->bTrainInside = Flags.Z != 0;
+        TestTrue(TEXT("The one train gate holds"), Rider->IsOnTrain());
         TestFalse(TEXT("Carried boards are unavailable on the train"), Rider->CanCarrySkateBoard());
+        Session->SetSessionStatus(TEXT("sentinel"));
+        TestFalse(TEXT("On foot there is nothing to put away"), Rider->StowVehicleOnTrain());
+        TestEqual(TEXT("Nothing put away, nothing said"), Session->GetSessionStatus(), FString(TEXT("sentinel")));
         const uint32 Before = Stream->Board.Sequence;
         ++Board.Sequence; Board.Shown = 1.f;
         Stream->ServerBoard_Implementation(Board);
@@ -91,8 +99,9 @@ bool FTrainVehicleAdmissionTest::RunTest(const FString&)
         else Rider->ServerRequestSail_Implementation(31);
         TestTrue(TEXT("A stow request bypasses the train deployment refusal"), Session->GetSessionStatus() != Refusal);
     }
-    Rider->bTrainAboard = Rider->bTrainDriving = false;
+    Rider->bTrainAboard = Rider->bTrainDriving = Rider->bTrainInside = false;
     TestFalse(TEXT("The train gate releases when the rider leaves"), Rider->RefuseVehicleOnTrain());
+    TestFalse(TEXT("Off the train nothing is put away"), Rider->StowVehicleOnTrain());
     ++Board.Sequence; Board.Shown = 1.f;
     Stream->ServerBoard_Implementation(Board);
     TestEqual(TEXT("Visible board transport resumes after leaving"), Stream->Board.Shown, 1.f);
@@ -106,15 +115,16 @@ bool FTrainVehicleAdmissionTest::RunTest(const FString&)
     Stream->Boards = {Stream->Board};
     Stream->ShowBoard(World->GetRealTimeSeconds());
     TestEqual(TEXT("The retained board is initially visible"), Skate->GetBoardShown(), 1.f);
-    for (const FIntPoint Flags : {FIntPoint(1,0), FIntPoint(0,1), FIntPoint(1,1)})
+    for (const FIntVector Flags : OnTrain)
     {
         Rider->bTrainAboard = Flags.X != 0;
         Rider->bTrainDriving = Flags.Y != 0;
+        Rider->bTrainInside = Flags.Z != 0;
         Skate->ApplyNetworkBoard(Board.Deck, 1.f);
         Stream->ShowBoard(World->GetRealTimeSeconds());
         TestEqual(TEXT("Boarding masks retained visible presentation without a hide packet"), Skate->GetBoardShown(), 0.f);
     }
-    Rider->bTrainAboard = Rider->bTrainDriving = false;
+    Rider->bTrainAboard = Rider->bTrainDriving = Rider->bTrainInside = false;
     Stream->ShowBoard(World->GetRealTimeSeconds());
     TestEqual(TEXT("Leaving restores the ordinary retained-board presentation"), Skate->GetBoardShown(), 1.f);
     Stream->Boards.Reset(); Rider->bTrainAboard = true;

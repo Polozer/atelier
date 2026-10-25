@@ -4,12 +4,13 @@
 #include "Sound/SoundAttenuation.h"
 #include "Engine/World.h"
 
-namespace
-{
 USoundWave* LoadTransportWave(const FString& Name)
 {
  return LoadObject<USoundWave>(nullptr,*FString::Printf(TEXT("/Game/Audio/Transport/%s.%s"),*Name,*Name),nullptr,LOAD_NoWarn|LOAD_Quiet);
 }
+
+namespace
+{
 USoundAttenuation* MakeAttenuation(UObject* Outer,float Inner,float Falloff)
 {
  auto* Out=NewObject<USoundAttenuation>(Outer);

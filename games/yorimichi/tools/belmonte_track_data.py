@@ -102,6 +102,7 @@ def build(track):
                    for name, m in meshes.items()},
         'pieces': pieces,
         'instances': groups,
+        'textures': track.get('textures', {}),
         'cull_cm': CULL_CM,
         'tunnels': tunnels,
         'light': {'kelvin': spec.get('colour_k', 2700), 'candela': spec.get('intensity_cd', 80.0),

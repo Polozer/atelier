@@ -349,10 +349,16 @@ public:
     bool IsTrainFirstPerson() const { return TrainView.IsFirstPerson(); }
     bool HidesTrainBody() const { return !bFixedView && !bCinematic && TrainView.HidesBody(); }
     float GetTrainViewBlend() const { return TrainView.GetBlend(); }
-    /** Standing, seated or stepping through a train door. */
-    bool IsOnTrain() const { return bTrainAboard || bTrainDriving; }
+    /** Inside or on a vehicle of the Belmonte train, ticket or not (walked in at a platform, ridden in, on a roof or in
+     *  the tender). Set each frame by the train service for the host's pawns and the owner's own (UpdateOnTrain). */
+    bool bTrainInside = false;
+    /** Standing, seated or stepping through a train door, or anywhere in or on its vehicles. */
+    bool IsOnTrain() const { return bTrainAboard || bTrainDriving || bTrainInside; }
     /** Refuse deploying a vehicle on the train through the same local/owner message. Stowing bypasses this gate. */
     bool RefuseVehicleOnTrain();
+    /** Host or offline, on the train (IsOnTrain): put an active skateboard, bike, horse or sailboat away at once, with the
+     *  refusal message; online through the host's activity handoff to foot. True when one was put away. */
+    bool StowVehicleOnTrain();
     /** The flight buttons: aboard, ride speed; at the docked ship, its next stop. -1 or +1. */
     void ZeppelinStep(int32 Direction);
 private:

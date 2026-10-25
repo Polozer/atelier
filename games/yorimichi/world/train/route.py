@@ -103,14 +103,24 @@ VIADUCT_RISE = 15.          # per metre of height above EMBANKMENT_HEIGHT
 
 # Operation.
 TRAIN_LENGTH = 131.
-MAX_SPEED = 100 / 3.6       # Paul, 2026-10-14 playtest: faster on straights and gentle curves (was 80)
+MAX_SPEED = 110 / 3.6       # Paul 2026-10-20, from his simulator (was 100; 80 before 2026-10-14)
 RUN_COST = 500.             # m3 of earthwork worth one second of running time, for the optimiser
 LATERAL_ACCELERATION = .85  # with cant (was .65 without): v = sqrt(a R), posted in POSTED_STEP steps rounded down
 POSTED_STEP = 10 / 3.6
-ACCELERATION = .4           # at most; less when the engine's power runs out
-BRAKING = 1.2               # Paul: still stopped far too slowly at .8 (was .5); a firm stop for a game
-TUNNEL_SPEED = 160 / 3.6    # game pacing: only while the complete consist is under one continuous tunnel
-TUNNEL_ACCELERATION = 1.2
+# Paul 2026-10-20, final values from his simulator (the departure pulled away far too fast, the trip was a little quick):
+ACCELERATION = 1. / 3.6     # 1 km/h per s at most; less when the engine's power runs out (was .4 m/s2)
+BRAKING = 3.1 / 3.6         # 3.1 km/h per s (was 1.2 m/s2)
+TUNNEL_SPEED = 118 / 3.6    # game pacing: only while the complete consist is under one continuous tunnel (was 160)
+TUNNEL_ACCELERATION = 2. / 3.6      # (was 1.2 m/s2)
+RAMP = 12.                  # s: the soft start. Until the train has moved this long since it last stood still (under
+RAMP_STILL = .6             # this speed, m/s) its acceleration is capped at max(ACCELERATION, TUNNEL_ACCELERATION)
+                            # times the fraction of RAMP elapsed (at least .05 s of it)
+# Speed zones Paul marks on the route map: (start m, end m, km/h) over head chainage, both directions. While the head
+# is in one, its speed replaces the line's (MAX_SPEED) or, under a covered tunnel, TUNNEL_SPEED; in the open the
+# posted curve limits still cap it. Later zones in the list win where they overlap.
+SPEED_ZONES = [(0., 1010., 70.), (1000., 2430., 110.), (2450., 4630., 140.), (4640., 7000., 110.), (6990., 7940., 70.)]
+# Posted curve limits set by hand, km/h, by the curve's start chainage (posted_limits; each must match one curve)
+CURVE_LIMITS = {1701.: 91.}     # Paul 2026-10-20: the third curve (radius 900 m) at 91 instead of 90
 # A steam train for a game: locomotive 70 t, tender 40 t and five vehicles of about 36 t (consist.py has no masses).
 MASS = (70. + 40. + 5 * 36.) * 1e3
 POWER = 1.5e6               # watts at the rail
@@ -167,7 +177,7 @@ OPTION_GRADE = .035
 
 
 def full_speed_radius():
-    """The smallest radius the train takes at MAX_SPEED (908 m at 100 km/h and 0.85 m/s2)."""
+    """The smallest radius the train takes at MAX_SPEED (1098 m at 110 km/h and 0.85 m/s2)."""
     return MAX_SPEED ** 2 / LATERAL_ACCELERATION
 
 
@@ -696,9 +706,11 @@ def earthworks(line, rail, zg, kind, loop=None):
 # --- operation ------------------------------------------------------------------------------------------------------
 
 
-def posted_limits(line, step=1.):
+def posted_limits(line, step=1., overrides=None):
     """Posted curve limits as (start, end, m/s, radius), each over its whole curve with the transitions, from the
-    alignment's curvature; the spiral is one long limit. MAX_SPEED elsewhere."""
+    alignment's curvature; the spiral is one long limit. MAX_SPEED elsewhere. `overrides` (CURVE_LIMITS by default)
+    set a curve's limit by hand, by its start chainage."""
+    overrides = CURVE_LIMITS if overrides is None else overrides
     s = np.arange(0., line.length + step / 2, step)
     k = np.abs(np.interp(s, line.s, line.curvature))
     curved = k > 1e-7
@@ -708,8 +720,12 @@ def posted_limits(line, step=1.):
             continue
         radius = 1 / float(k[i0:i1].max())
         limit = curve_limit(radius)
+        start = float(s[i0])
+        for key, kmh in overrides.items():
+            if abs(key - start) <= 1.:
+                limit = kmh / 3.6
         if limit < MAX_SPEED - 1e-9:
-            result.append((float(s[i0]), float(s[i1 - 1]), limit, radius))
+            result.append((start, float(s[i1 - 1]), limit, radius))
     return result
 
 
@@ -747,7 +763,7 @@ def tunnel_covered(line, tunnel, head, direction):
     return covered
 
 
-def run(line, rail=None, direction=1, step=1., stop=None, tunnel=None):
+def run(line, rail=None, direction=1, step=1., stop=None, tunnel=None, zones=None):
     """Run between the platform centres, H2 to Belmonte (direction 1) or back (-1): head chainage, time and speed
     arrays. The train brakes at BRAKING to reach a posted limit where the curve starts and keeps it until its rear
     has left the curve; it accelerates at most at ACCELERATION and as the engine's POWER allows against the grade
@@ -756,18 +772,26 @@ def run(line, rail=None, direction=1, step=1., stop=None, tunnel=None):
     STOP_CLEARANCE from the far end, so the whole train stands on the station reserve.
     With `stop` (a chainage) it also comes to a stand there. With a tunnel mask on line.s,
     a fully covered consist may use TUNNEL_SPEED and TUNNEL_ACCELERATION; braking still
-    restores the posted limit before any part leaves the tunnel."""
+    restores the posted limit before any part leaves the tunnel. A start is soft (RAMP). SPEED_ZONES (or `zones`)
+    replace the line or tunnel speed where the head is in one, under the posted curve limits in the open."""
+    zones = SPEED_ZONES if zones is None else zones
     first, last = STOP_CLEARANCE + TRAIN_LENGTH, line.length - STOP_CLEARANCE
     if direction < 0:
         first, last = line.length - first, STOP_CLEARANCE
     d = np.arange(0., abs(last - first) + step / 2, step)
     c = first + direction * d
     limit = np.full(len(d), MAX_SPEED)
+    curve = np.full(len(d), math.inf)
     for a, b, v, _ in posted_limits(line):
         lo, hi = (a, b + TRAIN_LENGTH) if direction > 0 else (a - TRAIN_LENGTH, b)
-        limit[(c >= lo) & (c <= hi)] = np.minimum(limit[(c >= lo) & (c <= hi)], v)
+        on = (c >= lo) & (c <= hi)
+        limit[on] = np.minimum(limit[on], v)
+        curve[on] = np.minimum(curve[on], v)
     hidden = tunnel_covered(line, tunnel, c, direction)
     limit[hidden] = TUNNEL_SPEED
+    for a, b, kmh in zones:
+        on = (c >= a) & (c <= b)
+        limit[on] = np.where(hidden[on], kmh / 3.6, np.minimum(kmh / 3.6, curve[on]))
     if rail is None:
         grade = np.zeros(len(d))
     else:
@@ -780,17 +804,26 @@ def run(line, rail=None, direction=1, step=1., stop=None, tunnel=None):
     for i in range(len(d) - 2, -1, -1):
         vb[i] = min(vb[i], math.sqrt(vb[i + 1] ** 2 + 2 * BRAKING * step))
     v = np.zeros(len(d))
+    moving = 0.                 # seconds since the train last stood still: the soft start (RAMP)
     for i in range(len(d) - 1):
         u = v[i]
         force = POWER / max(u, 1.) - resistance(u) - MASS * GRAVITY * grade[i]
         acc = TUNNEL_ACCELERATION if hidden[i] else min(ACCELERATION, force / MASS)
+        if moving < RAMP:
+            acc = min(acc, max(ACCELERATION, TUNNEL_ACCELERATION) * max(moving, .05) / RAMP)
         v[i + 1] = min(vb[i + 1], math.sqrt(max(u * u + 2 * acc * step, 1.)))
+        moving = 0. if v[i + 1] < RAMP_STILL else moving + step / max((v[i + 1] + u) / 2, .5)
     if halt is not None:
         v[halt] = 0.
     v[-1] = 0.
     mean = (v[1:] + v[:-1]) / 2
     t = np.r_[0., np.cumsum(step / np.maximum(mean, .5))]
     return c, t, v
+
+
+def profile_rows(r):
+    """A run (chainage, seconds, m/s arrays) as route.json rows [head chainage, seconds, km/h]."""
+    return [[round(float(s), 1), round(float(t), 3), round(float(v) * 3.6, 2)] for s, t, v in zip(*r)]
 
 
 def crossing(up, down, at):
@@ -836,8 +869,8 @@ def service(line, rail, loop, up=None, down=None, tunnel=None):
             up_time, down_time = U, D0 + wait
         cycle = up_time + down_time + 2 * DWELL
         if best is None or cycle < best[0] - 1e-6:
-            best = (cycle, waiting, wait, arrive, up_time, down_time)
-    cycle, waiting, wait, arrive, up_time, down_time = best
+            best = (cycle, waiting, wait, arrive, up_time, down_time, halt, stopping)
+    cycle, waiting, wait, arrive, up_time, down_time, halt, stopping = best
     half = cycle / 2
     phase = (up_time - down_time) / 2       # the first down departure from Belmonte, after the up one from H2
     if waiting > 0:
@@ -862,7 +895,9 @@ def service(line, rail, loop, up=None, down=None, tunnel=None):
             'profile_reference': 'head', 'train_length_m': TRAIN_LENGTH,
             'times_note': 'seconds from train A leaving Hidamari; the pattern repeats every cycle_s and each station '
                           'sees a departure every headway_s; a waiting train\'s run time includes its stop and wait',
-            'schedule': schedule}
+            'schedule': schedule,
+            # the waiting direction's run with its stop at `halt` (head chainage): not JSON, main() publishes it
+            '_stopping': {'halt': halt, 'run': stopping}}
 
 
 def loop_candidates(line, lo, hi):
@@ -1256,7 +1291,7 @@ def summary(r):
                                    for name, i0, i1 in _runs(on_backdrop) if name],
             'one_way_run_time_s': round(one_way, 1), 'one_way_run_time_min': round(one_way / 60, 2),
             'one_way_run_time_down_s': round(one_way_down, 1), 'one_way_run_time_down_min': round(one_way_down / 60, 2),
-            'service': r['service'],
+            'service': r['service'] and {k: v for k, v in r['service'].items() if not k.startswith('_')},
             'balancing_speed_kmh': {f'{g * 100:.1f}%': round(balancing_speed(g) * 3.6) for g in (.02, .03, .035, .04)},
             'min_radius_m': round(float(radius), 1), 'max_grade_pct': round(float(np.abs(grade).max()) * 100, 2),
             'grade_limit_pct': r['grade_limit'] * 100, 'min_vertical_curve_radius_m': round(rv),
@@ -1520,6 +1555,7 @@ def main():
     spaces = empty_spaces(line, seen, raster, built, plants, boxes)
     s_run, t_run, v_run = r['run']
     report = summary(r)
+    stopping = (r['service'] or {}).get('_stopping')
     report['structures'] = structures(line, rail, zg, kind)
     report['hidamari_clearance'] = hidamari_clearance(line)
     report['belmonte_clearance'] = belmonte_clearance(line)
@@ -1562,12 +1598,16 @@ def main():
             'passing_loop': None if r['loop'] is None else {
                 'start': r['loop'][0], 'end': r['loop'][1], 'turnout': TURNOUT, 'spacing': TRACK_SPACING,
                 'second_track': [[round(float(a), 1), round(float(b), 2), round(float(c), 2)] for a, b, c in r['loop_track']]},
-            'speed_profile': [[round(float(s), 1), round(float(t), 1), round(float(v) * 3.6, 1)]
-                              for s, t, v in zip(s_run[::10], t_run[::10], v_run[::10])],
-            'speed_profile_down': [[round(float(s), 1), round(float(t), 1), round(float(v) * 3.6, 1)]
-                                   for s, t, v in zip(*(part[::10] for part in r['run_down']))],
-            'speed_profiles_note': '[head chainage m, seconds since departure, km/h]; speed_profile runs Hidamari to '
-                                   'Belmonte, speed_profile_down Belmonte to Hidamari',
+            # every metre: the service (tools/belmonte_train_service.py) plays these runs' own times, so the game
+            # moves exactly as run() computed (its soft start included)
+            'speed_profile': profile_rows(r['run']),
+            'speed_profile_down': profile_rows(r['run_down']),
+            'speed_profile_stopping': None if not stopping else {
+                'direction': 'up' if stopping['run'][0][-1] > stopping['run'][0][0] else 'down',
+                'halt': round(float(stopping['halt']), 1), 'rows': profile_rows(stopping['run'])},
+            'speed_profiles_note': '[head chainage m, seconds since departure, km/h] every metre; speed_profile runs '
+                                   'Hidamari to Belmonte, speed_profile_down Belmonte to Hidamari, '
+                                   'speed_profile_stopping the waiting direction with its stop at halt in the loop',
             'posted_limits': [{'start': round(a, 1), 'end': round(b, 1), 'kmh': round(v * 3.6),
                                'radius': round(radius), 'what': 'spiral tunnel' if line.spiral_mask([(a + b) / 2])[0]
                                else 'curve'} for a, b, v, radius in posted_limits(line)],

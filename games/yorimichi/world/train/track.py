@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from train import route as R
+from train.track_textures import TEXTURED  # noqa: F401  MI_TK_* instances with a detail texture: texture, metres per tile
 
 ROUTE = yori.OUT / 'belmonte-train' / 'route' / 'route.json'
 OUT = yori.OUT / 'belmonte-track'
@@ -22,12 +23,13 @@ OUT = yori.OUT / 'belmonte-track'
 GAUGE = 1.435
 RAIL_HEIGHT = .15
 CHUNK = 100.                # metres of line per ballast-and-rail mesh
-SLICES = (4., 10., 25.)     # sweep spacing per LOD
+SLICES = (5., 10., 25.)     # sweep spacing per LOD (5 m chords sag 7 mm on the open line's 450 m curves)
 SLEEPER = (2.6, .25, .15)   # length across the track, width along it, depth
 SLEEPER_SPACING = .63
 BALLAST_TOP = -.20          # below the rail top: the sleepers stand 5 cm proud of the ballast
 BALLAST_HALF = 1.7          # half width of the ballast top
 BALLAST_TOE = (2.45, -.70)  # shoulder toe, 1:1.5 slope
+FOOT = .55                  # the shoulder turns from clean ballast to its dusty foot this far down the slope (cess)
 SKIRT = (2.6, -1.5)         # a steep skirt that hides small gaps to the ground
 BUFFER_OFFSET = 1.          # buffer stops this far from each end of the line
 STOP_OFFSET = R.STOP_CLEARANCE              # the stopping point: where the run model's head stops
@@ -61,6 +63,8 @@ MATERIALS = {               # Blender colour stand-ins; the names are the Unreal
     'MI_TK_TunnelLining': (.075, .07, .065, .95),   # soot-blackened stone: the tunnel stays dark between its lamps
     'MI_TK_LampGlow': (1., .72, .38, .3),            # emissive in Unreal (track_build.py lights it in Blender)
     'MI_TK_Bank': (.10, .14, .045, .95),             # the grass of a bank built over ground that is not carved
+    'MI_TK_Ballast': (.50, .49, .47, .95),           # crushed stone (T_TK_Ballast tints it): the bed's top and shoulders
+    'MI_TK_Cess': (.54, .52, .49, .95),              # the bed's foot, thinning out over earth (T_TK_Cess)
     # the Belmonte station (station.py)
     'MI_B_flag': (.55, .40, .25, .9),
     'MI_B_cobble': (.55, .38, .22, .9),
@@ -250,13 +254,24 @@ RAIL_PROFILES = (           # (u, v) around a rail's head centre, open underneat
 
 
 def ballast_profile(lod, extra_left=0., extra_right=0.):
-    """The ballast bed's section, right to left: skirt, toe, shoulder, top, shoulder, toe, skirt."""
+    """The ballast bed's section, right to left: skirt, toe, foot, shoulder, top, shoulder, foot, toe, skirt."""
     top, (toe, toe_v), (skirt, skirt_v) = BALLAST_HALF, BALLAST_TOE, SKIRT
-    right = [(-skirt - extra_right, skirt_v), (-toe - extra_right, toe_v), (-top - extra_right, BALLAST_TOP)]
-    left = [(top + extra_left, BALLAST_TOP), (toe + extra_left, toe_v), (skirt + extra_left, skirt_v)]
+    foot, foot_v = top + FOOT * (toe - top), BALLAST_TOP + FOOT * (toe_v - BALLAST_TOP)
+    right = [(-skirt - extra_right, skirt_v), (-toe - extra_right, toe_v), (-foot - extra_right, foot_v),
+             (-top - extra_right, BALLAST_TOP)]
+    left = [(top + extra_left, BALLAST_TOP), (foot + extra_left, foot_v), (toe + extra_left, toe_v),
+            (skirt + extra_left, skirt_v)]
     if lod == 2:
         right, left = right[1:], left[:-1]
     return right + left
+
+
+def ballast_parts(section):
+    """A ballast section split by material: the cess (MI_TK_Cess) from each skirt (or toe) to the foot of the
+    shoulder, the ballast (MI_TK_Ballast) from foot to foot over the top. Each part keeps the section's direction, so
+    faces point up and out."""
+    k = len(section) // 2           # the right half; its last point is the top's right edge
+    return [(section[:k - 1], 'MI_TK_Cess'), (section[k - 2:k + 2], 'MI_TK_Ballast'), (section[k + 1:], 'MI_TK_Cess')]
 
 
 def sweep(line, mesh, s_values, section, mat, origin, offset=None):
@@ -298,9 +313,25 @@ def chunk_mesh(line, start, end, lod, origin):
         extra = abs(float(line.loop_offset(s)))
         return ballast_profile(lod, *((extra, 0.) if line.loop_side > 0 else (0., extra)))
 
-    sweep(line, mesh, s_values, section, 'MI_B_gravel', origin)
+    for part, (_, mat) in enumerate(ballast_parts(ballast_profile(lod))):
+        sweep(line, mesh, s_values, lambda s, part=part: ballast_parts(section(s))[part][0], mat, origin)
+    for s, outward in ((start, -1.), (end, 1.)):
+        if s <= 0. or s >= line.length:
+            end_cap(line, mesh, s, section(s), outward, origin)
     rails(line, mesh, s_values, lod, origin)
     return mesh
+
+
+def end_cap(line, mesh, s, section, outward, origin):
+    """The ballast bed's end face at the line's ends (behind the buffer stops): the section closed along its foot,
+    facing along the line (outward: +1 ahead, -1 back), so the bed never shows as an open shell there."""
+    _, t, _ = line.frame(s)
+    points = line.place(np.full(len(section), s), [p[0] for p in section], [p[1] for p in section]) - origin
+    face = tuple(range(len(section)))
+    normal = np.cross(points[1] - points[0], points[-1] - points[0])
+    if np.dot(normal, t) * outward < 0:
+        face = face[::-1]
+    return mesh.add(points, [face], 'MI_TK_Cess')
 
 
 def loop_mesh(line, lod, origin):
@@ -499,7 +530,21 @@ def bank_ranges(line):
         if not on and start is not None:
             out.append((start, min(rows[i - 1]['s'] + 5., line.length)))
             start = None
-    return out
+    # Where a bank meets a viaduct it runs on under the deck as the earthworks' end cone (earthworks.END_RATIO) until
+    # the cone is down in the valley's ground: ending at the abutment it would leave its section's open edge hanging
+    # over the valley, the track seemingly afloat.
+    s = np.array([r['s'] for r in rows])
+    drop = np.array([r['rail_z'] - r['ground_z'] for r in rows])
+    closed = []
+    for a, b in out:
+        for va, vb in line.ranges('viaduct'):
+            near = (s >= va) & (s <= vb)
+            if abs(a - vb) <= 6. and near.any():
+                a = max(vb - min(E.END_RATIO * (float(drop[near & (s >= vb - 30.)].max(initial=0.)) + 1.) + 2., (vb - va) / 2), va)
+            if abs(b - va) <= 6. and near.any():
+                b = min(va + min(E.END_RATIO * (float(drop[near & (s <= va + 30.)].max(initial=0.)) + 1.) + 2., (vb - va) / 2), vb)
+        closed.append((float(a), float(b)))
+    return closed
 
 
 def bank_mesh(line, start, end, lod, origin):
@@ -512,6 +557,9 @@ def bank_mesh(line, start, end, lod, origin):
     carved_from = E.valley_carve_start(ln, line.route['samples'])
     mesh = Mesh()
     s_values = stations(start, end, BANK_SLICES[lod])
+    # A slice exactly at each viaduct end inside the bank, where its end cone starts: the formation holds up to it.
+    ends = [s for a, b in line.ranges('viaduct') for s in (a, b) if start < s < end]
+    s_values = np.unique(np.concatenate([s_values, ends])) if ends else s_values
     reach = E.FLOOR_HALF + E.ROUND + E.RATIO[1] * max(float(np.max(line.rail - line.ground)), 1.) + 4.
     u = np.arange(-reach, reach + 1e-6, BANK_ACROSS[lod])[::-1]
 
