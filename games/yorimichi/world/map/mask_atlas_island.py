@@ -250,7 +250,7 @@ def main():
                                        pre_alpha_painting='not recovered: RGB carried bit-identical from from_painting')
                 if 'recut' in previous_record:  # a recut of a recut keeps the whole lineage back to the first consumed alpha
                     record['recut']['from_recut'] = previous_record['recut']
-                for key in ('natural_kernel_revalidation',):
+                for key in ('natural_kernel_revalidation', 'atomic_export_revalidation'):
                     if key in previous_record:
                         record[key] = previous_record[key]
             tmp_record.write_text(json.dumps(record, indent=2) + '\n')

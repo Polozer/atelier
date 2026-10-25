@@ -13,10 +13,26 @@ spec = importlib.util.spec_from_file_location('atlas_atomic_carry_tests', GAME /
 carry = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(carry)
 ATLAS = GAME / 'world/map/atlas'
+regional_spec = importlib.util.spec_from_file_location('atlas_atomic_regional_tests', GAME / 'tests/test_regional_atlas.py')
+regional = importlib.util.module_from_spec(regional_spec)
+regional_spec.loader.exec_module(regional)
 
 
 def test_live_atlas_carry_has_exact_current_source_and_immutable_predecessor():
     witness = json.loads((ATLAS / carry.WITNESS).read_text())
+    current = regional.atlas.geography_signature()
+    if witness['current_geography'] != current:
+        # A later measured revalidation must cover every painting against today's terrain; the carry is historical.
+        coast = json.loads((ATLAS / 'coasts/source.json').read_text())
+        records = {Path(rel).stem: json.loads((ATLAS / rel).read_text()) for rel in witness['records'] if rel != 'coasts/source.json'}
+        assert not regional.revalidation_gaps(current, coast, records, lambda rel: carry.sha((ATLAS / rel).read_bytes()))
+        for rel in records:  # the regenerated coast source is bound by the revalidation above
+            rel += '.json'
+            record = json.loads((ATLAS / rel).read_text())
+            restored = carry.restore_record(rel, record, superseded=True)
+            for field in ('generation', 'recut', 'display', 'output_sha256', 'prompt'):
+                assert record.get(field) == restored.get(field)
+        return
     assert carry.prove() == witness['source_proof']
     assert len(witness['source_proof']['comparisons']) == 13
     previous = witness['records']['coasts/source.json']['previous_tables']['geography']
