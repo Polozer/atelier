@@ -5,8 +5,11 @@
 
 For each family it takes a real line from the build's runtime.json (`rails`, belmonte/skate.py): the bench seat and
 backrest, a stone bench, a planter, the piazza fountain's rim, a low wall, a field wall run through its joins, a
-kerb, a shop-window ledge and a market stall's counter. The rider starts 8 m short of the line, in line with it, at
-6 m/s, ollies about 3 m before it and must lock onto it (mode 3), grind at least half of it (or 4 m), never bail.
+kerb, a shop-window ledge and a market stall's counter. The rider starts 8 m short of a point 1 m along the line,
+at 6 m/s, flicks the ollie 5 m before it (the board leaves the ground about 2 m later) and must lock onto it (mode 3),
+grind at least half of it (or 4 m), never bail. It comes in along the line, then 25 degrees from either side: an end
+can be blocked (a stall's post, a bench's leg), and the first approach that locks counts. An approach whose start is
+not on the line's ground (more than 1.2 m above it) is skipped.
 A screenshot is taken a moment into each grind. Then three building walls are ridden into square at 12 m/s: the
 board must stop at the wall's collision (never more than 35 cm past its plane). Results go to
 build/yorimichi/skateqa/belmonte/belmonte_grind.json with the screenshots beside it.
@@ -26,7 +29,9 @@ OUT = yori.OUT / 'skateqa' / 'belmonte'
 RUNTIME = yori.OUT / 'belmonte' / 'runtime.json'
 SPEED = 600.            # cm/s
 LEAD = 8.               # metres before the line where the ride starts
-POP = 3.                # metres before the line where the rider ollies
+POP = 5.                # metres before the line where the ollie flick starts (the board leaves ~2 m later)
+APPROACHES = (0., 25., -25.)  # degrees off the line's direction, tried in turn
+AIM = 1.                # metres along the line where the approach aims
 WALL_SPEED = 1200.      # cm/s into a wall
 WALL_PAST = .35         # metres the board may sink past a wall's plane
 # Family -> (id prefix, kind of line): the representative line is the longest straight one in the town.
@@ -45,24 +50,24 @@ import json, math, unreal
 def _bm_ue(x, y, z):
     return unreal.Vector(ORIGIN[0] + x * 100, ORIGIN[1] - y * 100, ORIGIN[2] + z * 100)
 def bm_ride(x, y, z, heading, speed, pop, duration, shot=None, shot_after=.35):
-    at = live.L.ground_at(_bm_ue(x, y, z + 3.))
+    """pop: metres rolled before the ollie flick (None: no ollie)."""
+    # GroundAt traces down from 20 m over its point: start the trace 1.5 m over the line, under eaves and trees.
+    at = live.L.ground_at(_bm_ue(x, y, z + 1.5 - 20.))
     live.skate_place(at, -heading)
     pc = unreal.GameplayStatics.get_player_controller(live.L.game_world(), 0)
     pc.set_control_rotation(unreal.Rotator(0, -14, -heading))
     h = math.radians(heading)
     live.L.skate_launch(unreal.Vector(speed * math.cos(h), -speed * math.sin(h), 0))
-    steps = []
-    if pop is not None:
-        pts = live.FLICKS['ollie']
-        steps = [(pop, {}), (.16, {'right': pts[0]}), (.03, {'right': pts[1]}), (max(.1, duration - pop - .19), {'right': (0, 0)})]
-    else:
-        steps = [(duration, {})]
     live.REC = []
-    state = {'t': 0., 'lock': None, 'shot': False}
+    state = {'t': 0., 'lock': None, 'shot': False, 'popped': pop is None}
     def record(dt):
         s = live.L.skate_state()
         live.REC.append(s)
         state['t'] += dt
+        # The flick starts once the rider has rolled `pop` metres along the heading, whatever the frame rate or speed.
+        p = live.L.player().get_actor_location() - at
+        if not state['popped'] and (p.x * math.cos(h) - p.y * math.sin(h)) / 100 >= pop:
+            live.flick('ollie'); state['popped'] = True
         if 'mode=3' in s and state['lock'] is None:
             state['lock'] = state['t']
         if shot and not state['shot'] and state['lock'] is not None and state['t'] - state['lock'] >= shot_after:
@@ -70,7 +75,6 @@ def bm_ride(x, y, z, heading, speed, pop, duration, shot=None, shot_after=.35):
         if state['t'] >= duration:
             live.stop('rec')
     live.behave('rec', record)
-    live.skate_script(steps)
 live.bm_ride = bm_ride
 '''
 
@@ -107,29 +111,48 @@ def lines():
     return data['origin_cm'], out
 
 
-def ride(name, rail_id, p, origin):
+def attempt(name, p, origin, offset):
+    """One approach `offset` degrees off the line's direction: (rows, why skipped or None)."""
     a = p[0]; u = (p[1] - p[0]) * [1, 1, 0]; u /= np.linalg.norm(u)
-    heading = math.degrees(math.atan2(u[1], u[0]))
-    start = a - u * LEAD
     length = float(np.linalg.norm(np.diff(p, axis=0), axis=1).sum())
+    c, s = math.cos(math.radians(offset)), math.sin(math.radians(offset))
+    d = np.array([u[0] * c - u[1] * s, u[0] * s + u[1] * c, 0.])
+    run = np.concatenate([[0.], np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))])
+    target = np.array([np.interp(min(AIM, length / 3), run, p[:, k]) for k in range(3)])     # on the line, curved or not
+    start = target - d * LEAD
+    heading = math.degrees(math.atan2(d[1], d[0]))
     duration = (LEAD + length) / (SPEED / 100) + 1.5
     shot = OUT / f'{name}.png'
-    qa.py(f"live.bm_ride({start[0]:.3f},{start[1]:.3f},{start[2]:.3f},{heading:.2f},{SPEED},{(LEAD - POP) / (SPEED / 100):.3f},"
+    qa.py(f"live.bm_ride({start[0]:.3f},{start[1]:.3f},{target[2]:.3f},{heading:.2f},{SPEED},{LEAD - POP:.3f},"
           f"{duration:.2f},{str(shot)!r})")
     time.sleep(duration + .8)
     rows = [qa.parse(r) for r in json.loads(qa.py('import json; live.stop("rec"); print(json.dumps(live.REC))').strip().splitlines()[-1])]
-    locked = [i for i, r in enumerate(rows) if r.get('mode') == '3']
-    bails = qa.count(rows, 'bails') if rows and 'bails' in rows[0] else 0
+    above = plan(origin, position(rows[0]))[2] - target[2] if rows else 0.
+    return rows, (f'start {above:.1f} m above the line' if above > 1.2 else None)
+
+
+def ride(name, rail_id, p, origin):
+    a = p[0]; u = (p[1] - p[0]) * [1, 1, 0]; u /= np.linalg.norm(u)
+    length = float(np.linalg.norm(np.diff(p, axis=0), axis=1).sum())
+    shot = OUT / f'{name}.png'
+    tried = []
+    for offset in APPROACHES:
+        rows, skipped = attempt(name, p, origin, offset)
+        locked = [i for i, r in enumerate(rows) if r.get('mode') == '3']
+        bails = qa.count(rows, 'bails') if rows and 'bails' in rows[0] else 0
+        tried.append(f'{offset:+.0f} deg: ' + (skipped or ('locked' if locked else 'never locked') + (f', {bails} bail(s)' if bails else '')))
+        if locked and not skipped:
+            break
     along, speeds = 0., (0., 0.)
     if locked:
         q = np.array([plan(origin, position(rows[i])) for i in locked])
         along = float(np.ptp((q - a) @ u))
         speeds = (float(rows[locked[0]]['speed']), float(rows[locked[-1]]['speed']))
     need = min(4., length / 2)
-    ok = bool(locked) and along >= need and not bails
+    ok = bool(locked) and along >= need and not bails and not skipped
     note = (f'{rail_id}: line {length:.1f} m at {a[2]:.2f} m; ' + (f'locked {len(locked) / 60:.2f} s, ground {along:.1f} m, '
             f'{speeds[0]:.0f} -> {speeds[1]:.0f} cm/s' if locked else 'never locked') + (f', {bails} bail(s)' if bails else '')
-            + f'; {qa.combos(rows)}')
+            + f'; {qa.combos(rows)}; approaches: ' + ' / '.join(tried))
     return {'ok': ok, 'note': note, 'shot': str(shot) if shot.exists() else None, 'frames': len(rows)}
 
 
